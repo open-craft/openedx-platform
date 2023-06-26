@@ -17,6 +17,8 @@ from common.djangoapps.student.roles import (
     CourseStaffRole,
     CourseFinanceAdminRole,
     CourseSalesAdminRole,
+    eSHEInstructorRole,
+    TeachingAssistantRole,
     LibraryUserRole,
     CourseDataResearcherRole,
     GlobalStaff,
@@ -199,6 +201,8 @@ class RoleCacheTestCase(TestCase):  # lint-amnesty, pylint: disable=missing-clas
     ROLES = (
         (CourseStaffRole(IN_KEY), ('staff', IN_KEY, 'edX')),
         (CourseLimitedStaffRole(IN_KEY), ('limited_staff', IN_KEY, 'edX')),
+        (eSHEInstructorRole(IN_KEY), ('eshe_instructor', IN_KEY, 'edX')),
+        (TeachingAssistantRole(IN_KEY), ('teaching_assistant', IN_KEY, 'edX')),
         (CourseInstructorRole(IN_KEY), ('instructor', IN_KEY, 'edX')),
         (OrgStaffRole(IN_KEY.org), ('staff', None, 'edX')),
         (CourseFinanceAdminRole(IN_KEY), ('finance_admin', IN_KEY, 'edX')),
