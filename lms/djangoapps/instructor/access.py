@@ -22,6 +22,8 @@ from common.djangoapps.student.roles import (
     CourseInstructorRole,
     CourseLimitedStaffRole,
     CourseStaffRole,
+    TeachingAssistantRole,
+    eSHEInstructorRole,
 )
 from lms.djangoapps.instructor.enrollment import enroll_email, get_email_params
 from openedx.core.djangoapps.django_comment_common.models import (
@@ -39,6 +41,8 @@ ROLES = {
     'instructor': CourseInstructorRole,
     'staff': CourseStaffRole,
     'limited_staff': CourseLimitedStaffRole,
+    'eshe_instructor': eSHEInstructorRole,
+    'teaching_assistant': TeachingAssistantRole,
     'ccx_coach': CourseCcxCoachRole,
     'data_researcher': CourseDataResearcherRole,
 }
@@ -55,7 +59,7 @@ FORUM_ROLES = (
 
 INSTRUCTOR_DASHBOARD_ROLE_SORT_ORDER = (
     'staff', 'limited_staff', 'instructor', 'beta', 'data_researcher',
-    *FORUM_ROLES, 'ccx_coach',
+    *FORUM_ROLES, 'ccx_coach', 'teaching_assistant', 'eshe_instructor',
 )
 
 ROLE_DISPLAY_NAMES = {
@@ -63,6 +67,8 @@ ROLE_DISPLAY_NAMES = {
     'staff': _('Staff'),
     'limited_staff': _('Limited Staff'),
     'beta': _('Beta Tester'),
+    'eshe_instructor': _('e-SHE Instructor'),
+    'teaching_assistant': _('Teaching Assistant'),
     'ccx_coach': _('CCX Coach'),
     'data_researcher': _('Data Researcher'),
     FORUM_ROLE_ADMINISTRATOR: _('Discussion Admin'),
