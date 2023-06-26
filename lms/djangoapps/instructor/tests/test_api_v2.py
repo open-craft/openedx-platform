@@ -3090,7 +3090,7 @@ class CourseTeamRolesViewTest(SharedModuleStoreTestCase):
         assert returned_roles == [
             'staff', 'limited_staff', 'instructor', 'beta', 'data_researcher',
             'Administrator', 'Moderator', 'Group Moderator', 'Community TA',
-            'ccx_coach',
+            'ccx_coach', 'teaching_assistant', 'eshe_instructor',
         ]
 
     def test_list_roles_unauthenticated(self):

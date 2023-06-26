@@ -75,6 +75,7 @@ from common.djangoapps.student.roles import (
     OrgStaffRole,
     UserBasedRole,
     enable_authz_course_authoring,
+    eSHEInstructorRole,
     strict_role_checking,
 )
 from common.djangoapps.util.json_request import JsonResponse, JsonResponseBadRequest, expect_json
@@ -381,7 +382,7 @@ def course_search_index_handler(request, course_key_string):
     """
     course_key = CourseKey.from_string(course_key_string)
     is_authz_enabled = core_toggles.AUTHZ_COURSE_AUTHORING_FLAG.is_enabled(course_key)
-    if not is_authz_enabled and not GlobalStaff().has_user(request.user):
+    if not is_authz_enabled and not (GlobalStaff().has_user(request.user) or eSHEInstructorRole(course_key).has_user(request.user)):
         # When AuthZ is disabled, restrict to global staff (legacy behavior).
         # When AuthZ is enabled, access control is enforced by the AuthZ layer,
         # which includes staff/superuser checks and course-level permissions.
@@ -594,7 +595,10 @@ def _accessible_courses_list_from_groups(request):
     with strict_role_checking():
         staff_courses = UserBasedRole(request.user, CourseStaffRole.ROLE).courses_with_role()
 
-    all_courses = list(filter(filter_ccx, instructor_courses | staff_courses))
+    # Courses for eSHE instructors
+    eshe_courses = UserBasedRole(request.user, eSHEInstructorRole.ROLE).courses_with_role()
+
+    all_courses = list(filter(filter_ccx, instructor_courses | staff_courses | eshe_courses))
     courses_list = []
     course_keys = {}
 
