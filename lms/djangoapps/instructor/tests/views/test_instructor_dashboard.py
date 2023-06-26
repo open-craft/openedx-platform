@@ -30,6 +30,7 @@ from lms.djangoapps.courseware.masquerade import CourseMasquerade
 from lms.djangoapps.courseware.tabs import get_course_tab_list
 from lms.djangoapps.courseware.tests.factories import StudentModuleFactory
 from lms.djangoapps.courseware.tests.helpers import LoginEnrollmentTestCase
+from lms.djangoapps.discussion.django_comment_client.tests.factories import RoleFactory
 from lms.djangoapps.grades.config.waffle import WRITABLE_GRADEBOOK
 from lms.djangoapps.instructor.toggles import DATA_DOWNLOAD_V2
 from lms.djangoapps.instructor.views.gradebook_api import calculate_page_info
@@ -38,6 +39,7 @@ from openedx.core.djangoapps.discussions.config.waffle import (
     ENABLE_PAGES_AND_RESOURCES_MICROFRONTEND,
     OVERRIDE_DISCUSSION_LEGACY_SETTINGS_FLAG
 )
+from openedx.core.djangoapps.django_comment_common.models import FORUM_ROLE_ADMINISTRATOR
 from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
 
 
@@ -313,6 +315,103 @@ class TestInstructorDashboard(ModuleStoreTestCase, LoginEnrollmentTestCase, XssT
             self.assertContains(response, reason_field)
         else:
             self.assertNotContains(response, reason_field)
+
+    @ddt.data('eshe_instructor', 'teaching_assistant')
+    def test_membership_tab_content(self, role):
+        """
+        Verify that eSHE Instructors and Teaching Assistants don't have access to membership tab and
+        work correctly with other roles.
+        """
+
+        membership_section = (
+            '<li class="nav-item">'
+            '<button type="button" class="btn-link membership" data-section="membership">'
+            'Membership'
+            '</button>'
+            '</li>'
+        )
+        batch_enrollment = (
+            '<fieldset class="batch-enrollment membership-section">'
+        )
+
+        user = UserFactory.create()
+        self.client.login(username=user.username, password=self.TEST_PASSWORD)
+
+        # eSHE Instructors / Teaching Assistants shouldn't have access to membership tab
+        CourseAccessRoleFactory(
+            course_id=self.course.id,
+            user=user,
+            role=role,
+            org=self.course.id.org
+        )
+        response = self.client.get(self.url)
+        self.assertNotContains(response, membership_section)
+
+        # However if combined with forum_admin, they should have access to this
+        # tab, but not to batch enrollment
+        forum_admin_role = RoleFactory(name=FORUM_ROLE_ADMINISTRATOR, course_id=self.course.id)
+        forum_admin_role.users.add(user)
+        response = self.client.get(self.url)
+        self.assertContains(response, membership_section)
+        self.assertNotContains(response, batch_enrollment)
+
+        # Combined with course staff, should have union of all three roles
+        # permissions sets
+        CourseAccessRoleFactory(
+            course_id=self.course.id,
+            user=user,
+            role='staff',
+            org=self.course.id.org
+        )
+        response = self.client.get(self.url)
+        self.assertContains(response, membership_section)
+        self.assertContains(response, batch_enrollment)
+
+    def test_student_admin_tab_content(self):
+        """
+        Verify that Teaching Assistants don't have access to the gradebook-related sections
+        of the student admin tab.
+        """
+
+        # Should be visible to Teaching Assistants
+        view_enrollment_status = '<div class="student-enrollment-status-container action-type-container">'
+        view_progress = '<div class="student-progress-container action-type-container">'
+
+        # Should not be visible to Teaching Assistants
+        view_gradebook = '<div class="action-type-container ">'
+        adjust_learner_grade = '<div class="student-grade-container action-type-container ">'
+        adjust_all_learners_grades = '<div class="course-specific-container action-type-container ">'
+
+        user = UserFactory.create()
+        self.client.login(username=user.username, password=self.TEST_PASSWORD)
+
+        # Teaching Assistants shouldn't have access to the gradebook-related sections
+        CourseAccessRoleFactory(
+            course_id=self.course.id,
+            user=user,
+            role='teaching_assistant',
+            org=self.course.id.org
+        )
+        response = self.client.get(self.url)
+        self.assertContains(response, view_enrollment_status)
+        self.assertContains(response, view_progress)
+        self.assertNotContains(response, view_gradebook)
+        self.assertNotContains(response, adjust_learner_grade)
+        self.assertNotContains(response, adjust_all_learners_grades)
+
+        # However if combined with instructor, they should have access to all sections
+        CourseAccessRoleFactory(
+            course_id=self.course.id,
+            user=user,
+            role='instructor',
+            org=self.course.id.org
+        )
+        response = self.client.get(self.url)
+        self.assertContains(response, view_enrollment_status)
+        self.assertContains(response, view_progress)
+        self.assertContains(response, view_gradebook)
+        self.assertContains(response, adjust_learner_grade)
+        self.assertContains(response, adjust_all_learners_grades)
 
     def test_student_admin_staff_instructor(self):
         """
