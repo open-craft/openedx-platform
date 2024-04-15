@@ -750,6 +750,15 @@ ENABLE_ESHE_INSTRUCTOR_ROLE = False
 # .. toggle_tickets: 'https://github.com/open-craft/edx-platform/pull/632/files'
 ENABLE_TEACHING_ASSISTANT_ROLE = False
 
+# .. toggle_name: settings.DISABLE_DATES_TAB
+# .. toggle_implementation: DjangoSetting
+# .. toggle_default: False
+# .. toggle_description: Disables dates tab for all courses.
+# .. toggle_use_cases: open_edx
+# .. toggle_creation_date: 2024-04-15
+# .. toggle_tickets: https://github.com/openedx/edx-platform/pull/34511
+DISABLE_DATES_TAB = False
+
 # Specifies extra XBlock fields that should available when requested via the Course Blocks API
 # Should be a list of tuples of (block_type, field_name), where block_type can also be "*" for all block types.
 # e.g. COURSE_BLOCKS_API_EXTRA_FIELDS = [  ('course', 'other_course_settings'), ("problem", "weight")  ]
