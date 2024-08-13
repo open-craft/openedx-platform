@@ -268,7 +268,9 @@
                         this.clearFormErrors();
                         this.renderThirdPartyAuthWarning();
                     }
-                    window.location.href = redirectURL;
+                    if (typeof redirectURL === "string" && redirectURL.length) {
+                        window.location.href = redirectURL;
+                    }
                 } else {
                     this.renderErrors(this.defaultFormErrorsTitle, this.errors);
                 }
