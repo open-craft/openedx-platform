@@ -354,6 +354,12 @@ class DiscussionsConfigurationSerializer(serializers.ModelSerializer):
                     key not in LegacySettingsSerializer.Meta.fields_cohorts
                 )
             }
+        # toogle discussion tab is_hidden
+        for tab in course.tabs:
+            if tab.tab_id == 'discussion' and tab.is_hidden != instance.enabled:
+                tab.is_hidden = not instance.enabled
+                save = True
+                break
         if save:
             modulestore().update_item(course, self.context['user_id'])
         return instance
