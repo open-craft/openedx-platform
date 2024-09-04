@@ -356,7 +356,7 @@ class DiscussionsConfigurationSerializer(serializers.ModelSerializer):
             }
         # toogle discussion tab is_hidden
         for tab in course.tabs:
-            if tab.tab_id == 'discussion' and tab.is_hidden != instance.enabled:
+            if tab.tab_id == 'discussion' and tab.is_hidden == instance.enabled:
                 tab.is_hidden = not instance.enabled
                 save = True
                 break
