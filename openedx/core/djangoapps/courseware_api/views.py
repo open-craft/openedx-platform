@@ -771,6 +771,7 @@ class SequenceMetadata(DeveloperErrorViewMixin, APIView):
 
     authentication_classes = (
         JwtAuthentication,
+        BearerAuthenticationAllowInactiveUser,
         SessionAuthenticationAllowInactiveUser,
     )
 
