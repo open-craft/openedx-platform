@@ -1085,6 +1085,7 @@ def update_course_discussions_settings(course):
     """
     provider = DiscussionsConfiguration.get(context_key=course.id).provider_type
     store = modulestore()
+    course.discussions_settings['provider'] = provider
     course.discussions_settings['provider_type'] = provider
     store.update_item(course, course.published_by)
 
