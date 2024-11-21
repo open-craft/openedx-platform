@@ -5640,6 +5640,16 @@ USE_EXTRACTED_LTI_BLOCK = False
 # .. toggle_target_removal_date: 2025-06-01
 USE_EXTRACTED_HTML_BLOCK = False
 
+# .. toggle_name: USE_EXTRACTED_HTML_BLOCK
+# .. toggle_default: False
+# .. toggle_implementation: DjangoSetting
+# .. toggle_description: Enables the use of the extracted HTML XBlock, which has been shifted to the 'openedx/xblocks-contrib' repo.
+# .. toggle_use_cases: temporary
+# .. toggle_warning: Not production-ready until relevant subtask https://github.com/openedx/edx-platform/issues/34827 is done.
+# .. toggle_creation_date: 2024-11-10
+# .. toggle_target_removal_date: 2025-06-01
+USE_EXTRACTED_HTML_BLOCK = False
+
 # .. toggle_name: USE_EXTRACTED_DISCUSSION_BLOCK
 # .. toggle_default: False
 # .. toggle_implementation: DjangoSetting

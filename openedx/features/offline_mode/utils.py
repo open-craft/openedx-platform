@@ -12,6 +12,7 @@ from xmodule.modulestore.django import modulestore
 
 from .constants import OFFLINE_SUPPORTED_XBLOCKS
 
+
 User = get_user_model()
 log = logging.getLogger(__name__)
 
