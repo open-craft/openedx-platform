@@ -430,6 +430,21 @@ class BlocksInfoInCourseView(BlocksInCourseView):
                     }
                 })
 
+    def _extend_block_info_with_offline_data(blocks_info_data: Dict[str, Dict]) -> None:
+        """
+        Extends block info with offline download data.
+        If offline content is available for the block, adds the offline download data to the block info.
+        """
+        for block_id, block_info in blocks_info_data.items():
+            if offline_content_path := get_offline_block_content_path(usage_key=UsageKey.from_string(block_id)):
+                block_info.update({
+                    'offline_download': {
+                        'file_url': default_storage.url(offline_content_path),
+                        'last_modified': default_storage.get_modified_time(offline_content_path),
+                        'file_size': default_storage.size(offline_content_path)
+                    }
+                })
+
 
 @mobile_view()
 class CourseEnrollmentDetailsView(APIView):
