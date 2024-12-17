@@ -609,7 +609,7 @@ class CourseNavigationBlocksView(RetrieveAPIView):
         }
 
     @cached_property
-    def aggregator_block_types(self) -> set[str]:
+    def aggregator_block_types(self):
         """
         Return a set of block types that belong to XBlockCompletionMode.AGGREGATOR.
 
