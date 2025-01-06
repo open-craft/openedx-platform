@@ -710,7 +710,7 @@ idna==3.7
     #   yarl
 imagesize==1.4.1
     # via sphinx
-importlib-metadata==6.11.0
+importlib-metadata==8.5.0
     # via
     #   -r requirements/edx/base.txt
     #   markdown
@@ -941,7 +941,7 @@ optimizely-sdk==4.1.1
     # via
     #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/base.txt
-ora2==6.9.0
+ora2 @ git+https://github.com/open-craft/edx-ora2@viadanna/block-uploads
     # via -r requirements/edx/base.txt
 packaging==24.0
     # via
@@ -1520,7 +1520,7 @@ yarl==1.9.4
     # via
     #   -r requirements/edx/base.txt
     #   aiohttp
-zipp==3.18.1
+zipp==3.20.2
     # via
     #   -r requirements/edx/base.txt
     #   importlib-metadata

@@ -76,7 +76,7 @@ edx-django-utils==5.13.0
     #   edx-rest-api-client
 edx-rest-api-client==5.7.0
     # via -r scripts/user_retirement/requirements/base.txt
-exceptiongroup==1.2.1
+exceptiongroup==1.2.2
     # via pytest
 google-api-core==2.19.0
     # via
@@ -268,7 +268,7 @@ stevedore==5.2.0
     # via
     #   -r scripts/user_retirement/requirements/base.txt
     #   edx-django-utils
-tomli==2.0.1
+tomli==2.0.2
     # via pytest
 typing-extensions==4.11.0
     # via

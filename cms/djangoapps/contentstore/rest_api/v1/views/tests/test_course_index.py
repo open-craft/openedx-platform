@@ -61,8 +61,8 @@ class CourseIndexViewTest(CourseTestCase, PermissionAccessMixin):
                 "blocks": [],
                 "advance_settings_url": f"/settings/advanced/{self.course.id}"
             },
-            "discussions_incontext_feedback_url": "",
-            "discussions_incontext_learnmore_url": "",
+            "discussions_incontext_feedback_url": "https://discuss.openedx.org/t/new-and-improved-discussions-forum/9183",  # lint-amnesty, pylint: disable=line-too-long
+            "discussions_incontext_learnmore_url": "https://edx.readthedocs.io/projects/open-edx-building-and-running-a-course/en/open-release-redwood.master/manage_discussions/discussions.html",  # lint-amnesty, pylint: disable=line-too-long
             "is_custom_relative_dates_active": True,
             "initial_state": None,
             "initial_user_clipboard": {
@@ -102,8 +102,8 @@ class CourseIndexViewTest(CourseTestCase, PermissionAccessMixin):
                 "blocks": [],
                 "advance_settings_url": f"/settings/advanced/{self.course.id}"
             },
-            "discussions_incontext_feedback_url": "",
-            "discussions_incontext_learnmore_url": "",
+            "discussions_incontext_feedback_url": "https://discuss.openedx.org/t/new-and-improved-discussions-forum/9183",  # lint-amnesty, pylint: disable=line-too-long
+            "discussions_incontext_learnmore_url": "https://edx.readthedocs.io/projects/open-edx-building-and-running-a-course/en/open-release-redwood.master/manage_discussions/discussions.html",  # lint-amnesty, pylint: disable=line-too-long
             "is_custom_relative_dates_active": False,
             "initial_state": {
                 "expanded_locators": [

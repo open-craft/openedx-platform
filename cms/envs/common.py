@@ -591,6 +591,25 @@ FEATURES = {
     # .. toggle_use_cases: open_edx
     # .. toggle_creation_date: 2024-04-10
     'BADGES_ENABLED': False,
+
+    # .. toggle_name: FEATURES['IN_CONTEXT_DISCUSSION_ENABLED_DEFAULT']
+    # .. toggle_implementation: DjangoSetting
+    # .. toggle_default: True
+    # .. toggle_description: Set to False to not enable in-context discussion for units by default.
+    # .. toggle_use_cases: open_edx
+    # .. toggle_creation_date: 2024-09-02
+    'IN_CONTEXT_DISCUSSION_ENABLED_DEFAULT': True,
+
+    # .. toggle_name: FEATURES['ENABLE_LEGACY_MD5_HASH_FOR_ANONYMOUS_USER_ID']
+    # .. toggle_implementation: DjangoSetting
+    # .. toggle_default: False
+    # .. toggle_description: Whether to enable the legacy MD5 hashing algorithm to generate anonymous user id
+    #   instead of the newer SHAKE128 hashing algorithm
+    # .. toggle_use_cases: open_edx
+    # .. toggle_creation_date: 2022-08-08
+    # .. toggle_target_removal_date: None
+    # .. toggle_tickets: 'https://github.com/openedx/edx-platform/pull/30832'
+    'ENABLE_LEGACY_MD5_HASH_FOR_ANONYMOUS_USER_ID': False,
 }
 
 # .. toggle_name: ENABLE_COPPA_COMPLIANCE
@@ -2880,8 +2899,9 @@ EDX_BRAZE_API_SERVER = None
 
 BRAZE_COURSE_ENROLLMENT_CANVAS_ID = ''
 
-DISCUSSIONS_INCONTEXT_FEEDBACK_URL = ''
-DISCUSSIONS_INCONTEXT_LEARNMORE_URL = ''
+# pylint: disable=line-too-long
+DISCUSSIONS_INCONTEXT_FEEDBACK_URL = "https://discuss.openedx.org/t/new-and-improved-discussions-forum/9183"
+DISCUSSIONS_INCONTEXT_LEARNMORE_URL = "https://edx.readthedocs.io/projects/open-edx-building-and-running-a-course/en/open-release-redwood.master/manage_discussions/discussions.html"
 
 #### django-simple-history##
 # disable indexing on date field its coming django-simple-history.
@@ -3003,3 +3023,7 @@ MEILISEARCH_PUBLIC_URL = "http://meilisearch.example.com"
 # See https://www.meilisearch.com/docs/learn/security/tenant_tokens
 MEILISEARCH_INDEX_PREFIX = ""
 MEILISEARCH_API_KEY = "devkey"
+
+############## Default value for invitation_only when creating courses ##############
+
+DEFAULT_COURSE_INVITATION_ONLY = False

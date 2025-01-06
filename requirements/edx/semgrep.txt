@@ -40,7 +40,7 @@ glom==22.1.0
     # via semgrep
 idna==3.7
     # via requests
-importlib-resources==6.4.0
+importlib-resources==6.4.5
     # via
     #   jsonschema
     #   jsonschema-specifications
@@ -91,5 +91,5 @@ urllib3==1.26.18
     #   semgrep
 wcmatch==8.5.1
     # via semgrep
-zipp==3.18.1
+zipp==3.20.2
     # via importlib-resources

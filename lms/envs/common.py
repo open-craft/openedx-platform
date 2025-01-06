@@ -1085,6 +1085,46 @@ FEATURES = {
     # .. toggle_creation_date: 2024-04-02
     # .. toggle_target_removal_date: None
     'BADGES_ENABLED': False,
+
+    # .. toggle_name: FEATURES['ENABLE_LEGACY_MD5_HASH_FOR_ANONYMOUS_USER_ID']
+    # .. toggle_implementation: DjangoSetting
+    # .. toggle_default: False
+    # .. toggle_description: Whether to enable the legacy MD5 hashing algorithm to generate anonymous user id
+    #   instead of the newer SHAKE128 hashing algorithm
+    # .. toggle_use_cases: open_edx
+    # .. toggle_creation_date: 2022-08-08
+    # .. toggle_target_removal_date: None
+    # .. toggle_tickets: 'https://github.com/openedx/edx-platform/pull/30832'
+    'ENABLE_LEGACY_MD5_HASH_FOR_ANONYMOUS_USER_ID': False,
+
+    # .. toggle_name: FEATURES['ENABLE_ESHE_INSTRUCTOR_ROLE']
+    # .. toggle_implementation: DjangoSetting
+    # .. toggle_default: False
+    # .. toggle_description: Whether to enable the ESHE Instructor role
+    # .. toggle_use_cases: open_edx
+    # .. toggle_creation_date: 2023-07-31
+    # .. toggle_target_removal_date: None
+    # .. toggle_tickets: 'https://github.com/open-craft/edx-platform/pull/561/files'
+    'ENABLE_ESHE_INSTRUCTOR_ROLE': False,
+
+    # .. toggle_name: FEATURES['ENABLE_TEACHING_ASSISTANT_ROLE']
+    # .. toggle_implementation: DjangoSetting
+    # .. toggle_default: False
+    # .. toggle_description: Whether to enable the Teaching Assistant role
+    # .. toggle_use_cases: open_edx
+    # .. toggle_creation_date: 2024-02-12
+    # .. toggle_target_removal_date: None
+    # .. toggle_tickets: 'https://github.com/open-craft/edx-platform/pull/632/files'
+    'ENABLE_TEACHING_ASSISTANT_ROLE': False,
+
+    # .. toggle_name: FEATURES['DISABLE_DATES_TAB']
+    # .. toggle_implementation: DjangoSetting
+    # .. toggle_default: False
+    # .. toggle_description: Disables dates tab for all courses.
+    # .. toggle_use_cases: open_edx
+    # .. toggle_creation_date: 2024-04-15
+    # .. toggle_tickets: https://github.com/openedx/edx-platform/pull/34511
+    'DISABLE_DATES_TAB': False,
 }
 
 # Specifies extra XBlock fields that should available when requested via the Course Blocks API

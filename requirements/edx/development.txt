@@ -901,7 +901,7 @@ event-tracking==2.4.0
     #   edx-completion
     #   edx-proctoring
     #   edx-search
-exceptiongroup==1.2.1
+exceptiongroup==1.2.2
     # via
     #   -r requirements/edx/testing.txt
     #   anyio
@@ -1033,7 +1033,7 @@ imagesize==1.4.1
     #   sphinx
 import-linter==2.0
     # via -r requirements/edx/testing.txt
-importlib-metadata==6.11.0
+importlib-metadata==8.5.0
     # via
     #   -r requirements/edx/../pip-tools.txt
     #   -r requirements/edx/doc.txt
@@ -1372,7 +1372,7 @@ optimizely-sdk==4.1.1
     #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
-ora2==6.9.0
+ora2 @ git+https://github.com/open-craft/edx-ora2@viadanna/block-uploads
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
@@ -2073,7 +2073,7 @@ tinycss2==1.2.1
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   bleach
-tomli==2.0.1
+tomli==2.0.2
     # via
     #   -r requirements/edx/../pip-tools.txt
     #   -r requirements/edx/testing.txt
@@ -2316,7 +2316,7 @@ yarl==1.9.4
     #   -r requirements/edx/testing.txt
     #   aiohttp
     #   pact-python
-zipp==3.18.1
+zipp==3.20.2
     # via
     #   -r requirements/edx/../pip-tools.txt
     #   -r requirements/edx/doc.txt

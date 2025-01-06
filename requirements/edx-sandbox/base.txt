@@ -22,7 +22,7 @@ cycler==0.12.1
     # via matplotlib
 fonttools==4.51.0
     # via matplotlib
-importlib-resources==6.4.0
+importlib-resources==6.4.5
     # via matplotlib
 joblib==1.4.2
     # via nltk
@@ -89,5 +89,5 @@ sympy==1.12
     #   openedx-calc
 tqdm==4.66.4
     # via nltk
-zipp==3.18.1
+zipp==3.20.2
     # via importlib-resources

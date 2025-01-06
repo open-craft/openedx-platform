@@ -613,8 +613,10 @@ idna==3.7
     #   requests
     #   snowflake-connector-python
     #   yarl
-importlib-metadata==6.11.0
-    # via markdown
+importlib-metadata==8.5.0
+    # via
+    #   -r requirements/edx/bundled.in
+    #   markdown
 importlib-resources==5.13.0
     # via
     #   jsonschema
@@ -804,7 +806,7 @@ optimizely-sdk==4.1.1
     # via
     #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/bundled.in
-ora2==6.9.0
+ora2 @ git+https://github.com/open-craft/edx-ora2@viadanna/block-uploads
     # via -r requirements/edx/bundled.in
 packaging==24.0
     # via
@@ -1249,7 +1251,7 @@ xss-utils==0.6.0
     # via -r requirements/edx/kernel.in
 yarl==1.9.4
     # via aiohttp
-zipp==3.18.1
+zipp==3.20.2
     # via
     #   importlib-metadata
     #   importlib-resources

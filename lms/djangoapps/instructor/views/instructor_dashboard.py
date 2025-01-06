@@ -31,7 +31,10 @@ from common.djangoapps.student.roles import (
     CourseFinanceAdminRole,
     CourseInstructorRole,
     CourseSalesAdminRole,
-    CourseStaffRole
+    CourseStaffRole,
+    eSHEInstructorRole,
+    TeachingAssistantRole,
+    strict_role_checking,
 )
 from common.djangoapps.util.json_request import JsonResponse
 from lms.djangoapps.bulk_email.api import is_bulk_email_feature_enabled
@@ -122,12 +125,17 @@ def instructor_dashboard_2(request, course_id):  # lint-amnesty, pylint: disable
     access = {
         'admin': request.user.is_staff,
         'instructor': bool(has_access(request.user, 'instructor', course)),
+        'eshe_instructor': eSHEInstructorRole(course_key).has_user(request.user),
+        'teaching_assistant': TeachingAssistantRole(course_key).has_user(request.user),
         'finance_admin': CourseFinanceAdminRole(course_key).has_user(request.user),
         'sales_admin': CourseSalesAdminRole(course_key).has_user(request.user),
         'staff': bool(has_access(request.user, 'staff', course)),
         'forum_admin': has_forum_access(request.user, course_key, FORUM_ROLE_ADMINISTRATOR),
         'data_researcher': request.user.has_perm(permissions.CAN_RESEARCH, course_key),
     }
+
+    with strict_role_checking():
+        access['explicit_staff'] = bool(has_access(request.user, 'staff', course))
 
     if not request.user.has_perm(permissions.VIEW_DASHBOARD, course_key):
         raise Http404()
@@ -514,7 +522,19 @@ def _section_membership(course, access):
             'update_forum_role_membership',
             kwargs={'course_id': str(course_key)}
         ),
-        'is_reason_field_enabled': configuration_helpers.get_value('ENABLE_MANUAL_ENROLLMENT_REASON_FIELD', False)
+        'is_reason_field_enabled': configuration_helpers.get_value('ENABLE_MANUAL_ENROLLMENT_REASON_FIELD', False),
+
+        # Membership section should be hidden for eSHE instructors.
+        # Since they get Course Staff role implicitly, we need to hide this
+        # section if the user doesn't have the Course Staff role set explicitly
+        # or have the Discussion Admin role.
+        'is_hidden': (
+            not access['forum_admin']
+            and (
+                (access['eshe_instructor'] or access['teaching_assistant'])
+                and not access['explicit_staff']
+            )
+        ),
     }
     return section_data
 
