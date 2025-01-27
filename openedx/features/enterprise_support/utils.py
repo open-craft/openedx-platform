@@ -325,7 +325,7 @@ def get_enterprise_learner_portal(request):
     # Prevent a circular import.
     from openedx.features.enterprise_support.api import enterprise_enabled, enterprise_customer_uuid_for_request
 
-    user = request.user
+    user = getattr(request, 'user', None)
     # Only cache this if a learner is authenticated (AnonymousUser exists and should not be tracked)
 
     learner_portal_session_key = 'enterprise_learner_portal'
