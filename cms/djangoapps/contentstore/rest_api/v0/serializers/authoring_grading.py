@@ -13,8 +13,12 @@ class GradersSerializer(serializers.Serializer):
     short_label = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     weight = serializers.IntegerField()
     id = serializers.IntegerField()
+    class Meta:
+        ref_name = "v0.authoring_grading.GradersSerializer"
 
 
 class CourseGradingModelSerializer(serializers.Serializer):
     """ Serializer for course grading model data """
     graders = GradersSerializer(many=True, allow_null=True, allow_empty=True)
+    class Meta:
+        ref_name = "v0.authoring_grading.CourseGradingModelSerializer"

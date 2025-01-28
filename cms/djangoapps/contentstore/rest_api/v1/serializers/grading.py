@@ -13,6 +13,8 @@ class GradersSerializer(serializers.Serializer):
     short_label = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     weight = serializers.IntegerField()
     id = serializers.IntegerField()
+    class Meta:
+        ref_name = "v1.grading.GradersSerializer"
 
 
 class GracePeriodSerializer(serializers.Serializer):
@@ -27,6 +29,8 @@ class CourseGradingModelSerializer(serializers.Serializer):
     grade_cutoffs = serializers.DictField(child=serializers.FloatField())
     grace_period = GracePeriodSerializer(required=False, allow_null=True)
     minimum_grade_credit = serializers.FloatField()
+    class Meta:
+        ref_name = "v1.grading.CourseGradingModelSerializer"
 
 
 class CourseGradingSerializer(serializers.Serializer):
