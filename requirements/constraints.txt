@@ -131,7 +131,9 @@ optimizely-sdk<5.0
 # Date: 2023-09-18
 # pinning this version to avoid updates while the library is being developed
 # Issue for unpinning: https://github.com/openedx/edx-platform/issues/35269
-openedx-learning==0.18.1
+# FIXME -- bump version after merging https://github.com/openedx/openedx-learning/pull/273
+# openedx-learning==0.18.2
+git+https://github.com/open-craft/openedx-learning.git@jill/fix-api-docs#egg=openedx-learning
 
 # Date: 2023-11-29
 # Open AI version 1.0.0 dropped support for openai.ChatCompletion which is currently in use in enterprise.
