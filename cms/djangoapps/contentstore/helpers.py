@@ -265,6 +265,38 @@ class StaticFileNotices:
     error_files: list[str] = Factory(list)
 
 
+def _insert_static_files_into_downstream_xblock(
+    downstream_xblock: XBlock, staged_content_id: int, request
+) -> StaticFileNotices:
+    """
+    Gets static files from staged content, and inserts them into the downstream XBlock.
+    """
+    static_files = content_staging_api.get_staged_content_static_files(staged_content_id)
+    notices, substitutions = _import_files_into_course(
+        downstream_xblock,
+        course_key=downstream_xblock.context_key,
+        staged_content_id=staged_content_id,
+        static_files=static_files,
+        usage_key=downstream_xblock.scope_ids.usage_id,
+    )
+
+    # Rewrite the OLX's static asset references to point to the new
+    # locations for those assets. See _import_files_into_course for more
+    # info on why this is necessary.
+    store = modulestore()
+    if hasattr(downstream_xblock, "data") and substitutions:
+        data_with_substitutions = downstream_xblock.data
+        for old_static_ref, new_static_ref in substitutions.items():
+            data_with_substitutions = data_with_substitutions.replace(
+                old_static_ref,
+                new_static_ref,
+            )
+        downstream_xblock.data = data_with_substitutions
+        if store is not None:
+            store.update_item(downstream_xblock, request.user.id)
+    return notices
+
+
 def import_staged_content_from_user_clipboard(parent_key: UsageKey, request) -> tuple[XBlock | None, StaticFileNotices]:
     """
     Import a block (along with its children and any required static assets) from
