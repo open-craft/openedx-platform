@@ -1015,7 +1015,7 @@ optimizely-sdk==4.1.1
     # via
     #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/base.txt
-ora2==6.12.2
+ora2 @ git+https://github.com/open-craft/edx-ora2@viadanna/block-uploads
     # via -r requirements/edx/base.txt
 packaging==24.1
     # via
