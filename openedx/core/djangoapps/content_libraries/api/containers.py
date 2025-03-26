@@ -16,6 +16,7 @@ from opaque_keys.edx.locator import (
 from openedx_events.content_authoring.data import LibraryContainerData
 from openedx_events.content_authoring.signals import (
     LIBRARY_CONTAINER_CREATED,
+    LIBRARY_CONTAINER_DELETED,
     LIBRARY_CONTAINER_UPDATED,
 )
 from openedx_learning.api import authoring as authoring_api
@@ -35,6 +36,7 @@ __all__ = [
     "get_container_children",
     "library_container_locator",
     "update_container",
+    "delete_container",
 ]
 
 
@@ -216,6 +218,31 @@ def update_container(
     )
 
     return ContainerMetadata.from_container(library_key, unit_version.container)
+
+
+def delete_container(
+    container_key: LibraryContainerLocator,
+) -> None:
+    """
+    Delete a container (e.g. a Unit) (soft delete).
+
+    No-op if container doesn't exist or has already been soft-deleted.
+    """
+    try:
+        container = _get_container(container_key)
+    except ContentLibraryContainerNotFound:
+        return
+
+    authoring_api.soft_delete_draft(container.pk)
+
+    LIBRARY_CONTAINER_DELETED.send_event(
+        library_container=LibraryContainerData(
+            library_key=container_key.library_key,
+            container_key=str(container_key),
+        )
+    )
+
+    # TODO: trigger a LIBRARY_COLLECTION_UPDATED for each collection the container was in
 
 
 def get_container_children(

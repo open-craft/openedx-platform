@@ -9,7 +9,11 @@ from unittest import mock
 
 from opaque_keys.edx.locator import LibraryLocatorV2
 from openedx_events.content_authoring.data import LibraryContainerData
-from openedx_events.content_authoring.signals import LIBRARY_CONTAINER_CREATED, LIBRARY_CONTAINER_UPDATED
+from openedx_events.content_authoring.signals import (
+    LIBRARY_CONTAINER_CREATED,
+    LIBRARY_CONTAINER_DELETED,
+    LIBRARY_CONTAINER_UPDATED,
+)
 from openedx_events.tests.utils import OpenEdxEventsTestMixin
 
 from openedx.core.djangoapps.content_libraries.tests.base import ContentLibrariesRestApiTest
@@ -38,6 +42,7 @@ class ContainersTestCase(OpenEdxEventsTestMixin, ContentLibrariesRestApiTest):
     """
     ENABLED_OPENEDX_EVENTS = [
         LIBRARY_CONTAINER_CREATED.event_type,
+        LIBRARY_CONTAINER_DELETED.event_type,
         LIBRARY_CONTAINER_UPDATED.event_type,
     ]
 
@@ -53,6 +58,9 @@ class ContainersTestCase(OpenEdxEventsTestMixin, ContentLibrariesRestApiTest):
 
         update_receiver = mock.Mock()
         LIBRARY_CONTAINER_UPDATED.connect(update_receiver)
+
+        delete_receiver = mock.Mock()
+        LIBRARY_CONTAINER_DELETED.connect(delete_receiver)
 
         # Create a unit:
         create_date = datetime(2024, 9, 8, 7, 6, 5, tzinfo=timezone.utc)
@@ -116,6 +124,22 @@ class ContainersTestCase(OpenEdxEventsTestMixin, ContentLibrariesRestApiTest):
         unit_as_re_read = self._get_container(container_data["container_key"])
         # make sure it contains the same data when we read it back:
         self.assertDictContainsEntries(unit_as_re_read, expected_data)
+
+        # Delete the unit
+        self._delete_container(container_data["container_key"])
+        self._get_container(container_data["container_key"], expect_response=404)
+        assert delete_receiver.call_count == 1
+        self.assertDictContainsSubset(
+            {
+                "signal": LIBRARY_CONTAINER_DELETED,
+                "sender": None,
+                "library_container": LibraryContainerData(
+                    lib_key,
+                    container_key="lct:CL-TEST:containers:unit:u1",
+                ),
+            },
+            delete_receiver.call_args_list[0].kwargs,
+        )
 
     # TODO: test that a regular user with read-only permissions on the library cannot create units
 

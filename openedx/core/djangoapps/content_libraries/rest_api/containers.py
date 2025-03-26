@@ -106,3 +106,20 @@ class LibraryContainerView(GenericAPIView):
         )
 
         return Response(serializers.LibraryContainerMetadataSerializer(container).data)
+
+    @convert_exceptions
+    def delete(self, request, container_key: LibraryContainerLocator):
+        """
+        Delete a Container (soft delete).
+        """
+        api.require_permission_for_library_key(
+            container_key.library_key,
+            request.user,
+            permissions.CAN_EDIT_THIS_CONTENT_LIBRARY,
+        )
+
+        api.delete_container(
+            container_key,
+        )
+
+        return Response({})
