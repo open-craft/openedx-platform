@@ -62,7 +62,7 @@ class LibraryContainersView(GenericAPIView):
 @view_auth_classes()
 class LibraryContainerView(GenericAPIView):
     """
-    View to get data about a specific container (a section, subsection, or unit)
+    View to retrieve or update data about a specific container (a section, subsection, or unit)
     """
     serializer_class = serializers.LibraryContainerMetadataSerializer
 
@@ -80,4 +80,29 @@ class LibraryContainerView(GenericAPIView):
             permissions.CAN_VIEW_THIS_CONTENT_LIBRARY,
         )
         container = api.get_container(container_key)
+        return Response(serializers.LibraryContainerMetadataSerializer(container).data)
+
+    @convert_exceptions
+    @swagger_auto_schema(
+        request_body=serializers.LibraryContainerUpdateSerializer,
+        responses={200: serializers.LibraryContainerMetadataSerializer}
+    )
+    def patch(self, request, container_key: LibraryContainerLocator):
+        """
+        Update a Container.
+        """
+        api.require_permission_for_library_key(
+            container_key.library_key,
+            request.user,
+            permissions.CAN_EDIT_THIS_CONTENT_LIBRARY,
+        )
+        serializer = serializers.LibraryContainerUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        container = api.update_container(
+            container_key,
+            display_name=serializer.validated_data['display_name'],
+            user_id=request.user.id,
+        )
+
         return Response(serializers.LibraryContainerMetadataSerializer(container).data)

@@ -16,12 +16,14 @@ from opaque_keys.edx.locator import (
 from openedx_events.content_authoring.data import LibraryContainerData
 from openedx_events.content_authoring.signals import (
     LIBRARY_CONTAINER_CREATED,
+    LIBRARY_CONTAINER_UPDATED,
 )
 from openedx_learning.api import authoring as authoring_api
 from openedx_learning.api import authoring_models
 
 from ..models import ContentLibrary
 from .libraries import PublishableItem
+
 
 # The public API is only the following symbols:
 __all__ = [
@@ -31,6 +33,7 @@ __all__ = [
     "create_container",
     "get_container_children",
     "library_container_locator",
+    "update_container",
 ]
 
 
@@ -168,6 +171,42 @@ def create_container(
     )
 
     return ContainerMetadata.from_container(library_key, container)
+
+
+def update_container(
+    container_key: LibraryContainerLocator,
+    display_name: str,
+    user_id: int | None,
+) -> ContainerMetadata:
+    """
+    Update a container (e.g. a Unit) title.
+    """
+    assert isinstance(container_key, LibraryContainerLocator)
+    library_key = container_key.library_key
+    content_library = ContentLibrary.objects.get_by_key(library_key)
+    learning_package = content_library.learning_package
+    assert learning_package is not None
+    container = authoring_api.get_container_by_key(
+        learning_package.id,
+        key=container_key.container_id,
+    )
+
+    assert container.unit
+    unit_version = authoring_api.create_next_unit_version(
+        container.unit,
+        title=display_name,
+        created=datetime.now(),
+        created_by=user_id,
+    )
+
+    LIBRARY_CONTAINER_UPDATED.send_event(
+        library_container=LibraryContainerData(
+            library_key=library_key,
+            container_key=str(container_key),
+        )
+    )
+
+    return ContainerMetadata.from_container(library_key, unit_version.container)
 
 
 def get_container_children(
