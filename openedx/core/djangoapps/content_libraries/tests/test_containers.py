@@ -16,6 +16,7 @@ from openedx_events.content_authoring.signals import (
 )
 from openedx_events.tests.utils import OpenEdxEventsTestMixin
 
+from common.djangoapps.student.tests.factories import UserFactory
 from openedx.core.djangoapps.content_libraries.tests.base import ContentLibrariesRestApiTest
 from openedx.core.djangolib.testing.utils import skip_unless_cms
 
@@ -141,7 +142,27 @@ class ContainersTestCase(OpenEdxEventsTestMixin, ContentLibrariesRestApiTest):
             delete_receiver.call_args_list[0].kwargs,
         )
 
-    # TODO: test that a regular user with read-only permissions on the library cannot create units
+    def test_unit_permissions(self):
+        """
+        Test that a regular user with read-only permissions on the library cannot create, update, or delete units.
+        """
+        lib = self._create_library(slug="containers2", title="Container Test Library 2", description="Unit permissions")
+        container_data = self._create_container(lib["id"], "unit", slug="u2", display_name="Test Unit")
+
+        random_user = UserFactory.create(username="Random", email="random@example.com")
+        with self.as_user(random_user):
+            self._create_container(lib["id"], "unit", slug="u3", display_name="Test Unit", expect_response=403)
+            self._get_container(container_data["container_key"], expect_response=403)
+            self._update_container(container_data["container_key"], display_name="Unit ABC", expect_response=403)
+            self._delete_container(container_data["container_key"], expect_response=403)
+
+        # Granting read-only permissions on the library should only allow retrieval, nothing else.
+        self._add_user_by_email(lib["id"], random_user.email, access_level="read")
+        with self.as_user(random_user):
+            self._create_container(lib["id"], "unit", slug="u2", display_name="Test Unit", expect_response=403)
+            self._get_container(container_data["container_key"], expect_response=200)
+            self._update_container(container_data["container_key"], display_name="Unit ABC", expect_response=403)
+            self._delete_container(container_data["container_key"], expect_response=403)
 
     def test_unit_gets_auto_slugs(self):
         """
