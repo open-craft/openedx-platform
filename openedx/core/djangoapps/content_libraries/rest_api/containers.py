@@ -14,6 +14,7 @@ from drf_yasg.utils import swagger_auto_schema
 from opaque_keys.edx.locator import LibraryLocatorV2, LibraryContainerLocator
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
+from rest_framework.status import HTTP_204_NO_CONTENT
 
 from openedx.core.djangoapps.content_libraries import api, permissions
 from openedx.core.lib.api.view_utils import view_auth_classes
@@ -122,4 +123,4 @@ class LibraryContainerView(GenericAPIView):
             container_key,
         )
 
-        return Response({})
+        return Response({}, status=HTTP_204_NO_CONTENT)
