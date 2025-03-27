@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from django.contrib.auth.models import AbstractUser, Group
-
 from opaque_keys.edx.locator import LibraryLocatorV2
 
 from ..models import ContentLibraryPermission
@@ -97,21 +96,6 @@ class ContentLibraryPermissionEntry:
     user: AbstractUser | None = None
     group: Group | None = None
     access_level: str | None = AccessLevel.NO_ACCESS  # TODO: make this a proper enum?
-
-
-@dataclass(frozen=True)
-class LibraryXBlockStaticFile:
-    """
-    Class that represents a static file in a content library, associated with
-    a particular XBlock.
-    """
-    # File path e.g. "diagram.png"
-    # In some rare cases it might contain a folder part, e.g. "en/track1.srt"
-    path: str
-    # Publicly accessible URL where the file can be downloaded
-    url: str
-    # Size in bytes
-    size: int
 
 
 @dataclass(frozen=True)
