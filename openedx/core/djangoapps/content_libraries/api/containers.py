@@ -23,8 +23,7 @@ from openedx_learning.api import authoring as authoring_api
 from openedx_learning.api.authoring_models import Container
 
 from ..models import ContentLibrary
-from .libraries import PublishableItem
-
+from .dataclass import PublishableItem
 
 # The public API is only the following symbols:
 __all__ = [
@@ -53,6 +52,7 @@ class ContainerMetadata(PublishableItem):
     Class that represents the metadata about a Container (e.g. Unit) in a content library.
     """
     container_key: LibraryContainerLocator
+    container_pk: int
     container_type: ContainerType
 
     @classmethod
@@ -80,7 +80,8 @@ class ContainerMetadata(PublishableItem):
             last_draft_created_by = ""
 
         return cls(
-            container_key=container_key,
+            container_key=container_key,  # LibraryContainerLocator
+            container_pk=container.pk,  # Container.pk
             container_type=container_type,
             display_name=draft.title,
             created=container.created,
