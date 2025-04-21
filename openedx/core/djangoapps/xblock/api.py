@@ -19,12 +19,13 @@ from django.utils.translation import gettext as _
 from openedx_learning.api import authoring as authoring_api
 from openedx_learning.api.authoring_models import Component, ComponentVersion
 from opaque_keys.edx.keys import UsageKeyV2
-from opaque_keys.edx.locator import BundleDefinitionLocator, LibraryUsageLocatorV2
+from opaque_keys.edx.locator import BundleDefinitionLocator, LibraryContainerLocator, LibraryUsageLocatorV2
 from rest_framework.exceptions import NotFound
 from xblock.core import XBlock
 from xblock.exceptions import NoSuchUsage, NoSuchViewError
 from xblock.plugin import PluginMissingError
 
+from openedx.core.djangoapps.content_libraries.api.exceptions import ContentLibraryContainerNotFound
 from openedx.core.types import User as UserType
 from openedx.core.djangoapps.xblock.apps import get_xblock_app_config
 from openedx.core.djangoapps.xblock.learning_context.manager import get_learning_context_impl
@@ -96,14 +97,13 @@ def load_block(
     # Now, check if the block exists in this context and if the user has
     # permission to render this XBlock view:
     if check_permission and user is not None:
+        has_perm = False
         if check_permission == CheckPerm.CAN_EDIT:
             has_perm = context_impl.can_edit_block(user, usage_key)
         elif check_permission == CheckPerm.CAN_READ_AS_AUTHOR:
             has_perm = context_impl.can_view_block_for_editing(user, usage_key)
         elif check_permission == CheckPerm.CAN_LEARN:
             has_perm = context_impl.can_view_block(user, usage_key)
-        else:
-            has_perm = False
         if not has_perm:
             raise PermissionDenied(f"You don't have permission to access the component '{usage_key}'.")
 
@@ -118,7 +118,7 @@ def load_block(
     except NoSuchUsage as exc:
         # Convert NoSuchUsage to NotFound so we do the right thing (404 not 500) by default.
         raise NotFound(f"The component '{usage_key}' does not exist.") from exc
-    except ComponentVersion.DoesNotExist as exc:
+    except (ComponentVersion.DoesNotExist, ContentLibraryContainerNotFound) as exc:
         # Convert ComponentVersion.DoesNotExist to NotFound so we do the right thing (404 not 500) by default.
         raise NotFound(f"The requested version of component '{usage_key}' does not exist.") from exc
 

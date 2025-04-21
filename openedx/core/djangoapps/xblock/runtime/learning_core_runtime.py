@@ -12,6 +12,8 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db.transaction import atomic
 from django.urls import reverse
 
+from opaque_keys.edx.keys import UsageKeyV2
+from opaque_keys.edx.locator import LibraryContainerUsageLocator
 from openedx_learning.api import authoring as authoring_api
 
 from lxml import etree
@@ -167,37 +169,8 @@ class LearningCoreXBlockRuntime(XBlockRuntime):
     (eventually) asset storage.
     """
 
-    def get_block(self, usage_key, for_parent=None, *, version: int | LatestVersion = LatestVersion.AUTO):
-        """
-        Fetch an XBlock from Learning Core data models.
-
-        This method will find the OLX for the content in Learning Core, parse it
-        into an XBlock (with mixins) instance, and properly initialize our
-        internal LearningCoreFieldData instance with the field values from the
-        parsed OLX.
-        """
-        # We can do this more efficiently in a single query later, but for now
-        # just get it the easy way.
-        component = self._get_component_from_usage_key(usage_key)
-
-        version = get_auto_latest_version(version)
-        if self.authored_data_mode == AuthoredDataMode.STRICTLY_PUBLISHED and version != LatestVersion.PUBLISHED:
-            raise ValidationError("This runtime only allows accessing the published version of components")
-        if version == LatestVersion.DRAFT:
-            component_version = component.versioning.draft
-        elif version == LatestVersion.PUBLISHED:
-            component_version = component.versioning.published
-        else:
-            assert isinstance(version, int)
-            component_version = component.versioning.version_num(version)
-        if component_version is None:
-            raise NoSuchUsage(usage_key)
-
-        content = component_version.contents.get(
-            componentversioncontent__key="block.xml"
-        )
-        xml_node = etree.fromstring(content.text)
-        block_type = usage_key.block_type
+    def _initialize_block(self, content, usage_key, block_type, version: int | LatestVersion):
+        xml_node = etree.fromstring(content)
         keys = ScopeIds(self.user_id, block_type, None, usage_key)
 
         if xml_node.get("url_name", None):
@@ -231,6 +204,44 @@ class LearningCoreXBlockRuntime(XBlockRuntime):
 
         return block
 
+    def get_block(self, usage_key, for_parent=None, *, version: int | LatestVersion = LatestVersion.AUTO):
+        """
+        Fetch an XBlock from Learning Core data models.
+
+        This method will find the OLX for the content in Learning Core, parse it
+        into an XBlock (with mixins) instance, and properly initialize our
+        internal LearningCoreFieldData instance with the field values from the
+        parsed OLX.
+        """
+        # We can do this more efficiently in a single query later, but for now
+        # just get it the easy way.
+        component = self._get_component_from_usage_key(usage_key)
+
+        version = get_auto_latest_version(version)
+        if self.authored_data_mode == AuthoredDataMode.STRICTLY_PUBLISHED and version != LatestVersion.PUBLISHED:
+            raise ValidationError("This runtime only allows accessing the published version of components")
+        if version == LatestVersion.DRAFT:
+            component_version = component.versioning.draft
+        elif version == LatestVersion.PUBLISHED:
+            component_version = component.versioning.published
+        else:
+            assert isinstance(version, int)
+            component_version = component.versioning.version_num(version)
+        if component_version is None:
+            raise NoSuchUsage(usage_key)
+
+        if isinstance(usage_key, LibraryContainerUsageLocator):
+            from openedx.core.djangoapps.content_libraries.api.containers import library_container_xml
+            block_type = "vertical" if usage_key.block_type == "unit" else usage_key.block_type
+            content = library_container_xml(component_version, block_type)
+            content = etree.tostring(content)
+        else:
+            content = component_version.contents.get(
+                componentversioncontent__key="block.xml"
+            )
+            content = content.text
+        return self._initialize_block(content, usage_key, usage_key.block_type, version)
+
     def get_block_assets(self, block, fetch_asset_data):
         """
         Return a list of StaticFile entries.
@@ -246,6 +257,9 @@ class LearningCoreXBlockRuntime(XBlockRuntime):
         lookups one by one is going to get slow. At some point we're going to
         want something to look up a bunch of blocks at once.
         """
+        if isinstance(block.usage_key, LibraryContainerUsageLocator):
+            # TODO: handle assets for containers if required.
+            return []
         component_version = self._get_component_version_from_block(block)
 
         # cvc = the ComponentVersionContent through-table
@@ -322,6 +336,7 @@ class LearningCoreXBlockRuntime(XBlockRuntime):
 
     def _get_component_from_usage_key(self, usage_key):
         """
+        Gets library block or container based on given usage_key.
         Note that Components aren't ever really truly deleted, so this will
         return a Component if this usage key has ever been used, even if it was
         later deleted.
@@ -329,14 +344,9 @@ class LearningCoreXBlockRuntime(XBlockRuntime):
         TODO: This is the third place where we're implementing this. Figure out
         where the definitive place should be and have everything else call that.
         """
-        learning_package = authoring_api.get_learning_package_by_key(str(usage_key.lib_key))
+        from openedx.core.djangoapps.content_libraries.api import get_library_content
         try:
-            component = authoring_api.get_component_by_key(
-                learning_package.id,
-                namespace='xblock.v1',
-                type_name=usage_key.block_type,
-                local_key=usage_key.block_id,
-            )
+            component = get_library_content(usage_key)
         except ObjectDoesNotExist as exc:
             raise NoSuchUsage(usage_key) from exc
 
