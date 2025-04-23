@@ -234,3 +234,16 @@ def sync_from_upstream_container(downstream: XBlock, user: User) -> tuple[XBlock
     manager.sync()
     downstream.upstream_version = manager.link.version_available
     return manager.upstream, manager.new_children_blocks
+
+
+def decline_sync_container(downstream: XBlock) -> None:
+    """
+    Given an Container that is linked to upstream content, mark the latest available update as 'declined' so that its
+    authors are not prompted (until another upstream version becomes available).
+
+    Does not save `downstream` to the store. That is left up to the caller.
+
+    If `downstream` lacks a valid+supported upstream link, this raises an UpstreamLinkException.
+    """
+    upstream_link = ContainerUpstreamLink.get_for_container(downstream)  # Can raise UpstreamLinkException
+    downstream.upstream_version_declined = upstream_link.version_available
