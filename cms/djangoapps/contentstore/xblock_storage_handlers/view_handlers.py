@@ -35,7 +35,7 @@ from xblock.fields import Scope
 from cms.djangoapps.contentstore.config.waffle import SHOW_REVIEW_RULES_FLAG
 from cms.djangoapps.models.settings.course_grading import CourseGradingModel
 from cms.lib.ai_aside_summary_config import AiAsideSummaryConfig
-from cms.lib.xblock.upstream_sync import BadUpstream, check_and_parse_upstream_key, sync_from_upstream
+from cms.lib.xblock.upstream_sync import *
 from cms.lib.xblock.container_upstream_sync import sync_from_upstream_container, ContainerUpstreamLink
 from common.djangoapps.static_replace import replace_static_urls
 from common.djangoapps.student.auth import (
@@ -549,6 +549,15 @@ def sync_library_content(downstream: XBlock, request, store, remove_upstream_lin
             store.update_item(downstream, request.user.id)
         static_file_notices = concat_static_file_notices(notices)
     return static_file_notices
+
+
+def get_upstream(downstream: XBlock):
+    """
+    Handle get upstream for containers or blocks, depending of the donwstream type.
+    """
+    if downstream.usage_key.block_type == 'vertical':
+        return ContainerUpstreamLink.get_for_container(downstream).to_json()
+    return UpstreamLink.get_for_block(downstream).to_json()
 
 
 @login_required

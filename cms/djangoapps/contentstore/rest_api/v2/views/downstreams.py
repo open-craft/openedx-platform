@@ -99,7 +99,10 @@ from cms.djangoapps.contentstore.rest_api.v2.serializers import (
     ComponentLinksSerializer,
     PublishableEntityLinksSummarySerializer,
 )
-from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import sync_library_content
+from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import (
+    sync_library_content,
+    get_upstream,
+)
 from cms.lib.xblock.upstream_sync import (
     BadDownstream,
     BadUpstream,
@@ -110,6 +113,7 @@ from cms.lib.xblock.upstream_sync import (
     decline_sync,
     sever_upstream_link,
 )
+from cms.lib.xblock.container_upstream_sync import decline_sync_container
 from common.djangoapps.student.auth import has_studio_read_access, has_studio_write_access
 from openedx.core.lib.api.view_utils import (
     DeveloperErrorViewMixin,
@@ -330,7 +334,7 @@ class SyncFromUpstreamView(DeveloperErrorViewMixin, APIView):
             raise ValidationError(detail=str(exc)) from exc
         # Note: We call `get_for_block` (rather than `try_get_for_block`) because if anything is wrong with the
         #       upstream at this point, then that is completely unexpected, so it's appropriate to let the 500 happen.
-        response = UpstreamLink.get_for_block(downstream).to_json()
+        response = get_upstream(downstream)
         response["static_file_notices"] = attrs_asdict(static_file_notices)
         return Response(response)
 
@@ -340,7 +344,10 @@ class SyncFromUpstreamView(DeveloperErrorViewMixin, APIView):
         """
         downstream = _load_accessible_block(request.user, usage_key_string, require_write_access=True)
         try:
-            decline_sync(downstream)
+            if downstream.usage_key.block_type == 'vertical':
+                decline_sync_container(downstream)
+            else:
+                decline_sync(downstream)
         except (NoUpstream, BadUpstream, BadDownstream) as exc:
             # This is somewhat unexpected. If the upstream link is missing or invalid, then the downstream author
             # shouldn't have been prompted to accept/decline a sync in the first place. Of course, they could have just
