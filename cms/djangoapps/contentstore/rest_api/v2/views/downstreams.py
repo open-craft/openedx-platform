@@ -87,6 +87,7 @@ from django.contrib.auth.models import User  # pylint: disable=imported-auth-use
 from edx_rest_framework_extensions.paginators import DefaultPagination
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
+from opaque_keys.edx.locator import LibraryUsageLocatorV2, LibraryContainerLocator
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.fields import BooleanField
 from rest_framework.request import Request
@@ -99,21 +100,18 @@ from cms.djangoapps.contentstore.rest_api.v2.serializers import (
     ComponentLinksSerializer,
     PublishableEntityLinksSummarySerializer,
 )
-from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import (
-    sync_library_content,
-    get_upstream,
-)
+from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import sync_library_content
 from cms.lib.xblock.upstream_sync import (
     BadDownstream,
     BadUpstream,
-    ComponentUpstreamSyncManager,
     NoUpstream,
     UpstreamLink,
     UpstreamLinkException,
     decline_sync,
     sever_upstream_link,
 )
-from cms.lib.xblock.container_upstream_sync import decline_sync_container
+from cms.lib.xblock.upstream_sync_block import fetch_customizable_fields_from_block
+from cms.lib.xblock.upstream_sync_container import fetch_customizable_fields_from_container
 from common.djangoapps.student.auth import has_studio_read_access, has_studio_write_access
 from openedx.core.lib.api.view_utils import (
     DeveloperErrorViewMixin,
@@ -264,8 +262,12 @@ class DownstreamView(DeveloperErrorViewMixin, APIView):
                 # Even if we're not syncing (i.e., updating the downstream's values with the upstream's), we still need
                 # to fetch the upstream's customizable values and store them as hidden fields on the downstream. This
                 # ensures that downstream authors can restore defaults based on the upstream.
-                manager = ComponentUpstreamSyncManager(downstream=downstream, user=request.user)
-                manager.update_customizable_fields(only_fetch=True)
+                link = UpstreamLink.get_for_block(downstream)
+                if isinstance(link.upstream_key, LibraryUsageLocatorV2):
+                    fetch_customizable_fields_from_block(downstream=downstream, user=request.user)
+                else:
+                    assert isinstance(link.upstream_key, LibraryContainerLocator)
+                    fetch_customizable_fields_from_container(downstream=downstream, user=request.user)
         except BadDownstream as exc:
             logger.exception(
                 "'%s' is an invalid downstream; refusing to set its upstream to '%s'",
@@ -334,7 +336,7 @@ class SyncFromUpstreamView(DeveloperErrorViewMixin, APIView):
             raise ValidationError(detail=str(exc)) from exc
         # Note: We call `get_for_block` (rather than `try_get_for_block`) because if anything is wrong with the
         #       upstream at this point, then that is completely unexpected, so it's appropriate to let the 500 happen.
-        response = get_upstream(downstream)
+        response = UpstreamLink.get_for_block(downstream).to_json()
         response["static_file_notices"] = attrs_asdict(static_file_notices)
         return Response(response)
 
@@ -344,10 +346,7 @@ class SyncFromUpstreamView(DeveloperErrorViewMixin, APIView):
         """
         downstream = _load_accessible_block(request.user, usage_key_string, require_write_access=True)
         try:
-            if downstream.usage_key.block_type == 'vertical':
-                decline_sync_container(downstream)
-            else:
-                decline_sync(downstream)
+            decline_sync(downstream)
         except (NoUpstream, BadUpstream, BadDownstream) as exc:
             # This is somewhat unexpected. If the upstream link is missing or invalid, then the downstream author
             # shouldn't have been prompted to accept/decline a sync in the first place. Of course, they could have just
