@@ -75,6 +75,34 @@ def get_running_instructor_tasks(course_id):
     return instructor_tasks.order_by('-id')
 
 
+def _get_filtered_instructor_tasks(course_id, user, task_types):
+    """
+    Returns a filtered query of InstructorTasks based on the course, user, and desired task types
+    """
+    instructor_tasks = get_running_instructor_tasks(course_id)
+    now = datetime.datetime.now(pytz.utc)
+    filtered_tasks = InstructorTask.objects.filter(
+        course_id=course_id,
+        task_type__in=task_types,
+        updated__lte=now,
+        updated__gte=now - datetime.timedelta(days=2),
+        requester=user
+    ).order_by('-updated')
+
+    return (instructor_tasks | filtered_tasks).distinct()[0:3]
+
+
+def get_running_instructor_canvas_tasks(course_id, user):
+    """
+    Returns a query of InstructorTask objects of running tasks for a given course
+    including canvas-specific tasks.
+    """
+    # Inline import because we will install the plugin separately
+    from ol_openedx_canvas_integration.constants import CANVAS_TASK_TYPES  # pylint: disable=import-error
+
+    return _get_filtered_instructor_tasks(course_id, user, CANVAS_TASK_TYPES)
+
+
 def get_instructor_task_history(course_id, usage_key=None, student=None, task_type=None):
     """
     Returns a query of InstructorTask objects of historical tasks for a given course,

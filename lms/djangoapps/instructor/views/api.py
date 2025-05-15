@@ -2487,7 +2487,7 @@ def _list_instructor_tasks(request, course_id, serialize_data=None):
     # This method is also used by other APIs with the GET method.
     # The query_params attribute is utilized for GET requests,
     # where parameters are passed as query strings.
-
+    include_canvas = request.GET.get('include_canvas') is not None
     course_id = CourseKey.from_string(course_id)
     if serialize_data is not None:
         problem_location_str = strip_if_string(serialize_data.get('problem_location_str', False))
@@ -2516,6 +2516,11 @@ def _list_instructor_tasks(request, course_id, serialize_data=None):
         else:
             # Specifying for single problem's history
             tasks = task_api.get_instructor_task_history(course_id, module_state_key)
+    elif include_canvas:
+        tasks = task_api.get_running_instructor_canvas_tasks(
+            course_id,
+            user=request.user
+        )
     else:
         # If no problem or student, just get currently running tasks
         tasks = task_api.get_running_instructor_tasks(course_id)
