@@ -594,6 +594,7 @@ def render_html_view(request, course_id, certificate=None):  # pylint: disable=t
         # Track certificate view events
         _track_certificate_events(request, course, user, user_certificate)
 
+        log.warning("context: %s", context)
         try:
             # .. filter_implemented_name: CertificateRenderStarted
             # .. filter_type: org.openedx.learning.certificate.render.started.v1
@@ -615,7 +616,6 @@ def render_html_view(request, course_id, certificate=None):  # pylint: disable=t
             response = exc.response
         else:
             response = _render_valid_certificate(request, context, custom_template)
-            log.warning("context: %s", context)
 
         # Render the certificate
         return response
