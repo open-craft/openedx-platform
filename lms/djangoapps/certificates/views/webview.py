@@ -353,9 +353,12 @@ def _get_user_certificate(request, user, course_key, course_overview, preview_mo
     certificates_display_behavior validation logic, rather than the raw data from the course block.
     """
     user_certificate = None
+    log.warning("User certificate: %s", user_certificate)
     if preview_mode:
+        log.warning("Preview mode is enabled")
         # certificate is being previewed from studio
         if request.user.has_perm(PREVIEW_CERTIFICATES, course_overview):
+            log.warning("User has permission to preview certificate")
             if (
                 course_overview.certificates_display_behavior == CertificatesDisplayBehaviors.END_WITH_DATE
                 and course_overview.certificate_available_date
@@ -366,6 +369,7 @@ def _get_user_certificate(request, user, course_key, course_overview, preview_mo
                 modified_date = course_overview.end
             else:
                 modified_date = datetime.now().date()
+        log.warning("Modified date: %s", modified_date)
         user_certificate = GeneratedCertificate(
             mode=preview_mode,
             verify_uuid=str(uuid4().hex),
