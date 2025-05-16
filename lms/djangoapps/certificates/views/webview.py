@@ -365,15 +365,18 @@ def _get_user_certificate(request, user, course_key, course_overview, preview_mo
                 and not course_overview.self_paced
             ):
                 modified_date = course_overview.certificate_available_date
+                log.warning("certificate_available_date: %s", modified_date)
             elif course_overview.certificates_display_behavior == CertificatesDisplayBehaviors.END:
                 modified_date = course_overview.end
+                log.warning("course end date: %s", modified_date)
             else:
                 modified_date = datetime.now().date()
+                log.warning("No certificate_available_date or course end date: %s", modified_date)
         log.warning("Modified date: %s", modified_date)
         user_certificate = GeneratedCertificate(
             mode=preview_mode,
             verify_uuid=str(uuid4().hex),
-            modified_date=modified_date,
+            modified_date=modified_date or datetime.now().date(),
             created_date=datetime.now().date(),
         )
     elif certificates_viewable_for_course(course_overview):
@@ -612,6 +615,7 @@ def render_html_view(request, course_id, certificate=None):  # pylint: disable=t
             response = exc.response
         else:
             response = _render_valid_certificate(request, context, custom_template)
+            log.warning("context: %s", context)
 
         # Render the certificate
         return response
