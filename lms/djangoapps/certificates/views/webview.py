@@ -116,15 +116,12 @@ def _update_certificate_context(context, course, course_overview, user_certifica
     # and certificates_display_behavior values. However, not all certificates are guaranteed to have a CourseOverview
     # associated with them, so we fall back on the course in that case. This shouldn't cause a problem because courses
     # that are missing CourseOverviews are generally old courses, and thus their display values are no longer relevant
-    log.warning(user_certificate)
+    log.warning(user_certificate.__dict__)
     if course_overview:
         log.warning(course_overview)
         date = display_date_for_certificate(course_overview, user_certificate)
     else:
-        log.warning("No course_overview found for course %s", course.id)
         date = display_date_for_certificate(course, user_certificate)
-
-    print(locals())
 
     # Translators:  The format of the date includes the full name of the month
     context['certificate_date_issued'] = strftime_localized(date, settings.CERTIFICATE_DATE_FORMAT)
