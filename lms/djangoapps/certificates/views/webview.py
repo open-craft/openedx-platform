@@ -116,13 +116,10 @@ def _update_certificate_context(context, course, course_overview, user_certifica
     # and certificates_display_behavior values. However, not all certificates are guaranteed to have a CourseOverview
     # associated with them, so we fall back on the course in that case. This shouldn't cause a problem because courses
     # that are missing CourseOverviews are generally old courses, and thus their display values are no longer relevant
-    log.warning(user_certificate.__dict__)
     if course_overview:
-        log.warning(course_overview)
         date = display_date_for_certificate(course_overview, user_certificate)
     else:
         date = display_date_for_certificate(course, user_certificate)
-
     # Translators:  The format of the date includes the full name of the month
     context['certificate_date_issued'] = strftime_localized(date, settings.CERTIFICATE_DATE_FORMAT)
 
@@ -353,26 +350,19 @@ def _get_user_certificate(request, user, course_key, course_overview, preview_mo
     certificates_display_behavior validation logic, rather than the raw data from the course block.
     """
     user_certificate = None
-    log.warning("User certificate: %s", user_certificate)
     if preview_mode:
-        log.warning("Preview mode is enabled")
         # certificate is being previewed from studio
         if request.user.has_perm(PREVIEW_CERTIFICATES, course_overview):
-            log.warning("User has permission to preview certificate")
             if (
                 course_overview.certificates_display_behavior == CertificatesDisplayBehaviors.END_WITH_DATE
                 and course_overview.certificate_available_date
                 and not course_overview.self_paced
             ):
                 modified_date = course_overview.certificate_available_date
-                log.warning("certificate_available_date: %s", modified_date)
             elif course_overview.certificates_display_behavior == CertificatesDisplayBehaviors.END:
                 modified_date = course_overview.end
-                log.warning("course end date: %s", modified_date)
             else:
                 modified_date = datetime.now().date()
-                log.warning("No certificate_available_date or course end date: %s", modified_date)
-        log.warning("Modified date: %s", modified_date)
         user_certificate = GeneratedCertificate(
             mode=preview_mode,
             verify_uuid=str(uuid4().hex),
@@ -594,7 +584,6 @@ def render_html_view(request, course_id, certificate=None):  # pylint: disable=t
         # Track certificate view events
         _track_certificate_events(request, course, user, user_certificate)
 
-        log.warning("context: %s", context)
         try:
             # .. filter_implemented_name: CertificateRenderStarted
             # .. filter_type: org.openedx.learning.certificate.render.started.v1
