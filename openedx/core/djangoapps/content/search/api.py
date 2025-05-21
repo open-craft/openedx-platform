@@ -583,11 +583,17 @@ def rebuild_index(status_cb: Callable[[str], None] | None = None, incremental=Fa
                 if course.id in keys_indexed:
                     num_contexts_done += 1
                     continue
-                course_docs = index_course(course)
-                if incremental:
-                    IncrementalIndexCompleted.objects.get_or_create(context_key=course.id)
+
+                course_docs = None
+                try:
+                    course_docs = index_course(course)
+                    if incremental:
+                        IncrementalIndexCompleted.objects.get_or_create(context_key=course.id)
+                except Exception as err:  # pylint: disable=broad-except
+                    status_cb(f"Error indexing course {course.display_name} ({course.id}): {err}")
+
                 num_contexts_done += 1
-                num_blocks_done += len(course_docs)
+                num_blocks_done += len(course_docs) if course_docs else 0
 
     IncrementalIndexCompleted.objects.all().delete()
     status_cb(f"Done! {num_blocks_done} blocks indexed across {num_contexts_done} courses, collections and libraries.")
