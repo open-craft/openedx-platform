@@ -567,7 +567,6 @@ enmerkar-underscore==2.3.0
     # via -r requirements/edx/kernel.in
 event-tracking==2.4.0
     # via
-    #   -c requirements/edx/../common_constraints.txt
     #   -r requirements/edx/kernel.in
     #   edx-completion
     #   edx-proctoring
@@ -1178,6 +1177,7 @@ uritemplate==4.1.1
     #   drf-yasg
 urllib3==1.26.18
     # via
+    #   -c requirements/edx/../common_constraints.txt
     #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/paver.txt
     #   botocore
