@@ -1534,7 +1534,7 @@ def get_library_context(request, request_is_json=False):
     )
     from cms.djangoapps.contentstore.views.library import (
         LIBRARIES_ENABLED,
-        user_can_create_library,
+        user_can_view_create_library_button,
     )
 
     libraries = _accessible_libraries_iter(request.user) if LIBRARIES_ENABLED else []
@@ -1548,7 +1548,7 @@ def get_library_context(request, request_is_json=False):
             'in_process_course_actions': [],
             'courses': [],
             'libraries_enabled': LIBRARIES_ENABLED,
-            'show_new_library_button': user_can_create_library(request.user) and request.user.is_active,
+            'show_new_library_button': user_can_view_create_library_button(request.user) and request.user.is_active,
             'user': request.user,
             'request_course_creator_url': reverse('request_course_creator'),
             'course_creator_status': _get_course_creator_status(request.user),
@@ -1671,7 +1671,7 @@ def get_home_context(request, no_course=False):
         LIBRARY_AUTHORING_MICROFRONTEND_URL,
         LIBRARIES_ENABLED,
         should_redirect_to_library_authoring_mfe,
-        user_can_create_library,
+        user_can_view_create_library_button,
     )
 
     active_courses = []
@@ -1700,7 +1700,8 @@ def get_home_context(request, no_course=False):
         'library_authoring_mfe_url': LIBRARY_AUTHORING_MICROFRONTEND_URL,
         'taxonomy_list_mfe_url': get_taxonomy_list_url(),
         'libraries': libraries,
-        'show_new_library_button': user_can_create_library(user) and not should_redirect_to_library_authoring_mfe(),
+        'show_new_library_button': user_can_view_create_library_button(user)
+        and not should_redirect_to_library_authoring_mfe(),
         'user': user,
         'request_course_creator_url': reverse('request_course_creator'),
         'course_creator_status': _get_course_creator_status(user),
