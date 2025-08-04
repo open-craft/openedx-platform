@@ -35,6 +35,11 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
             type=int,
             help='Number of weekly emails to be sent',
         )
+        parser.add_argument(
+            '--override-middlewares',
+            nargs='*',
+            help='Use these middelwares when emulating http request'
+        )
 
     def handle(self, *args, **options):
         self.log_debug('Args = %r', options)
@@ -54,14 +59,16 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
         self.log_debug('Running for site %s', site.domain)
 
         override_recipient_email = options.get('override_recipient_email')
-        self.send_emails(site, current_date, override_recipient_email)
+        override_middlewares = options.get('override_middlewares')
+        self.send_emails(site, current_date, override_recipient_email, override_middlewares)
 
-    def enqueue(self, day_offset, site, current_date, override_recipient_email=None):
+    def enqueue(self, day_offset, site, current_date, override_recipient_email=None, override_middlewares = None):
         self.async_send_task.enqueue(
             site,
             current_date,
             day_offset,
             override_recipient_email,
+            override_middlewares,
         )
 
     def send_emails(self, *args, **kwargs):
