@@ -37,8 +37,8 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
         )
         parser.add_argument(
             '--override-middlewares',
-            nargs='*',
-            help='Use these middelwares when emulating http request'
+            action='append',
+            help='Use these middlewares when emulating http requests. Provide the option multiple times to use multiple middlewares.'
         )
 
     def handle(self, *args, **options):
