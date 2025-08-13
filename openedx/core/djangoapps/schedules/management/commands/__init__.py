@@ -8,9 +8,11 @@ import datetime
 import pytz
 from django.contrib.sites.models import Site
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 
 from openedx.core.djangoapps.schedules.utils import PrefixedDebugLoggerMixin
 
+ALL_SITES = "all-sites"
 
 class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnesty, pylint: disable=missing-class-docstring
     async_send_task = None  # define in subclass
@@ -29,7 +31,11 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
             '--override-recipient-email',
             help='Send all emails to this address instead of the actual recipient'
         )
-        parser.add_argument('site_domain_name')
+        parser.add_argument(
+            'site_domain_name',
+            nargs='?',
+            default=ALL_SITES
+        )
         parser.add_argument(
             '--weeks',
             type=int,
@@ -54,13 +60,17 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
             tzinfo=pytz.UTC
         )
         self.log_debug('Current date = %s', current_date.isoformat())
-
-        site = Site.objects.get(domain__iexact=options['site_domain_name'])
-        self.log_debug('Running for site %s', site.domain)
-
         override_recipient_email = options.get('override_recipient_email')
         override_middlewares = options.get('override_middlewares')
-        self.send_emails(site, current_date, override_recipient_email, override_middlewares)
+
+        site_domain_name = options['site_domain_name']
+        site_filter = Q()
+        if site_domain_name != ALL_SITES:
+            site_filter |= Q(domain__iexact=site_domain_name)
+
+        for site in Site.objects.filter(site_filter):
+            self.log_debug('Running for site %s', site.domain)
+            self.send_emails(site, current_date, override_recipient_email, override_middlewares)
 
     def enqueue(self, day_offset, site, current_date, override_recipient_email=None, override_middlewares = None):
         self.async_send_task.enqueue(
