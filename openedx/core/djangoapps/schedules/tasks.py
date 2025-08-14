@@ -134,8 +134,8 @@ class BinnedScheduleMessageBaseTask(ScheduleMessageBaseTask):
     ):
         set_code_owner_attribute_from_module(__name__)
         site = Site.objects.select_related('configuration').get(id=site_id)
-        middleware_classes = [self.class_from_classpath(cls) for cls in override_middlewares] if override_middlewares else None
-        with emulate_http_request(site=site, middleware_classes=middleware_classes) as request:
+        middlewares = [self.class_from_classpath(cls) for cls in override_middlewares] if override_middlewares else None
+        with emulate_http_request(site=site, middleware_classes=middlewares) as request:
             msg_type = self.make_message_type(day_offset)
             _annotate_for_monitoring(msg_type, request.site, bin_num, target_day_str, day_offset)
             return self.resolver(  # lint-amnesty, pylint: disable=not-callable
@@ -149,7 +149,7 @@ class BinnedScheduleMessageBaseTask(ScheduleMessageBaseTask):
 
     def make_message_type(self, day_offset):
         raise NotImplementedError
-    
+
     def class_from_classpath(self, class_path):
         module_name, klass = class_path.rsplit('.', 1)
         module = import_module(module_name)

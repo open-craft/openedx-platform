@@ -14,6 +14,7 @@ from openedx.core.djangoapps.schedules.utils import PrefixedDebugLoggerMixin
 
 ALL_SITES = "all-sites"
 
+
 class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnesty, pylint: disable=missing-class-docstring
     async_send_task = None  # define in subclass
 
@@ -44,7 +45,7 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
         parser.add_argument(
             '--override-middlewares',
             action='append',
-            help='Use these middlewares when emulating http requests. Provide the option multiple times to use multiple middlewares.'
+            help='Use these middlewares when emulating http requests.'
         )
 
     def handle(self, *args, **options):
@@ -72,7 +73,7 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
             self.log_debug('Running for site %s', site.domain)
             self.send_emails(site, current_date, override_recipient_email, override_middlewares)
 
-    def enqueue(self, day_offset, site, current_date, override_recipient_email=None, override_middlewares = None):
+    def enqueue(self, day_offset, site, current_date, override_recipient_email=None, override_middlewares=None):
         self.async_send_task.enqueue(
             site,
             current_date,
