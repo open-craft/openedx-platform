@@ -12,7 +12,7 @@ import pytz
 from django.conf import settings
 from django.contrib.sites.models import Site
 
-from openedx.core.djangoapps.schedules.management.commands import SendEmailBaseCommand, ALL_SITES
+from openedx.core.djangoapps.schedules.management.commands import SendEmailBaseCommand
 from openedx.core.djangoapps.site_configuration.tests.factories import SiteConfigurationFactory, SiteFactory
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_unless_lms
 
@@ -40,7 +40,7 @@ class TestSendEmailBaseCommand(CacheIsolationTestCase):  # lint-amnesty, pylint:
 
     def test_handle_all_sites(self):
         with patch.object(self.command, 'send_emails') as send_emails:
-            self.command.handle(site_domain_name=ALL_SITES, date='2017-09-29')
+            self.command.handle(site_domain_name=None, date='2017-09-29')
             expected_sites = Site.objects.all()
             for expected_site in expected_sites:
                 send_emails.assert_any_call(

@@ -8,11 +8,8 @@ import datetime
 import pytz
 from django.contrib.sites.models import Site
 from django.core.management.base import BaseCommand
-from django.db.models import Q
 
 from openedx.core.djangoapps.schedules.utils import PrefixedDebugLoggerMixin
-
-ALL_SITES = "all-sites"
 
 
 class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnesty, pylint: disable=missing-class-docstring
@@ -35,7 +32,11 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
         parser.add_argument(
             'site_domain_name',
             nargs='?',
-            default=ALL_SITES
+            default=None,
+            help=(
+                'Domain name for the site to use. '
+                'Do not provide a domain if you wish to run this for all sites'
+            )
         )
         parser.add_argument(
             '--weeks',
@@ -45,7 +46,10 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
         parser.add_argument(
             '--override-middlewares',
             action='append',
-            help='Use these middlewares when emulating http requests.'
+            help=(
+                'Use this middleware when emulating http requests. '
+                'To use multiple middlewares, provide this argument multiple times'
+            )
         )
 
     def handle(self, *args, **options):
@@ -65,13 +69,14 @@ class SendEmailBaseCommand(PrefixedDebugLoggerMixin, BaseCommand):  # lint-amnes
         override_middlewares = options.get('override_middlewares')
 
         site_domain_name = options['site_domain_name']
-        site_filter = Q()
-        if site_domain_name != ALL_SITES:
-            site_filter |= Q(domain__iexact=site_domain_name)
+        sites = Site.objects.filter(domain__iexact=site_domain_name) if site_domain_name else Site.objects.all()
 
-        for site in Site.objects.filter(site_filter):
-            self.log_debug('Running for site %s', site.domain)
-            self.send_emails(site, current_date, override_recipient_email, override_middlewares)
+        if sites:
+            for site in sites:
+                self.log_debug('Running for site %s', site.domain)
+                self.send_emails(site, current_date, override_recipient_email, override_middlewares)
+        else:
+            self.log_info("No matching site found")
 
     def enqueue(self, day_offset, site, current_date, override_recipient_email=None, override_middlewares=None):
         self.async_send_task.enqueue(
