@@ -199,45 +199,43 @@ class CreateLtiUserTest(TestCase):
     def setUp(self):
         super().setUp()
         self.lti_consumer = LtiConsumer(
-            consumer_name='TestConsumer',
-            consumer_key='TestKey',
-            consumer_secret='TestSecret'
+            consumer_name="TestConsumer", consumer_key="TestKey", consumer_secret="TestSecret"
         )
         self.lti_consumer.save()
         self.existing_user = UserFactory.create()
 
     def test_create_lti_user_creates_auth_user_model(self):
-        users.create_lti_user('lti_user_id', self.lti_consumer)
+        users.create_lti_user("lti_user_id", self.lti_consumer)
         assert User.objects.count() == 2
 
-    @patch('uuid.uuid4', return_value='random_uuid')
-    @patch('lms.djangoapps.lti_provider.users.generate_random_edx_username', return_value='edx_id')
+    @patch("uuid.uuid4", return_value="random_uuid")
+    @patch("lms.djangoapps.lti_provider.users.generate_random_edx_username", return_value="edx_id")
     def test_create_lti_user_creates_correct_user(self, uuid_mock, _username_mock):
-        users.create_lti_user('lti_user_id', self.lti_consumer)
+        users.create_lti_user("lti_user_id", self.lti_consumer)
         assert User.objects.count() == 2
-        user = User.objects.get(username='edx_id')
-        assert user.email == 'edx_id@lti.example.com'
+        user = User.objects.get(username="edx_id")
+        assert user.email == "edx_id@lti.example.com"
         uuid_mock.assert_called_with()
 
-    @patch('lms.djangoapps.lti_provider.users.generate_random_edx_username', side_effect=['edx_id', 'new_edx_id'])
+    @patch("lms.djangoapps.lti_provider.users.generate_random_edx_username", side_effect=["edx_id", "new_edx_id"])
     def test_unique_username_created(self, username_mock):
-        User(username='edx_id').save()
-        users.create_lti_user('lti_user_id', self.lti_consumer)
+        User(username="edx_id").save()
+        users.create_lti_user("lti_user_id", self.lti_consumer)
         assert username_mock.call_count == 2
         assert User.objects.count() == 3
-        user = User.objects.get(username='new_edx_id')
-        assert user.email == 'new_edx_id@lti.example.com'
+        user = User.objects.get(username="new_edx_id")
+        assert user.email == "new_edx_id@lti.example.com"
 
     def test_existing_user_is_linked(self):
-        lti_user = users.create_lti_user('lti_user_id', self.lti_consumer, self.existing_user.email)
+        lti_user = users.create_lti_user("lti_user_id", self.lti_consumer, self.existing_user.email)
         assert lti_user.lti_consumer == self.lti_consumer
         assert lti_user.edx_user == self.existing_user
 
     def test_only_one_lti_user_edx_user_for_each_lti_consumer(self):
-        users.create_lti_user('lti_user_id', self.lti_consumer, self.existing_user.email)
+        users.create_lti_user("lti_user_id", self.lti_consumer, self.existing_user.email)
 
         with pytest.raises(IntegrityError):
-            users.create_lti_user('lti_user_id', self.lti_consumer, self.existing_user.email)
+            users.create_lti_user("lti_user_id", self.lti_consumer, self.existing_user.email)
 
     def test_create_multiple_lti_users_for_edx_user_if_lti_consumer_varies(self):
         lti_consumer_2 = LtiConsumer(
