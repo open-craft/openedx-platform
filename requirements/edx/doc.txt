@@ -1007,7 +1007,7 @@ openedx-filters==1.11.0
     #   -r requirements/edx/base.txt
     #   lti-consumer-xblock
     #   ora2
-openedx-forum==0.2.0
+openedx-forum @ git+https://github.com/open-craft/forum.git@kaustav/optimize_get_threads_api
     # via -r requirements/edx/base.txt
 openedx-learning==0.18.1
     # via
