@@ -22,6 +22,7 @@
 
 acid-xblock                         # This XBlock is used for unit tests as well as manual tests
 analytics-python                    # Used for Segment analytics
+aiohttp>=3.10                       # Newer openai/litellm clients require aiohttp 3.10+
 attrs                               # Reduces boilerplate code involving class attributes
 Babel                               # Internationalization utilities, used for date formatting in a few places
 bleach[css]                         # Allowed-list-based HTML sanitizing library that escapes or strips markup and attributes; used for capa and LTI
