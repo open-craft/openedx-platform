@@ -765,7 +765,7 @@ oauthlib==3.2.2
     #   social-auth-core
 olxcleaner==0.3.0
     # via -r requirements/edx/kernel.in
-openai==0.28.1
+openai
     # via
     #   -c requirements/edx/../constraints.txt
     #   edx-enterprise

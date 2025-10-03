@@ -91,8 +91,7 @@ click==8.1.6
 # pinning this version to avoid updates while the library is being developed
 openedx-learning==0.9.4
 
-# Open AI version 1.0.0 dropped support for openai.ChatCompletion which is currently in use in enterprise.
-openai<=0.28.1
+# Previously pinned to avoid removal of openai.ChatCompletion; intentionally unpinned for local experimentation.
 
 # optimizely-sdk 5.0.0 is breaking following test with segmentation fault
 # common/djangoapps/third_party_auth/tests/test_views.py::SAMLMetadataTest::test_secure_key_configuration

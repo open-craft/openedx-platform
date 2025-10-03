@@ -1311,7 +1311,7 @@ olxcleaner==0.3.0
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
-openai==0.28.1
+openai
     # via
     #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/doc.txt

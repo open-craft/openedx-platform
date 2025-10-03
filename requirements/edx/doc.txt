@@ -898,7 +898,7 @@ oauthlib==3.2.2
     #   social-auth-core
 olxcleaner==0.3.0
     # via -r requirements/edx/base.txt
-openai==0.28.1
+openai
     # via
     #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/base.txt
