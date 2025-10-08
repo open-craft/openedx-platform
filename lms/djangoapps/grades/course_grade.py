@@ -93,7 +93,7 @@ class CourseGradeBase:
         )
         return self._get_subsection_grade(subsection)
 
-    def graded_subsections_by_format(self, visible_grades_only=False, has_staff_access=False):
+    def _graded_subsections_by_format(self):
         """
         Returns grades for the subsections in the course in
         a dict keyed by subsection format types.
@@ -101,11 +101,8 @@ class CourseGradeBase:
         subsections_by_format = defaultdict(OrderedDict)
         for chapter in self.chapter_grades.values():
             for subsection_grade in chapter['sections']:
-                is_visible = not visible_grades_only or subsection_grade.show_grades(has_staff_access)
-                if subsection_grade.graded and is_visible:
-                    graded_total = subsection_grade.graded_total
-                    if graded_total.possible > 0:
-                        subsections_by_format[subsection_grade.format][subsection_grade.location] = subsection_grade
+                if subsection_grade.graded and subsection_grade.graded_total.possible > 0:
+                    subsections_by_format[subsection_grade.format][subsection_grade.location] = subsection_grade
         return subsections_by_format
 
     @lazy
@@ -178,14 +175,13 @@ class CourseGradeBase:
             possible += child_possible
         return earned, possible
 
-    def grader_result(self, visible_grades_only=False, has_staff_access=False):
+    def grader_result(self):
         """
         Returns the result from the course grader.
         """
         course = self._prep_course_for_grading(self.course_data.course)
         return course.grader.grade(
-            self.graded_subsections_by_format(visible_grades_only=visible_grades_only,
-                                              has_staff_access=has_staff_access),
+            self._graded_subsections_by_format(),
             generate_random_scores=settings.GENERATE_PROFILE_SCORES,
         )
 
@@ -291,8 +287,15 @@ class CourseGrade(CourseGradeBase):
         # side-effects. Once functional, force_update_subsections
         # can be passed through and not confusingly stored and used
         # at a later time.
+        if visible_grades_only:
+            for chapter in self.chapter_grades.values():
+                for subsection_grade in chapter["sections"]:
+                    if subsection_grade.graded and not subsection_grade.show_grades(has_staff_access):
+                        subsection_grade.graded_total.earned = 0.0
+                        subsection_grade.problem_scores = {}
+
         grade_cutoffs = self.course_data.course.grade_cutoffs
-        grader_result = self.grader_result(visible_grades_only=visible_grades_only, has_staff_access=has_staff_access)
+        grader_result = self.grader_result()
         self.percent = self._compute_percent(grader_result)
         self.letter_grade = self._compute_letter_grade(grade_cutoffs, self.percent)
         self.passed = self._compute_passed(grade_cutoffs, self.percent)
