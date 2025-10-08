@@ -482,6 +482,7 @@ class ShowCorrectness:
     ALWAYS = "always"
     PAST_DUE = "past_due"
     NEVER = "never"
+    NEVER_BUT_INCLUDE_GRADE = "never_but_include_grade"
 
     @classmethod
     def correctness_available(cls, show_correctness='', due_date=None, has_staff_access=False):
@@ -494,10 +495,19 @@ class ShowCorrectness:
             # This is after the 'never' check because course staff can see correctness
             # unless the sequence/problem explicitly prevents it
             return True
-        elif show_correctness == cls.PAST_DUE:
+        elif show_correctness in (cls.PAST_DUE, cls.NEVER_BUT_INCLUDE_GRADE):
             # Is it now past the due date?
             return (due_date is None or
                     due_date < datetime.now(UTC))
 
         # else: show_correctness == cls.ALWAYS
         return True
+
+    @classmethod
+    def individual_results_available(cls, show_correctness='', due_date=None, has_staff_access=False):
+        """
+        Returns whether individual problem results are currently available to users with or without staff access.
+        """
+        if show_correctness == cls.NEVER_BUT_INCLUDE_GRADE and not has_staff_access:
+            return False
+        return cls.correctness_available(show_correctness, due_date, has_staff_access)

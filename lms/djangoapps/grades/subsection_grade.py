@@ -61,6 +61,12 @@ class SubsectionGradeBase(metaclass=ABCMeta):
         """
         return ShowCorrectness.correctness_available(self.show_correctness, self.due, has_staff_access)
 
+    def show_individual_results(self, has_staff_access):
+        """
+        Returns whether individual problem results are currently available to users with or without staff access.
+        """
+        return ShowCorrectness.individual_results_available(self.show_correctness, self.due, has_staff_access)
+
     @property
     def attempted_graded(self):
         """

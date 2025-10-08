@@ -290,9 +290,11 @@ class CourseGrade(CourseGradeBase):
         if visible_grades_only:
             for chapter in self.chapter_grades.values():
                 for subsection_grade in chapter["sections"]:
-                    if subsection_grade.graded and not subsection_grade.show_grades(has_staff_access):
-                        subsection_grade.graded_total.earned = 0.0
-                        subsection_grade.problem_scores = {}
+                    if subsection_grade.graded:
+                        if not subsection_grade.show_grades(has_staff_access):
+                            subsection_grade.graded_total.earned = 0.0
+                        if not subsection_grade.show_individual_results(has_staff_access):
+                            subsection_grade.problem_scores = {}
 
         grade_cutoffs = self.course_data.course.grade_cutoffs
         grader_result = self.grader_result()
