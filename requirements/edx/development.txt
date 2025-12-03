@@ -16,12 +16,16 @@ acid-xblock==0.3.1
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
-aiohttp>=3.10
+aiohappyeyeballs==2.4.4
+    # via
+    #   -r requirements/edx/doc.txt
+    #   -r requirements/edx/testing.txt
+    #   aiohttp
+aiohttp==3.10.5
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   geoip2
-    #   openai
 aiosignal==1.3.1
     # via
     #   -r requirements/edx/doc.txt
@@ -54,10 +58,12 @@ annotated-types==0.6.0
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   pydantic
-anyio==4.3.0
+anyio==4.5.2
     # via
+    #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   httpx
+    #   openai
     #   starlette
     #   watchfiles
 appdirs==1.4.4
@@ -347,6 +353,11 @@ distlib==0.3.8
     # via
     #   -r requirements/edx/testing.txt
     #   virtualenv
+distro==1.9.0
+    # via
+    #   -r requirements/edx/doc.txt
+    #   -r requirements/edx/testing.txt
+    #   openai
 django==4.2.16
     # via
     #   -c requirements/edx/../common_constraints.txt
@@ -900,8 +911,9 @@ event-tracking==2.4.0
     #   edx-completion
     #   edx-proctoring
     #   edx-search
-exceptiongroup==1.2.2
+exceptiongroup==1.3.1
     # via
+    #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   anyio
     #   pytest
@@ -983,8 +995,9 @@ gunicorn==22.0.0
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
-h11==0.14.0
+h11==0.16.0
     # via
+    #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   httpcore
     #   uvicorn
@@ -997,8 +1010,9 @@ html5lib==1.1
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   ora2
-httpcore==1.0.5
+httpcore==1.0.9
     # via
+    #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   httpx
 httpretty==1.1.4
@@ -1007,10 +1021,12 @@ httptools==0.6.1
     # via
     #   -r requirements/edx/testing.txt
     #   uvicorn
-httpx==0.27.0
+httpx==0.28.1
     # via
+    #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   fastapi
+    #   openai
 icalendar==5.0.12
     # via
     #   -r requirements/edx/doc.txt
@@ -1090,6 +1106,11 @@ jinja2==3.1.4
     #   diff-cover
     #   fastapi
     #   sphinx
+jiter==0.9.1
+    # via
+    #   -r requirements/edx/doc.txt
+    #   -r requirements/edx/testing.txt
+    #   openai
 jmespath==1.0.1
     # via
     #   -r requirements/edx/doc.txt
@@ -1311,9 +1332,8 @@ olxcleaner==0.3.0
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
-openai
+openai==2.2.0
     # via
-    #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   edx-enterprise
@@ -1520,6 +1540,7 @@ pydantic==2.7.1
     #   -r requirements/edx/testing.txt
     #   camel-converter
     #   fastapi
+    #   openai
 pydantic-core==2.18.2
     # via
     #   -r requirements/edx/doc.txt
@@ -1804,7 +1825,6 @@ requests==2.31.0
     #   geoip2
     #   mailsnake
     #   meilisearch
-    #   openai
     #   optimizely-sdk
     #   pact-python
     #   pyjwkest
@@ -1933,9 +1953,10 @@ smmap==5.0.1
     #   gitdb
 sniffio==1.3.1
     # via
+    #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   anyio
-    #   httpx
+    #   openai
 snowballstemmer==2.2.0
     # via
     #   -r requirements/edx/doc.txt
@@ -2129,12 +2150,14 @@ typing-extensions==4.11.0
     #   djangorestframework-stubs
     #   drf-spectacular
     #   edx-opaque-keys
+    #   exceptiongroup
     #   fastapi
     #   grimp
     #   import-linter
     #   jwcrypto
     #   kombu
     #   mypy
+    #   openai
     #   pact-python
     #   pydantic
     #   pydantic-core
@@ -2172,7 +2195,6 @@ uritemplate==4.1.1
     #   drf-yasg
 urllib3==1.26.18
     # via
-    #   -c requirements/edx/../common_constraints.txt
     #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt

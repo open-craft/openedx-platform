@@ -86,7 +86,6 @@ typing-extensions==4.11.0
     #   semgrep
 urllib3==1.26.18
     # via
-    #   -c requirements/edx/../common_constraints.txt
     #   -c requirements/edx/../constraints.txt
     #   requests
     #   semgrep
