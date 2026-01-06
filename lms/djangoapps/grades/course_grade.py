@@ -93,7 +93,7 @@ class CourseGradeBase:
         )
         return self._get_subsection_grade(subsection)
 
-    def _graded_subsections_by_format(self):
+    def graded_subsections_by_format(self):
         """
         Returns grades for the subsections in the course in
         a dict keyed by subsection format types.
@@ -181,7 +181,7 @@ class CourseGradeBase:
         """
         course = self._prep_course_for_grading(self.course_data.course)
         return course.grader.grade(
-            self._graded_subsections_by_format(),
+            self.graded_subsections_by_format(),
             generate_random_scores=settings.GENERATE_PROFILE_SCORES,
         )
 
