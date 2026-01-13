@@ -82,6 +82,8 @@ class Thread(models.Model):
             else:
                 if user_id := params.get('user_id'):
                     params['user_id'] = str(user_id)
+                if params['commentable_ids']:
+                    params['commentable_ids'] = params['commentable_ids'].split(',')
                 response = forum_api.get_user_threads(**params)
         else:
             response = utils.perform_request(
