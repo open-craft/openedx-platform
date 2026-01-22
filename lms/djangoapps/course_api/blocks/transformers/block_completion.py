@@ -18,6 +18,7 @@ class BlockCompletionTransformer(BlockStructureTransformer):
     COMPLETION = 'completion'
     COMPLETE = 'complete'
     RESUME_BLOCK = 'resume_block'
+    OPTIONAL_COMPLETION = 'optional_completion'
 
     @classmethod
     def name(cls):
@@ -43,7 +44,7 @@ class BlockCompletionTransformer(BlockStructureTransformer):
 
     @classmethod
     def collect(cls, block_structure):
-        block_structure.request_xblock_fields('completion_mode')
+        block_structure.request_xblock_fields('completion_mode', cls.OPTIONAL_COMPLETION)
 
     @staticmethod
     def _is_block_excluded(block_structure, block_key):
