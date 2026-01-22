@@ -7,9 +7,10 @@ name: ShellCheck
 
 on:
   pull_request:
+  merge_group:
   push:
     branches:
-    - master
+      - master
 
 permissions:
   contents: read

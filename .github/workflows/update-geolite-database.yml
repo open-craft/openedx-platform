@@ -6,25 +6,25 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Target branch against which to create PR'
+        description: "Target branch against which to create PR"
         required: false
-        default: 'master'
+        default: "master"
 
 env:
-  MAXMIND_URL: 'https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${{ secrets.MAXMIND_LICENSE_KEY }}&suffix=tar.gz'
-  MAXMIND_SHA256_URL: 'https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${{ secrets.MAXMIND_LICENSE_KEY }}&suffix=tar.gz.sha256'
-  TAR_FILE_NAME: 'GeoLite2-Country.tar.gz'
-  TAR_SHA256_FILE_NAME: 'GeoLite2-Country.tar.gz.sha256'
-  TAR_UNZIPPED_ROOT_PATTERN: 'GeoLite2-Country_*'
-  DB_FILE: 'GeoLite2-Country.mmdb'
-  DB_DESTINATION_PATH: 'common/static/data/geoip'
+  MAXMIND_URL: "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${{ secrets.MAXMIND_LICENSE_KEY }}&suffix=tar.gz"
+  MAXMIND_SHA256_URL: "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${{ secrets.MAXMIND_LICENSE_KEY }}&suffix=tar.gz.sha256"
+  TAR_FILE_NAME: "GeoLite2-Country.tar.gz"
+  TAR_SHA256_FILE_NAME: "GeoLite2-Country.tar.gz.sha256"
+  TAR_UNZIPPED_ROOT_PATTERN: "GeoLite2-Country_*"
+  DB_FILE: "GeoLite2-Country.mmdb"
+  DB_DESTINATION_PATH: "common/static/data/geoip"
 
 jobs:
   download-and-replace:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download GeoLite tar file
         run: |
@@ -69,7 +69,7 @@ jobs:
       - name: Create a branch, commit the code and make a PR
         id: create-pr
         run: |
-          BRANCH="${{ github.actor }}/geoip2-bot-update-country-database-$(echo "${{ github.sha }}" | cut -c 1-7)"
+          BRANCH="${{ github.actor }}/geoip2-bot-update-country-database-${{ github.run_id }}"
           git checkout -b $BRANCH
           git add .
           git status
