@@ -81,6 +81,7 @@ class CourseMetadata:
         'highlights_enabled_for_messaging',
         'is_onboarding_exam',
         'discussions_settings',
+        'optional_completion',
     ]
 
     @classmethod

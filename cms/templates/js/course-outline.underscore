@@ -30,6 +30,8 @@ var addStatusMessage = function (statusType, message) {
     }
     else if (statusType === 'partition-groups') {
         statusIconClass = 'fa-eye';
+    } else if (statusType === 'optional-completion') {
+        statusIconClass = 'fa-lightbulb-o';
     }
 
     statusMessages.push({iconClass: statusIconClass, text: message});
@@ -103,6 +105,12 @@ if (xblockInfo.get('graded')) {
             xblockInfo.get('course_graders').filter((cg) => cg.toLowerCase() === gradingType.toLowerCase())
         ).length === 0;
     }
+}
+
+if (xblockInfo.get('optional_completion') && !xblockInfo.get('ancestor_has_optional_completion')) {
+    messageType = 'optional-completion';
+    messageText = gettext('Optional completion');
+    addStatusMessage(messageType, messageText);
 }
 
 var is_proctored_exam = xblockInfo.get('is_proctored_exam');

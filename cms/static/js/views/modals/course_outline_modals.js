@@ -20,7 +20,7 @@ define(['jquery', 'backbone', 'underscore', 'gettext', 'js/views/baseview',
         StaffLockEditor, UnitAccessEditor, ContentVisibilityEditor, TimedExaminationPreferenceEditor,
         AccessEditor, ShowCorrectnessEditor, HighlightsEditor, HighlightsEnableXBlockModal, HighlightsEnableEditor,
         DiscussionEditor, SummaryConfigurationEditor, SubsectionShareLinkXBlockModal, FullPageShareLinkEditor,
-        EmbedLinkShareLinkEditor;
+        EmbedLinkShareLinkEditor, OptionalCompletionEditor;
 
     CourseOutlineXBlockModal = BaseModal.extend({
         events: _.extend({}, BaseModal.prototype.events, {
@@ -1359,6 +1359,50 @@ define(['jquery', 'backbone', 'underscore', 'gettext', 'js/views/baseview',
         }
     });
 
+    OptionalCompletionEditor = AbstractEditor.extend({
+        templateName: 'optional-completion-editor',
+        className: 'edit-optional-completion',
+
+        afterRender: function() {
+            AbstractEditor.prototype.afterRender.call(this);
+            this.setValue(this.model.get('optional_completion'));
+        },
+
+        setValue: function(value) {
+            this.$('input[name=optional_completion]').prop('checked', value);
+        },
+
+        currentValue: function() {
+            return this.$('input[name=optional_completion]').is(':checked');
+        },
+
+        hasChanges: function() {
+            return this.model.get('optional_completion') !== this.currentValue();
+        },
+
+        getRequestData: function() {
+            if (this.hasChanges()) {
+                return {
+                    publish: 'republish',
+                    metadata: {
+                        // This variable relies on the inheritance mechanism, so we want to unset it instead of
+                        // explicitly setting it to `false`.
+                        optional_completion: this.currentValue() || null
+                    }
+                };
+            } else {
+                return {};
+            }
+        },
+
+        getContext: function() {
+            return {
+                optional_completion: this.model.get('optional_completion'),
+                optional_ancestor: this.model.get('ancestor_has_optional_completion')
+            };
+        },
+    });
+
     return {
         getModal: function(type, xblockInfo, options) {
             if (type === 'edit') {
@@ -1424,6 +1468,14 @@ define(['jquery', 'backbone', 'underscore', 'gettext', 'js/views/baseview',
                     if (advancedTab.editors.length > 0) {
                         tabs.push(advancedTab);
                     }
+                }
+            }
+
+            if (course.get('completion_tracking_enabled')) {
+                if (tabs.length > 0) {
+                    tabs[0].editors.push(OptionalCompletionEditor);
+                } else {
+                    editors.push(OptionalCompletionEditor);
                 }
             }
 
