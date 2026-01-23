@@ -5,6 +5,7 @@ to audit the XBlocks used.
 
 import csv
 import sys
+from typing import TextIO
 
 from django.core.management.base import BaseCommand
 
@@ -42,7 +43,10 @@ class Command(BaseCommand):
                 generate_xblocks_csv(file_handle, exclude_core_xblocks)
 
 
-def generate_xblocks_csv(file_handle, exclude_core_xblocks):
+def generate_xblocks_csv(file_handle: TextIO, exclude_core_xblocks: bool):
+    """
+    Generate the CSV and write it to `file_handle`.
+    """
     overviews = CourseOverview.objects.all().order_by("id")
 
     writer = csv.writer(file_handle)
@@ -79,6 +83,7 @@ def generate_xblocks_csv(file_handle, exclude_core_xblocks):
                 or component.location.block_type not in CORE_XBLOCKS
             )
         except:  # pylint: disable=bare-except
-            self.stderr.write(
-                f"Failed retrieving course {overview.id} from modulestore"
+            print(
+                f"Failed retrieving course {overview.id} from modulestore",
+                file=sys.stderr
             )
