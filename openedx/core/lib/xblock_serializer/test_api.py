@@ -76,6 +76,7 @@ EXPECTED_OPENASSESSMENT_OLX = """
     text_response_editor="text"
     allow_multiple_files="True"
     allow_latex="False"
+    allow_learner_resubmissions="False"
     prompts_type="text"
     teams_enabled="False"
     selected_teamset_id=""
@@ -100,7 +101,7 @@ EXPECTED_OPENASSESSMENT_OLX = """
         <select criterion="Content" option="Good"/>
       </example>
     </assessment>
-    <assessment name="peer-assessment" must_grade="5" must_be_graded_by="3" enable_flexible_grading="False" start="2001-01-01T00:00" due="2029-01-01T00:00"/>
+    <assessment name="peer-assessment" must_grade="5" must_be_graded_by="3" enable_flexible_grading="False" grading_strategy="median" start="2001-01-01T00:00" due="2029-01-01T00:00"/>
     <assessment name="self-assessment" start="2001-01-01T00:00" due="2029-01-01T00:00"/>
     <assessment name="staff-assessment" start="2001-01-01T00:00" due="2029-01-01T00:00" required="False"/>
   </assessments>
