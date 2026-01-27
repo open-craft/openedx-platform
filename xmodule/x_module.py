@@ -651,6 +651,18 @@ class XModuleMixin(XModuleFields, XBlock):
 
             metadata_fields[field.name] = self._create_metadata_editor_info(field)
 
+        # The `optional_completion` field can be either explicitly set or inherited from the parent.
+        # While we could query the parent's field, there is a special case that cannot be supported with the platform's
+        # completion calculations that count the completed units instead of individual XBlocks.
+        # If this field is explicitly set to False, then we want to show it in the metadata editor so that the author
+        # can reset it to the default inherited value.
+        if "optional_completion" in self.fields:
+            has_explicitly_set_optional_completion = self.fields['optional_completion'].is_set_on(self)
+            if not self.optional_completion or has_explicitly_set_optional_completion:
+                metadata_fields["optional_completion"] = self._create_metadata_editor_info(
+                    self.fields["optional_completion"]
+                )
+
         return metadata_fields
 
     def _create_metadata_editor_info(self, field):

@@ -236,7 +236,7 @@ class EditableMetadataFieldsTest(unittest.TestCase):
         editable_fields = self.get_xml_editable_fields(DictFieldData({}))
         # Tests that the xblock fields (currently tags and name) get filtered out.
         # Also tests that xml_attributes is filtered out of XmlMixin.
-        assert 1 == len(editable_fields), editable_fields
+        assert 2 == len(editable_fields), editable_fields
         self.assert_field_values(
             editable_fields, 'display_name', XModuleMixin.display_name,
             explicitly_set=False, value=None, default_value=None
@@ -253,7 +253,7 @@ class EditableMetadataFieldsTest(unittest.TestCase):
     def test_integer_field(self):
         block = self.get_block(DictFieldData({'max_attempts': '7'}))
         editable_fields = block.editable_metadata_fields
-        assert 8 == len(editable_fields)
+        assert 9 == len(editable_fields)
         self.assert_field_values(
             editable_fields, 'max_attempts', TestFields.max_attempts,
             explicitly_set=True, value=7, default_value=1000, type='Integer',

@@ -23,6 +23,7 @@ from pytz import UTC
 from web_fragments.fragment import Fragment
 from xblock.core import XBlock
 from xblock.exceptions import InvalidScopeError
+from xblock.fields import Scope
 from xblock.scorable import ScorableXBlockMixin
 
 from common.djangoapps import static_replace
@@ -140,6 +141,13 @@ def wrap_xblock(
 
     if block.name:
         data['name'] = block.name
+
+    # We check whether the block is explicitly set as optional because this information is already displayed for units
+    # in the Learning MFE.
+    has_children = getattr(block, "children", False)
+    is_explicitly_optional = block.get_explicitly_set_fields_by_scope(Scope.settings).get('optional_completion', False)
+    if view != STUDIO_VIEW and not has_children and is_explicitly_optional:
+        data['is-optional'] = getattr(block, 'optional_completion', False)
 
     template_context = {
         'content': block.display_name if display_name_only else frag.content,
