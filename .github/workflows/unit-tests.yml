@@ -92,6 +92,23 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # MD4 hash in python hashlib works with python 3.11 on ubuntu 20.04, which is the target environment.
+      # It does not work out of the box on ubuntu 24.04 though, so we need this fix.
+      - name: Fix support for python hashlib md4 algorithm
+        run: |
+          sudo tee -a /etc/ssl/openssl.cnf <<EOF
+
+          [provider_sect]
+          default = default_sect
+          legacy = legacy_sect
+
+          [default_sect]
+          activate = 1
+
+          [legacy_sect]
+          activate = 1
+          EOF
+
       - name: install requirements
         run: |
           make test-requirements
