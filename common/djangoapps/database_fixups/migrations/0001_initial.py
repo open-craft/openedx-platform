@@ -13,7 +13,7 @@ def add_email_uniqueness_constraint(apps, schema_editor):
     cursor = schema_editor.connection.cursor()
     constraints = schema_editor.connection.introspection.get_constraints(cursor, "auth_user")
     email_constraint = constraints.get("email", {})
-    if email_constraint.get("columns") == ["email"] and email_constraint.get("unique") == True:
+    if email_constraint.get("columns") == ["email"] and email_constraint.get("unique"):
         # We already have the constraint, we're done.
         return
 

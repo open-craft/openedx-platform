@@ -1552,10 +1552,6 @@ pycasbin==2.7.1
     #   -r requirements/edx/testing.txt
     #   casbin-django-orm-adapter
     #   openedx-authz
-pycodestyle==2.8.0
-    # via
-    #   -c requirements/constraints.txt
-    #   -r requirements/edx/testing.txt
 pycountry==24.6.1
     # via
     #   -r requirements/edx/doc.txt
@@ -1876,6 +1872,8 @@ rsa==4.9.1
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   google-auth
+ruff==0.14.14
+    # via -r requirements/edx/testing.txt
 rules==3.5
     # via
     #   -r requirements/edx/doc.txt
