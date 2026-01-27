@@ -2,6 +2,7 @@ name: static assets check for lms and cms
 
 on:
   pull_request:
+  merge_group:
   push:
     branches:
       - master
@@ -12,11 +13,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-20.04 ]
-        python-version: [ '3.8', '3.11' ]
+        os: [ubuntu-24.04]
+        python-version:
+          - "3.11"
         node-version: [ 18 ]
-        npm-version: [ 10.5.x ]
-        mongo-version: ["4.4", "7.0"]
+        npm-version: [10.7.x]
+        mongo-version:
+          - "7.0"
 
     services:
       mongo:
@@ -32,55 +35,52 @@ jobs:
           --health-retries 3
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v2
+      - name: Checkout repo
+        uses: actions/checkout@v6
 
-    - name: Setup Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install system Packages
-      run: |
-        sudo apt-get update
-        sudo apt-get install libxmlsec1-dev pkg-config
+      - name: Install system Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install libxmlsec1-dev pkg-config
 
-    - name: Setup Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
 
-    - name: Setup npm
-      run: npm i -g npm@${{ matrix.npm-version }}
+      - name: Setup npm
+        run: npm i -g npm@${{ matrix.npm-version }}
 
-    - name: Get pip cache dir
-      id: pip-cache-dir
-      run: |
-        echo "::set-output name=dir::$(pip cache dir)"
+      - name: Get pip cache dir
+        id: pip-cache-dir
+        run: |
+          echo "dir=$(pip cache dir)" >> $GITHUB_OUTPUT
 
-    - name: Cache pip dependencies
-      id: cache-dependencies
-      uses: actions/cache@v3
-      with:
-        path: ${{ steps.pip-cache-dir.outputs.dir }}
-        key: ${{ runner.os }}-pip-${{ hashFiles('requirements/edx/development.txt') }}
-        restore-keys: ${{ runner.os }}-pip-
+      - name: Cache pip dependencies
+        id: cache-dependencies
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pip-cache-dir.outputs.dir }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements/edx/development.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
 
-    - name: Install Required Python Dependencies
-      run: |
-        make base-requirements
+      - name: Install Required Python Dependencies
+        run: |
+          make base-requirements
 
-    - name: Initiate Mongo DB Service
-      run: sudo systemctl start mongod
+      - name: Add node_modules bin to $Path
+        run: echo $GITHUB_WORKSPACE/node_modules/.bin >> $GITHUB_PATH
 
-    - name: Add node_modules bin to $Path
-      run: echo $GITHUB_WORKSPACE/node_modules/.bin >> $GITHUB_PATH
+      - name: Run Static Assets Check
+        env:
+          LMS_CFG: lms/envs/minimal.yml
+          CMS_CFG: lms/envs/minimal.yml
 
-    - name: Run Static Assets Check
-      env:
-        LMS_CFG: lms/envs/minimal.yml
-        CMS_CFG: lms/envs/minimal.yml
-
-      run: |
-        paver update_assets lms --theme-dirs ./themes
-        paver update_assets cms --theme-dirs ./themes
+        run: |
+          paver update_assets lms --theme-dirs ./themes
+          paver update_assets cms --theme-dirs ./themes

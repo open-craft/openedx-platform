@@ -2,13 +2,14 @@ name: Pylint Checks
 
 on:
   pull_request:
+  merge_group:
   push:
     branches:
       - master
 
 jobs:
   run-pylint:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -31,24 +32,24 @@ jobs:
     name: pylint ${{ matrix.module-name }}
     steps:
       - name: Check out repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
 
       - name: Install required system packages
         run: sudo apt-get update && sudo apt-get install libxmlsec1-dev
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
 
       - name: Get pip cache dir
         id: pip-cache-dir
         run: |
-          echo "::set-output name=dir::$(pip cache dir)"
+          echo "dir=$(pip cache dir)" >> $GITHUB_OUTPUT
 
       - name: Cache pip dependencies
         id: cache-dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ${{ steps.pip-cache-dir.outputs.dir }}
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements/edx/development.txt') }}
@@ -75,7 +76,7 @@ jobs:
     if: always()
     needs:
       - run-pylint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Decide whether the needed jobs succeeded or failed
         # uses: re-actors/alls-green@v1.2.1
