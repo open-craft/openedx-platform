@@ -34,7 +34,13 @@ class SplitModulestoreCourseIndex(models.Model):
     # For compatibility with MongoDB, each course index must have an ObjectId. We still have an integer primary key too.
     objectid = models.CharField(max_length=24, null=False, blank=False, unique=True)
 
-    # The ID of this course (or library). Must start with "course-v1:" or "library-v1:"
+    # course_id: The ID of this course (or library). Must start with "course-v1:" or "library-v1:"
+    # This is case-sensitive, because migration 0001 sets this table's collation to 'utf8_bin' for consistency with
+    # MongoDB. However, many other parts of the system aren't case sensitive, so we add an explicit index on
+    # Lower(course_id) to make this case-insensitively unique as well.
+    # So: (1) queries of course_id by default are case-sensitive. (2) queries that want to be case-insensitive need to
+    # explicitly compare Lower(course_id) with the lowercase key in question. (3) Course IDs that differ only in case
+    # are prohibited.
     course_id = LearningContextKeyField(max_length=255, db_index=True, unique=True, null=False)
     # Extract the "org" value from the course_id key so that we can search by org.
     # This gets set automatically by clean()
@@ -81,6 +87,13 @@ class SplitModulestoreCourseIndex(models.Model):
     class Meta:
         ordering = ["course_id"]
         verbose_name_plural = "Split modulestore course indexes"
+        constraints = [
+            # Explicitly force "course_id" to be case-insensitively unique
+            models.UniqueConstraint(
+                models.functions.Lower("course_id"),
+                name="splitmodulestorecourseindex_courseid_unique_ci",
+            ),
+        ]
 
     def as_v1_schema(self):
         """ Return in the same format as was stored in MongoDB """
