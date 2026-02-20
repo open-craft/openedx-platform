@@ -173,6 +173,6 @@ class SplitModulestoreCourseIndex(models.Model):
     def save(self, *args, **kwargs):
         """ Save this model """
         # Override to ensure that full_clean()/clean() is always called, so that the checks in clean() above are run.
-        # But don't validate_unique(), it just runs extra queries and the database enforces it anyways.
-        self.full_clean(validate_unique=False)
+        # But don't run validations; they just run extra queries and the database enforces them anyways.
+        self.full_clean(validate_unique=False, validate_constraints=False)
         return super().save(*args, **kwargs)
