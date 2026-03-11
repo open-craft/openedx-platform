@@ -241,7 +241,7 @@ class ProgramLTI(ABC):
 
         return lti_embed(
             html_element_id='lti-tab-launcher',
-            lti_consumer=self.configuration.lti_configuration.get_lti_consumer(),
+            lti_consumer=self.configuration.lti_configuration.get_lti_consumer(resource_link_id),
             resource_link_id=quote(resource_link_id),
             user_id=quote(anonymous_id_for_user(self.request.user, None)),
             roles=self.get_user_roles(),
