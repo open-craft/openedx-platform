@@ -11,7 +11,7 @@ from django.utils.translation import get_language, gettext_lazy, to_locale
 from lti_consumer.api import get_lti_pii_sharing_state_for_course
 from lti_consumer.lti_1p1.contrib.django import lti_embed
 from lti_consumer.models import LtiConfiguration
-from opaque_keys.edx.keys import CourseKey
+from opaque_keys.edx.keys import CourseKey, UsageKey
 from web_fragments.fragment import Fragment
 
 from lms.djangoapps.courseware.access import get_user_role
@@ -128,7 +128,9 @@ class LtiCourseLaunchMixin:
         """
         course_key = course.id
         lti_config = self._get_lti_config(course)
-        lti_consumer = lti_config.get_lti_consumer()
+        lti_consumer = lti_config.get_lti_consumer(UsageKey.from_string(
+            'block-v1:edX+DemoX+Demo_Course+type@lti_consumer+block@2152d4a4aadc4cb0af5256394a3d1fc7'
+        ))
         user_id = quote(self._get_user_id(request.user, course_key))
         context_id = quote(self._get_context_id(course_key))
         resource_link_id = quote(self._get_resource_link_id(course_key, request))
