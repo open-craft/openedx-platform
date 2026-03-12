@@ -30,6 +30,7 @@ from xmodule.contentstore.content import StaticContent
 from xmodule.contentstore.django import contentstore
 from xmodule.exceptions import NotFoundError
 from xmodule.modulestore.django import modulestore
+from xmodule.modulestore.exceptions import ItemNotFoundError
 from xmodule.xml_block import XmlMixin
 from openedx.core.djangoapps.video_config.transcripts_utils import Transcript, build_components_import_path
 from edxval.api import (
@@ -592,7 +593,11 @@ def _import_xml_node_to_parent(
         raise NotImplementedError("We don't yet support pasting XBlocks with children")
 
     if node_copied_from:
-        _fetch_and_set_upstream_link(node_copied_from, node_copied_version, temp_xblock, user)
+        try:
+            _fetch_and_set_upstream_link(node_copied_from, node_copied_version, temp_xblock, user)
+        except ItemNotFoundError:
+            # We don't have a version of the node being copied. Skip setting upstream link
+            log.warning("Could not find original node '%s' in modulestore to set upstream link.", node_copied_from)
 
     # Save the XBlock into modulestore. We need to save the block and its parent for this to work:
     new_xblock = store.update_item(temp_xblock, user.id, allow_not_found=True)
