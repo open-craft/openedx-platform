@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 import ddt
 from django.test import RequestFactory
+from lti_consumer.utils import CONFIG_ON_DB
 from lti_consumer.models import CourseAllowPIISharingInLTIFlag, LtiConfiguration
 
 from lms.djangoapps.courseware.tests.test_tabs import TabTestCase
@@ -26,7 +27,7 @@ class DiscussionLtiCourseTabTestCase(TabTestCase):
             provider_type="yellowdig",
         )
         self.discussion_config.lti_configuration = LtiConfiguration.objects.create(
-            config_store=LtiConfiguration.CONFIG_ON_DB,
+            config_store=CONFIG_ON_DB,
             lti_1p1_launch_url='http://test.url',
             lti_1p1_client_key='test_client_key',
             lti_1p1_client_secret='test_client_secret',
