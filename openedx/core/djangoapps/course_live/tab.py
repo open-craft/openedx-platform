@@ -4,6 +4,7 @@ Configurations to render Course Live Tab
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.utils.translation import gettext_lazy
 from lti_consumer.models import LtiConfiguration
+from lti_consumer.utils import CONFIG_ON_DB
 from opaque_keys.edx.keys import CourseKey
 
 from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole, GlobalStaff
@@ -73,7 +74,7 @@ class CourseLiveTab(LtiCourseLaunchMixin, TabFragmentViewMixin, EnrolledTab):
                     lti_1p1_client_key=provider.key,
                     lti_1p1_client_secret=provider.secret,
                     version='lti_1p1',
-                    config_store=LtiConfiguration.CONFIG_ON_DB,
+                    config_store=CONFIG_ON_DB,
                 )
             else:
                 raise ValueError("Provider does not support global credentials")

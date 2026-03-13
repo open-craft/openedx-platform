@@ -6,6 +6,7 @@ import ddt
 from django.test import RequestFactory
 from django.urls import reverse
 from lti_consumer.models import CourseAllowPIISharingInLTIFlag, LtiConfiguration
+from lti_consumer.utils import CONFIG_ON_DB
 from markupsafe import Markup
 from rest_framework.test import APITestCase
 from xmodule.modulestore import ModuleStoreEnum
@@ -414,7 +415,7 @@ class TestCourseLiveIFrameView(ModuleStoreTestCase, APITestCase):
             provider_type="zoom",
         )
         live_config.lti_configuration = LtiConfiguration.objects.create(
-            config_store=LtiConfiguration.CONFIG_ON_DB,
+            config_store=CONFIG_ON_DB,
             lti_config={
                 "pii_share_username": 'true',
                 "pii_share_email": 'true',

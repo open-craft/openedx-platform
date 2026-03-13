@@ -8,6 +8,7 @@ import ddt
 from django.urls import reverse_lazy
 from edx_toggles.toggles.testutils import override_waffle_flag
 from lti_consumer.models import LtiConfiguration
+from lti_consumer.utils import CONFIG_ON_DB
 from markupsafe import Markup
 from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase
 from xmodule.modulestore.tests.factories import CourseFactory as ModuleStoreCourseFactory
@@ -109,7 +110,7 @@ class TestProgramDiscussionIframeView(SharedModuleStoreTestCase, ProgramCacheMix
             provider_type="piazza",
         )
         discussion_config.lti_configuration = LtiConfiguration.objects.create(
-            config_store=LtiConfiguration.CONFIG_ON_DB,
+            config_store=CONFIG_ON_DB,
             lti_1p1_launch_url='http://test.url',
             lti_1p1_client_key='test_client_key',
             lti_1p1_client_secret='test_client_secret',

@@ -4,6 +4,7 @@ Serializers for Discussion views.
 from django.core.exceptions import ValidationError
 from lti_consumer.api import get_lti_pii_sharing_state_for_course
 from lti_consumer.models import LtiConfiguration
+from lti_consumer.utils import CONFIG_ON_DB
 from rest_framework import serializers
 from xmodule.modulestore.django import modulestore
 
@@ -50,7 +51,7 @@ class LtiSerializer(serializers.ModelSerializer):
         Create/update a model-backed instance
         """
         instance = instance or LtiConfiguration()
-        instance.config_store = LtiConfiguration.CONFIG_ON_DB
+        instance.config_store = CONFIG_ON_DB
         pii_sharing_allowed = self.context.get('pii_sharing_allowed', False)
         if validated_data:
             for key, value in validated_data.items():

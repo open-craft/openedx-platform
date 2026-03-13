@@ -4,6 +4,7 @@ Serializers for course live views.
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from lti_consumer.models import LtiConfiguration
+from lti_consumer.utils import CONFIG_ON_DB
 from rest_framework import serializers
 
 from .models import CourseLiveConfiguration
@@ -50,7 +51,7 @@ class LtiSerializer(serializers.ModelSerializer):
         lti_config = validated_data.pop('lti_config', None)
         instance = LtiConfiguration()
         instance.version = 'lti_1p1'
-        instance.config_store = LtiConfiguration.CONFIG_ON_DB
+        instance.config_store = CONFIG_ON_DB
 
         for key, value in validated_data.items():
             if key in set(self.Meta.fields).difference(self.Meta.read_only):
@@ -69,7 +70,7 @@ class LtiSerializer(serializers.ModelSerializer):
         """
         Create/update a model-backed instance
         """
-        instance.config_store = LtiConfiguration.CONFIG_ON_DB
+        instance.config_store = CONFIG_ON_DB
         lti_config = validated_data.pop('lti_config', None)
         if lti_config.get('additional_parameters', None):
             instance.lti_config['additional_parameters'] = lti_config.get('additional_parameters', {})
