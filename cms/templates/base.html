@@ -8,6 +8,7 @@
 ## Standard imports
 <%namespace name='static' file='static_content.html'/>
 <%!
+from completion.waffle import ENABLE_COMPLETION_TRACKING_SWITCH
 from django.utils.translation import gettext as _
 
 from cms.djangoapps.contentstore.config.waffle import CUSTOM_RELATIVE_DATES
@@ -175,7 +176,8 @@ from openedx.core.release import RELEASE_LINE
           self_paced: ${ context_course.self_paced | n, dump_js_escaped_json },
           is_custom_relative_dates_active: ${CUSTOM_RELATIVE_DATES.is_enabled(context_course.id) | n, dump_js_escaped_json},
           start: ${context_course.start | n, dump_js_escaped_json},
-          discussions_settings: ${context_course.discussions_settings | n, dump_js_escaped_json}
+          discussions_settings: ${context_course.discussions_settings | n, dump_js_escaped_json},
+          completion_tracking_enabled: ${ENABLE_COMPLETION_TRACKING_SWITCH.is_enabled() | n, dump_js_escaped_json},
         });
       </script>
     % endif

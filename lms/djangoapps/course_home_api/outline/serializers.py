@@ -50,6 +50,7 @@ class CourseBlockSerializer(serializers.Serializer):
             block_key: {
                 'children': [child['id'] for child in children],
                 'complete': block.get('complete', False),
+                'optional_completion': block.get('optional_completion', False),
                 'description': description,
                 'display_name': display_name,
                 'due': block.get('due'),

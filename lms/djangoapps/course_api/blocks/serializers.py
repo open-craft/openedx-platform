@@ -85,6 +85,7 @@ SUPPORTED_FIELDS = [
     SupportedFieldType(BlockCompletionTransformer.COMPLETION, BlockCompletionTransformer),
     SupportedFieldType(BlockCompletionTransformer.COMPLETE),
     SupportedFieldType(BlockCompletionTransformer.RESUME_BLOCK),
+    SupportedFieldType(BlockCompletionTransformer.OPTIONAL_COMPLETION),
     SupportedFieldType(DiscussionsTopicLinkTransformer.EXTERNAL_ID),
     SupportedFieldType(DiscussionsTopicLinkTransformer.EMBED_URL),
 

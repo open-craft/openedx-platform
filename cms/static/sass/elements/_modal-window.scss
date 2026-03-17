@@ -830,6 +830,7 @@
 
     .edit-discussion,
     .edit-staff-lock,
+    .edit-optional-completion,
     .summary-configuration,
     .edit-content-visibility,
     .edit-unit-access {
@@ -915,9 +916,18 @@
     }
   }
 
+  .edit-optional-completion {
+    .field-message {
+      @extend %t-copy-sub1;
+      color: $gray-d1;
+      margin-bottom: ($baseline/4);
+    }
+  }
+
   .edit-discussion,
   .edit-unit-access,
   .edit-staff-lock,
+  .edit-optional-completion,
   .summary-configuration {
     .modal-section-content {
       @include font-size(16);
@@ -961,6 +971,7 @@
   .edit-discussion,
   .edit-unit-access,
   .edit-staff-lock,
+  .edit-optional-completion,
   .summary-configuration {
     .modal-section-content {
       @include font-size(16);

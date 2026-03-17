@@ -1,0 +1,26 @@
+<form>
+<h3 class="modal-section-title">
+    <%- gettext('Completion') %>
+</h3>
+<div class="modal-section-content optional-completion">
+    <label class="label">
+	    <% if (optional_ancestor) { %>
+		    <input disabled type="checkbox" id="optional_completion" name="optional_completion"
+		          class="input input-checkbox" />
+			<%- gettext('Optional') %>
+	        <p class="tip tip-warning">
+	            <% var message = gettext('This %(xblockType)s already has an optional parent.') %>
+	            <%- interpolate(message, { xblockType: xblockType }, true) %>
+	        </p>
+	    <% } else { %>
+		    <input type="checkbox" id="optional_completion" name="optional_completion"
+		          class="input input-checkbox" />
+			<%- gettext('Optional') %>
+          <% } %>
+        <p class="field-message">
+            <% var message = gettext('Optional %(xblockType)ss won\'t count towards course or parent completion.') %>
+            <%- interpolate(message, { xblockType: xblockType }, true) %>
+        </p>
+	</label>
+</div>
+</form>
