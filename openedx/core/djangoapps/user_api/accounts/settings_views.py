@@ -83,6 +83,18 @@ def account_settings(request):
         context, account_settings_template = AccountSettingsRenderStarted.run_filter(
             context=context, template_name=account_settings_template,
         )
+
+        # If the user has a connected third party auth provider that is in the list of providers specified in
+        # `THIRD_PARTY_AUTH_READ_ONLY_EMAIL_PROVIDERS``, we want to make the email field read-only.
+        # We could have used the filter for this, but given that Ulmo no longer has the legacy Account Settings page,
+        # this is only temporary code.
+        target_providers = getattr(settings, 'THIRD_PARTY_AUTH_READ_ONLY_EMAIL_PROVIDERS', [])
+        providers = context.get('auth', {}).get('providers', [])
+        any_connected = any(p.get('id') in target_providers and p.get('connected', False) for p in providers)
+        if any_connected:
+            context['sync_learner_profile_data'] = True
+            context['enterprise_readonly_account_fields']['fields'].append('email')
+
     except AccountSettingsRenderStarted.RenderInvalidAccountSettings as exc:
         response = render_to_response(exc.account_settings_template, exc.template_context)
     except AccountSettingsRenderStarted.RedirectToPage as exc:
