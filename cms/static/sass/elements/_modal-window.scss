@@ -406,32 +406,11 @@
     display: flex;
     flex-direction: column;
 
-
-    // Set the components to flex so that they can grow
-    div,
-    form {
-      display: flex;
-      flex-direction: column;
-      flex-grow: 1;
-
       // Set the header to not grow
-      header,
       &.modal-header {
         flex-grow: 0;
       }
 
-    }
-
-    ul {
-      flex-grow: 1;
-
-      // Reset the divs inside the ul to preserve previous styling
-      div,
-      form {
-        display: unset;
-        flex-direction: unset;
-        flex-grow: unset;
-      }
     }
 
     &.modal-editor {
