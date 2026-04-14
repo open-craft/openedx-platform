@@ -7,6 +7,9 @@ from cms.djangoapps.course_creators.models import CourseCreator
 from common.djangoapps.student import auth
 from common.djangoapps.student.roles import CourseCreatorRole, OrgContentCreatorRole
 
+import logging
+log = logging.getLogger("studio.coursecreatoradmin")
+
 
 def add_user_with_status_unrequested(user):
     """
@@ -57,6 +60,7 @@ def update_org_content_creator_role(caller, user, orgs):
 
     Caller must have staff permissions.
     """
+    log.warning("Checking in update_org_content_creator_role")
     auth.update_org_role(caller, OrgContentCreatorRole, user, orgs)
 
 

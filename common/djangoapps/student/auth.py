@@ -39,6 +39,10 @@ STUDIO_NO_PERMISSIONS = 0
 # In addition to the above, one is always allowed to "demote" oneself to a lower role within a course, or remove oneself
 
 
+
+import logging
+log = logging.getLogger("studio.coursecreatoradmin")
+
 def is_ccx_course(course_key):
     """
     Check whether the course locator maps to a CCX course; this is important
@@ -313,14 +317,31 @@ def update_org_role(caller, role, user, orgs):
     :param user: an user for which org roles are updated
     :param orgs: List of organization names to update the org role
     """
+    log.warning("Checking in update_org_role")
     _check_caller_authority(caller, role())
+    log.warning("Caller authority checked")
     existing_org_roles = set(role().get_orgs_for_user(user))
+    log.warning(existing_org_roles)
     orgs_roles_to_create = list(set(orgs) - existing_org_roles)
+    log.warning(orgs_roles_to_create)
     org_roles_to_delete = list(existing_org_roles - set(orgs))
+    log.warning(org_roles_to_delete)
     for org in orgs_roles_to_create:
+        log.warning("**********************************")
+        log.warning("creating role for org")
+        log.warning(org)
+        log.warning(user)
         role(org=org).add_users(user)
+        log.warning("Created")
+        log.warning("**********************************")
     for org in org_roles_to_delete:
+        log.warning("**********************************")
+        log.warning("deleting role for org")
+        log.warning(org)
+        log.warning(user)
         role(org=org).remove_users(user)
+        log.warning("Deleted")
+        log.warning("**********************************")
 
 
 def _check_caller_authority(caller, role):
