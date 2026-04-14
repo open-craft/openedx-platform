@@ -429,14 +429,23 @@ class RoleBase(AccessRole):
         """
         # silently ignores anonymous and inactive users so that any that are
         # legit get updated.
+        log.warning("Legacy adding")
         from common.djangoapps.student.models import (  # lint-amnesty, pylint: disable=redefined-outer-name, reimported
             CourseAccessRole,
         )
         for user in users:
+            log.warning(user)
+            log.warning(user.is_authenticated)
+            log.warning(user.is_active)
             if user.is_authenticated and user.is_active:
+                log.warning("course access role being created")
+                log.warning(self._role_name)
+                log.warning(self.course_key)
+                log.warning(self.org)
                 CourseAccessRole.objects.get_or_create(
                     user=user, role=self._role_name, course_id=self.course_key, org=self.org
                 )
+                log.warning("course access role created")
                 if hasattr(user, '_roles'):
                     del user._roles
 
@@ -444,10 +453,15 @@ class RoleBase(AccessRole):
         """
         Add the supplied django users to this role.
         """
+        log.warning("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+        log.warning(users)
         if enable_authz_course_authoring(self.course_key):
+            log.warning("Authz")
             self._authz_add_users(users)
         else:
+            log.warning("Legacy")
             self._legacy_add_users(users)
+        log.warning("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
 
     def _authz_remove_users(self, users):
         """
