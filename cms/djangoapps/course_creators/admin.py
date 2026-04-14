@@ -199,17 +199,32 @@ def course_creator_organizations_changed_callback(sender, **kwargs):  # pylint: 
     """
     Callback for addition and removal of orgs field.
     """
-    log.warning("###################################")
+    log.warning("***********************************")
+    log.warning("***********************************")
     log.warning("course creator org changed")
-    log.warning("###################################")
+    log.warning("***********************************")
     instance = kwargs["instance"]
     action = kwargs["action"]
+    log.warning(instance)
+    log.warning(action)
+    log.warning("***********************************")
     orgs = list(instance.organizations.all().values_list('short_name', flat=True))
+    log.warning(orgs)
+    log.warning("***********************************")
     updated_state = instance.state
     is_granted = updated_state == CourseCreator.GRANTED
+    log.warning(updated_state)
+    log.warning(is_granted)
+    log.warning("***********************************")
     should_update_role = (
         (action in ["post_add", "post_remove"] and is_granted) or
         (action == "post_clear" and not is_granted)
     )
+    log.warning(should_update_role)
+    log.warning("***********************************")
     if should_update_role:
         update_org_content_creator_role(instance.admin, instance.user, orgs)
+        log.warning(instance.admin)
+        log.warning(instance.user)
+    log.warning("***********************************")
+    log.warning("***********************************")
