@@ -10,6 +10,9 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from organizations.models import Organization
 
+import logging
+log = logging.getLogger("coursecreatormodels")
+
 # A signal that will be sent when users should be added or removed from the creator group
 # providing_args=["caller", "user", "state", "organizations"]
 update_creator_state = Signal()
@@ -75,6 +78,9 @@ def post_save_callback(sender, **kwargs):
     """
     Extend to update state_changed time and fire event to update course creator group, if appropriate.
     """
+    log.warning("###################################")
+    log.warning("course creator status changed")
+    log.warning("###################################")
     instance = kwargs['instance']
     # We only wish to modify the state_changed time if the state has been modified. We don't wish to
     # modify it for changes to the notes field.

@@ -127,6 +127,9 @@ def update_creator_group_callback(sender, **kwargs):  # pylint: disable=unused-a
     """
     Callback for when the model's creator status has changed.
     """
+    log.warning("###################################")
+    log.warning("course creator status changed")
+    log.warning("###################################")
     user = kwargs['user']
     updated_state = kwargs['state']
     all_orgs = kwargs['all_organizations']
@@ -139,6 +142,9 @@ def send_user_notification_callback(sender, **kwargs):  # pylint: disable=unused
     """
     Callback for notifying user about course creator status change.
     """
+    log.warning("###################################")
+    log.warning("course creator status changed2")
+    log.warning("###################################")
     user = kwargs['user']
     updated_state = kwargs['state']
 
@@ -193,6 +199,9 @@ def course_creator_organizations_changed_callback(sender, **kwargs):  # pylint: 
     """
     Callback for addition and removal of orgs field.
     """
+    log.warning("###################################")
+    log.warning("course creator org changed")
+    log.warning("###################################")
     instance = kwargs["instance"]
     action = kwargs["action"]
     orgs = list(instance.organizations.all().values_list('short_name', flat=True))
