@@ -61,6 +61,7 @@ from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRol
 from common.djangoapps.util.monitoring import monitor_import_failure
 from openedx.core.djangoapps.content.learning_sequences.api import key_supports_outlines
 from openedx.core.djangoapps.content_libraries import api as v2contentlib_api
+from openedx.core.djangoapps.course_apps.api import set_course_app_enabled
 from openedx.core.djangoapps.course_apps.toggles import exams_ida_enabled
 from openedx.core.djangoapps.discussions.config.waffle import ENABLE_NEW_STRUCTURE_DISCUSSIONS
 from openedx.core.djangoapps.discussions.models import DiscussionsConfiguration, Provider
@@ -474,12 +475,14 @@ def sync_discussion_settings(course_key, user):
             if settings_key in discussion_settings:
                 setattr(discussion_config, attr_name, discussion_settings[settings_key])
 
+        discussion_config.save()
+
         # This part is no longer needed in Verawood.
         for tab in course.tabs:
             if tab.tab_id == "discussion":
-                discussion_config.enabled = not tab.is_hidden
+                set_course_app_enabled(course_key, "discussion", not tab.is_hidden, user)
                 break
-        discussion_config.save()
+
         LOGGER.info(f'Course import {course.id}: DiscussionsConfiguration synced as per course')
     except Exception as exc:  # pylint: disable=broad-except
         LOGGER.info(f'Course import {course.id}: DiscussionsConfiguration sync failed: {exc}')
