@@ -15,6 +15,7 @@ from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 
 from common.djangoapps.third_party_auth.utils import (
+    SAMLMetadataURLError,
     convert_saml_slug_provider_id,
     create_or_update_bulk_saml_provider_data,
     fetch_metadata_xml,
@@ -121,7 +122,7 @@ class SAMLProviderDataViewSet(PermissionRequiredMixin, SAMLProviderDataMixin, vi
             # part 1: fetch information from remote metadata based on metadataUrl in samlproviderconfig
             try:
                 xml = fetch_metadata_xml(metadata_url)
-            except (SSLError, MissingSchema, HTTPError) as ex:
+            except (SSLError, MissingSchema, HTTPError, SAMLMetadataURLError) as ex:
                 msg = f'Could not verify provider metadata url. Exc type: {type(ex).__name__}'
                 log.warning(msg)
                 return Response(msg, status.HTTP_406_NOT_ACCEPTABLE)

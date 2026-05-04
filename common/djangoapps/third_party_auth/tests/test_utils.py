@@ -6,18 +6,22 @@ from unittest import mock
 from unittest.mock import MagicMock
 
 import ddt
+import pytest
+from django.test import override_settings
 from lxml import etree
 
 from common.djangoapps.student.tests.factories import UserFactory
 from common.djangoapps.third_party_auth.tests.testutil import TestCase
 from common.djangoapps.third_party_auth.utils import (
+    SAMLMetadataURLError,
+    convert_saml_slug_provider_id,
     get_associated_user_by_email_response,
     get_user_from_email,
     is_enterprise_customer_user,
     is_oauth_provider,
     parse_metadata_xml,
     user_exists,
-    convert_saml_slug_provider_id,
+    validate_saml_metadata_url,
 )
 from openedx.core.djangolib.testing.utils import skip_unless_lms
 from openedx.features.enterprise_support.tests.factories import (
@@ -216,3 +220,63 @@ class TestUtils(TestCase):
         public_keys, sso_url, _ = parse_metadata_xml(xml, entity_id)
         assert public_keys == ['abc+hkIuUktxkg=']
         assert sso_url == 'https://idp/SSOService.php'
+
+
+@ddt.ddt
+class TestValidateSAMLMetadataURL(TestCase):
+    """
+    Tests for validate_saml_metadata_url — the SSRF-prevention validator.
+    """
+
+    @ddt.data(
+        'https://idp.example.com/metadata',
+        'https://1.1.1.1/metadata',
+    )
+    def test_valid_urls_pass(self, url):
+        # Should not raise
+        validate_saml_metadata_url(url)
+
+    @ddt.data(
+        ('http://idp.example.com/metadata', 'must use HTTPS'),
+        ('ftp://idp.example.com/metadata', 'must use HTTPS'),
+        ('https://', 'no hostname'),
+    )
+    @ddt.unpack
+    def test_invalid_scheme_or_missing_hostname(self, url, match):
+        with pytest.raises(SAMLMetadataURLError, match=match):
+            validate_saml_metadata_url(url)
+
+    @ddt.data(
+        # Loopback
+        ('https://127.0.0.1/metadata', False),
+        ('https://127.0.0.1/metadata', True),
+        # Link-local (includes cloud metadata endpoints like 169.254.169.254)
+        ('https://169.254.169.254/metadata', False),
+        ('https://169.254.169.254/metadata', True),
+    )
+    @ddt.unpack
+    def test_always_blocked_regardless_of_setting(self, url, allow_private):
+        with override_settings(SAML_METADATA_URL_ALLOW_PRIVATE_IPS=allow_private):
+            with pytest.raises(SAMLMetadataURLError, match='blocked address'):
+                validate_saml_metadata_url(url)
+
+    @ddt.data(
+        'https://10.0.0.1/metadata',
+        'https://172.16.0.1/metadata',
+        'https://192.168.1.1/metadata',
+        'https://[fc00::1]/metadata',
+    )
+    @override_settings(SAML_METADATA_URL_ALLOW_PRIVATE_IPS=False)
+    def test_private_ip_blocked_by_default(self, url):
+        with pytest.raises(SAMLMetadataURLError, match='private address'):
+            validate_saml_metadata_url(url)
+
+    @ddt.data(
+        'https://10.0.0.1/metadata',
+        'https://172.16.0.1/metadata',
+        'https://192.168.1.1/metadata',
+    )
+    @override_settings(SAML_METADATA_URL_ALLOW_PRIVATE_IPS=True)
+    def test_private_ip_allowed_with_setting(self, url):
+        # Should not raise when private IPs are explicitly allowed
+        validate_saml_metadata_url(url)
