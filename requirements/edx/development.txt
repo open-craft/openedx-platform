@@ -841,7 +841,7 @@ edx-when==2.5.1
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   edx-proctoring
-edxval==2.10.0
+git+https://github.com/open-craft/edx-val.git@viadanna/teak/image-queries
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt

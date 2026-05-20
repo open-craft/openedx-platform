@@ -483,8 +483,8 @@ DCS_SESSION_COOKIE_SAMESITE_FORCE_ALL = True
 # derive_settings(__name__)
 
 # Uncomment the lines below if you'd like to see SQL statements in your devstack LMS log.
-# LOGGING['handlers']['console']['level'] = 'DEBUG'
-# LOGGING['loggers']['django.db.backends'] = {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False}
+LOGGING['handlers']['console']['level'] = 'DEBUG'
+LOGGING['loggers']['django.db.backends'] = {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False}
 
 ################### Special Exams (Proctoring) and Prereqs ###################
 FEATURES['ENABLE_SPECIAL_EXAMS'] = True

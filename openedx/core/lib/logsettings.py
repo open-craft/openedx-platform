@@ -41,7 +41,7 @@ def get_logger_config(log_dir,  # lint-amnesty, pylint: disable=unused-argument
         'formatters': {
             'standard': {
                 'format': '%(asctime)s %(levelname)s %(process)d '
-                          '[%(name)s] [user %(userid)s] [ip %(remoteip)s] %(filename)s:%(lineno)d - %(message)s',
+                          '[%(name)s] %(filename)s:%(lineno)d - %(message)s',
             },
             'syslog_format': {'format': syslog_format},
             'raw': {'format': '%(message)s'},

@@ -85,7 +85,7 @@ edx-search
 edx-submissions
 edx-toggles                         # Feature toggles management
 edx-when
-edxval
+# edxval
 event-tracking
 enmerkar-underscore                 # Implements a underscore extractor for django-babel.
 fs
