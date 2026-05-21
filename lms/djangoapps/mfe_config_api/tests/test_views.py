@@ -32,7 +32,7 @@ class MFEConfigTestCase(APITestCase):
         self.mfe_config_api_url = reverse("mfe_config_api:config")
         return super().setUp()
 
-    @patch("lms.djangoapps.mfe_config_api.views.configuration_helpers")
+    @patch("lms.djangoapps.mfe_config_api.api.configuration_helpers")
     def test_get_mfe_config(self, configuration_helpers_mock):
         """Test the get mfe config from site configuration with the mfe api.
 
@@ -52,7 +52,7 @@ class MFEConfigTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {**default_legacy_config, "EXAMPLE_VAR": "value"})
 
-    @patch("lms.djangoapps.mfe_config_api.views.configuration_helpers")
+    @patch("lms.djangoapps.mfe_config_api.api.configuration_helpers")
     def test_get_mfe_config_with_queryparam(self, configuration_helpers_mock):
         """Test the get mfe config with a query param from site configuration.
 
@@ -120,7 +120,7 @@ class MFEConfigTestCase(APITestCase):
             expected_response={**default_legacy_config, "EXAMPLE_VAR": "mymfe_value"},
         ),
     )
-    @patch("lms.djangoapps.mfe_config_api.views.configuration_helpers")
+    @patch("lms.djangoapps.mfe_config_api.api.configuration_helpers")
     def test_get_mfe_config_with_queryparam_multiple_configs(
         self,
         configuration_helpers_mock,
@@ -175,7 +175,7 @@ class MFEConfigTestCase(APITestCase):
         expected = default_legacy_config | settings.MFE_CONFIG | settings.MFE_CONFIG_OVERRIDES["mymfe"]
         self.assertEqual(response.json(), expected)
 
-    @patch("lms.djangoapps.mfe_config_api.views.configuration_helpers")
+    @patch("lms.djangoapps.mfe_config_api.api.configuration_helpers")
     @override_settings(ENABLE_MFE_CONFIG_API=False)
     def test_404_get_mfe_config(self, configuration_helpers_mock):
         """Test the 404 not found response from get mfe config.
@@ -188,7 +188,7 @@ class MFEConfigTestCase(APITestCase):
         configuration_helpers_mock.get_value.assert_not_called()
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("lms.djangoapps.mfe_config_api.views.configuration_helpers")
+    @patch("lms.djangoapps.mfe_config_api.api.configuration_helpers")
     def test_get_mfe_config_for_catalog(self, configuration_helpers_mock):
         """Test the mfe config by explicitly using catalog mfe as an example.
 
@@ -232,7 +232,7 @@ class MFEConfigTestCase(APITestCase):
         self.assertEqual(data["NON_BROWSABLE_COURSES"], True)
         self.assertEqual(data["ENABLE_COURSE_DISCOVERY"], False)
 
-    @patch("lms.djangoapps.mfe_config_api.views.configuration_helpers")
+    @patch("lms.djangoapps.mfe_config_api.api.configuration_helpers")
     def test_config_order_of_precedence(self, configuration_helpers_mock):
         """Test the precedence of configuration values by explicitly using catalog MFE as an example.
 

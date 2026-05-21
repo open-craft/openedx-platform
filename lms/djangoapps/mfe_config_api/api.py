@@ -1,3 +1,7 @@
+"""
+MFE API funtions.
+"""
+
 from django.conf import settings
 
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
