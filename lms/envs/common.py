@@ -1679,15 +1679,15 @@ PIPELINE['STYLESHEETS'] = {
         'output_filename': 'css/lms-style-vendor-tinymce-skin.css',
     },
     'style-main-v1': {
-        #'source_filenames': [
+        'source_filenames': [
         #    'css/lms-main-v1.css',
-        #],
+        ],
         'output_filename': 'css/lms-main-v1.css',
     },
     'style-main-v1-rtl': {
-        #'source_filenames': [
+        'source_filenames': [
         #    'css/lms-main-v1-rtl.css',
-        #],
+        ],
         'output_filename': 'css/lms-main-v1-rtl.css',
     },
     'style-course-vendor': {
@@ -1699,15 +1699,15 @@ PIPELINE['STYLESHEETS'] = {
         'output_filename': 'css/lms-style-course-vendor.css',
     },
     'style-course': {
-        #'source_filenames': [
+        'source_filenames': [
         #    'css/lms-course.css',
-        #],
+        ],
         'output_filename': 'css/lms-course.css',
     },
     'style-course-rtl': {
-        #'source_filenames': [
+        'source_filenames': [
         #    'css/lms-course-rtl.css',
-        #],
+        ],
         'output_filename': 'css/lms-course-rtl.css',
     },
     'style-student-notes': {
