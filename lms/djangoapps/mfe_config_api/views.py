@@ -71,6 +71,6 @@ class MFEConfigView(APIView):
         if not settings.ENABLE_MFE_CONFIG_API:
             return HttpResponseNotFound()
 
-        merged_config = get_mfe_config(str(request.query_params.get("mfe")))
+        merged_config = get_mfe_config(request.query_params.get("mfe"))
 
         return JsonResponse(merged_config, status=status.HTTP_200_OK)

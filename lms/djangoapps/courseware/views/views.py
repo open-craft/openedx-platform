@@ -118,7 +118,7 @@ from lms.djangoapps.instructor.enrollment import uses_shib
 from lms.djangoapps.instructor.views.api import require_global_staff
 from lms.djangoapps.survey import views as survey_views
 from lms.djangoapps.verify_student.services import IDVerificationService
-from lms.djangoapps.mfe_config_api.views import get_mfe_config
+from lms.djangoapps.mfe_config_api.api import get_mfe_config
 from openedx.core.djangoapps.catalog.utils import (
     get_course_data,
     get_course_uuid_for_course,
@@ -1754,6 +1754,7 @@ def render_xblock(request, usage_key_string, check_if_enrolled=True, disable_sta
 
             return render_to_response('courseware/courseware-chromeless.html', context, request=request)
 
+
 def _get_paragon_css_urls():
     """
     Gets the paragon themes
@@ -1941,6 +1942,7 @@ class PublicVideoXBlockView(BasePublicVideoXBlockView):
             'is_learning_mfe': True,
             'is_mobile_app': False,
             'is_enrolled_in_course': self.get_is_enrolled_in_course(course),
+            'paragon_css_urls': _get_paragon_css_urls(),
         }
         return 'public_video.html', context
 
