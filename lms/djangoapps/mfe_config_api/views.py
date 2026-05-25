@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 
 from .api import get_mfe_config
 
+
 class MFEConfigView(APIView):
     """
     Provides an API endpoint to get the MFE configuration from settings (or site configuration).

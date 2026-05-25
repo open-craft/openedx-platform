@@ -13,6 +13,7 @@ __all__ = [
     "get_mfe_config",
 ]
 
+
 def get_mfe_config(mfe=None):
     """
     Return the merged MFE configuration for the given MFE app.
@@ -35,7 +36,6 @@ def get_mfe_config(mfe=None):
 
     # Merge the three configs in the order of precedence
     return legacy_config | mfe_config | mfe_config_overrides
-
 
 
 def _get_legacy_config() -> dict:

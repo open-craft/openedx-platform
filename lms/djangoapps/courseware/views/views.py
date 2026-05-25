@@ -1761,7 +1761,7 @@ def _get_paragon_css_urls():
 
     Calls the MFE Config API. If the API lives in the current
     server (relative path), calls the Python Api directly. If
-    the server lives in a remote server, makes a request to 
+    the server lives in a remote server, makes a request to
     the API.
     """
 
