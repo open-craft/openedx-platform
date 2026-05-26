@@ -1680,13 +1680,13 @@ PIPELINE['STYLESHEETS'] = {
     },
     'style-main-v1': {
         'source_filenames': [
-            'css/lms-main-v1.css',
+            #    'css/lms-main-v1.css',
         ],
         'output_filename': 'css/lms-main-v1.css',
     },
     'style-main-v1-rtl': {
         'source_filenames': [
-            'css/lms-main-v1-rtl.css',
+            #    'css/lms-main-v1-rtl.css',
         ],
         'output_filename': 'css/lms-main-v1-rtl.css',
     },
@@ -1700,13 +1700,13 @@ PIPELINE['STYLESHEETS'] = {
     },
     'style-course': {
         'source_filenames': [
-            'css/lms-course.css',
+            #    'css/lms-course.css',
         ],
         'output_filename': 'css/lms-course.css',
     },
     'style-course-rtl': {
         'source_filenames': [
-            'css/lms-course-rtl.css',
+            #    'css/lms-course-rtl.css',
         ],
         'output_filename': 'css/lms-course-rtl.css',
     },
@@ -3462,6 +3462,11 @@ MFE_CONFIG = {}
 # .. setting_use_cases: open_edx
 # .. setting_creation_date: 2022-08-05
 MFE_CONFIG_OVERRIDES = {}
+
+# .. setting_name: MFE_CONFIG_API_URL
+# .. setting_default: '/api/mfe_config/v1'
+# .. setting_description: The URL to get the MFE Config
+MFE_CONFIG_API_URL = '/api/mfe_config/v1'
 
 # .. setting_name: MFE_CONFIG_API_CACHE_TIMEOUT
 # .. setting_default: 60*5

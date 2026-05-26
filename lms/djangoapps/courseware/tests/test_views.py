@@ -2609,6 +2609,93 @@ class TestRenderPublicVideoXBlock(TestBasePublicVideoXBlock):
         self.assertEqual(expected_status_code, embed_response.status_code)
 
 
+class TestGetParagonCssUrls(TestCase):
+    """
+    Unit tests for the _get_paragon_css_urls() helper in courseware views.
+
+    The helper has two code paths:
+    - Local: MFE_CONFIG_API_URL is None or relative → calls get_mfe_config() directly (no HTTP).
+    - Remote: MFE_CONFIG_API_URL is an absolute URL → calls requests.get().
+    In both cases it builds a list of CSS URLs from PARAGON_THEME_URLS, falling back to
+    jsDelivr CDN URLs when brand overrides are not configured.
+    """
+
+    CDN_CORE = 'https://cdn.jsdelivr.net/npm/@openedx/paragon@23/dist/core.min.css'
+    CDN_LIGHT = 'https://cdn.jsdelivr.net/npm/@openedx/paragon@23/dist/light.min.css'
+    BRAND_CORE_URL = 'https://wgu-static.example.com/core.css'
+    BRAND_LIGHT_URL = 'https://wgu-static.example.com/light.css'
+    REMOTE_API_URL = 'https://remote.example.com/api/mfe_config/v1'
+
+    PARAGON_THEME_URLS = {
+        'core': {'urls': {'brandOverride': BRAND_CORE_URL}},
+        'default': {'light': 'light'},
+        'variants': {
+            'light': {'urls': {'brandOverride': BRAND_LIGHT_URL}},
+        },
+    }
+
+    @override_settings(MFE_CONFIG_API_URL='/api/mfe_config/v1')
+    @patch('lms.djangoapps.courseware.views.views.get_mfe_config')
+    def test_local_path_no_brand_overrides(self, mock_get_mfe_config):
+        """Local path, no PARAGON_THEME_URLS: returns only CDN fallback URLs."""
+        mock_get_mfe_config.return_value = {}
+
+        result = views._get_paragon_css_urls()
+
+        mock_get_mfe_config.assert_called_once_with(mfe='learning')
+        self.assertEqual(result, [self.CDN_LIGHT, self.CDN_CORE])
+
+    @override_settings(MFE_CONFIG_API_URL='/api/mfe_config/v1')
+    @patch('lms.djangoapps.courseware.views.views.get_mfe_config')
+    def test_local_path_with_brand_overrides(self, mock_get_mfe_config):
+        """Local path, PARAGON_THEME_URLS configured: returns CDN + brand override URLs."""
+        mock_get_mfe_config.return_value = {'PARAGON_THEME_URLS': self.PARAGON_THEME_URLS}
+
+        result = views._get_paragon_css_urls()
+
+        mock_get_mfe_config.assert_called_once_with(mfe='learning')
+        self.assertEqual(result, [
+            self.CDN_LIGHT, self.BRAND_LIGHT_URL,
+            self.CDN_CORE, self.BRAND_CORE_URL,
+        ])
+
+    @override_settings(MFE_CONFIG_API_URL=None)
+    @patch('lms.djangoapps.courseware.views.views.get_mfe_config')
+    def test_none_url_uses_local_path(self, mock_get_mfe_config):
+        """When MFE_CONFIG_API_URL is None, falls back to direct Python call (no HTTP)."""
+        mock_get_mfe_config.return_value = {}
+
+        result = views._get_paragon_css_urls()
+
+        mock_get_mfe_config.assert_called_once_with(mfe='learning')
+        self.assertEqual(result, [self.CDN_LIGHT, self.CDN_CORE])
+
+    @override_settings(MFE_CONFIG_API_URL=REMOTE_API_URL)
+    @patch('lms.djangoapps.courseware.views.views.requests.get')
+    def test_remote_path_no_brand_overrides(self, mock_requests_get):
+        """Remote path (absolute URL), no PARAGON_THEME_URLS: returns only CDN fallback URLs."""
+        mock_requests_get.return_value.json.return_value = {}
+
+        result = views._get_paragon_css_urls()
+
+        mock_requests_get.assert_called_once_with(f'{self.REMOTE_API_URL}?mfe=learning')
+        self.assertEqual(result, [self.CDN_LIGHT, self.CDN_CORE])
+
+    @override_settings(MFE_CONFIG_API_URL=REMOTE_API_URL)
+    @patch('lms.djangoapps.courseware.views.views.requests.get')
+    def test_remote_path_with_brand_overrides(self, mock_requests_get):
+        """Remote path (absolute URL): calls requests.get and returns CDN + brand URLs."""
+        mock_requests_get.return_value.json.return_value = {'PARAGON_THEME_URLS': self.PARAGON_THEME_URLS}
+
+        result = views._get_paragon_css_urls()
+
+        mock_requests_get.assert_called_once_with(f'{self.REMOTE_API_URL}?mfe=learning')
+        self.assertEqual(result, [
+            self.CDN_LIGHT, self.BRAND_LIGHT_URL,
+            self.CDN_CORE, self.BRAND_CORE_URL,
+        ])
+
+
 class TestRenderXBlockSelfPaced(TestRenderXBlock):  # lint-amnesty, pylint: disable=test-inherits-tests
     """
     Test rendering XBlocks for a self-paced course. Relies on the query

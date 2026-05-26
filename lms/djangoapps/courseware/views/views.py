@@ -118,6 +118,7 @@ from lms.djangoapps.instructor.enrollment import uses_shib
 from lms.djangoapps.instructor.views.api import require_global_staff
 from lms.djangoapps.survey import views as survey_views
 from lms.djangoapps.verify_student.services import IDVerificationService
+from lms.djangoapps.mfe_config_api.api import get_mfe_config
 from openedx.core.djangoapps.catalog.utils import (
     get_course_data,
     get_course_uuid_for_course,
@@ -1724,6 +1725,7 @@ def render_xblock(request, usage_key_string, check_if_enrolled=True, disable_sta
                 'is_learning_mfe': is_learning_mfe,
                 'is_mobile_app': is_mobile_app,
                 'render_course_wide_assets': True,
+                'paragon_css_urls': _get_paragon_css_urls(),
             }
 
             try:
@@ -1751,6 +1753,39 @@ def render_xblock(request, usage_key_string, check_if_enrolled=True, disable_sta
             })
 
             return render_to_response('courseware/courseware-chromeless.html', context, request=request)
+
+
+def _get_paragon_css_urls():
+    """
+    Gets the paragon themes
+
+    Calls the MFE Config API. If the API lives in the current
+    server (relative path), calls the Python Api directly. If
+    the server lives in a remote server, makes a request to
+    the API.
+    """
+
+    api_url = getattr(settings, 'MFE_CONFIG_API_URL', None)
+
+    if api_url is None or api_url.startswith('/'):
+        mfe_config = get_mfe_config(mfe='learning')
+    else:
+        response = requests.get(f"{api_url}?mfe=learning")
+        mfe_config = response.json()
+
+    theme_urls = mfe_config.get('PARAGON_THEME_URLS', {})
+
+    variant = theme_urls.get('default', {}).get('light')
+    theme = [url for url in [
+        'https://cdn.jsdelivr.net/npm/@openedx/paragon@23/dist/light.min.css',
+        theme_urls.get('variants', {}).get(variant, {}).get('urls', {}).get('brandOverride'),
+    ] if url]
+    core = [url for url in [
+        'https://cdn.jsdelivr.net/npm/@openedx/paragon@23/dist/core.min.css',
+        theme_urls.get('core', {}).get('urls', {}).get('brandOverride'),
+    ] if url]
+
+    return theme + core
 
 
 def get_optimization_flags_for_content(block, fragment):
@@ -1907,6 +1942,7 @@ class PublicVideoXBlockView(BasePublicVideoXBlockView):
             'is_learning_mfe': True,
             'is_mobile_app': False,
             'is_enrolled_in_course': self.get_is_enrolled_in_course(course),
+            'paragon_css_urls': _get_paragon_css_urls(),
         }
         return 'public_video.html', context
 
