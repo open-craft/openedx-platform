@@ -1577,7 +1577,7 @@ SOCIAL_AUTH_SAML_SP_PRIVATE_KEY_DICT = {}
 SOCIAL_AUTH_SAML_SP_PUBLIC_CERT_DICT = {}
 
 # .. setting_name: SAML_METADATA_URL_ALLOW_PRIVATE_IPS
-# .. setting_default: False
+# .. setting_default: false
 # .. setting_description: When False (the default), fetching SAML metadata from
 #   private IP address ranges (RFC 1918: 10.x, 172.16.x, 192.168.x) is blocked
 #   as a defense against SSRF attacks. Set to True only in deployments where the
