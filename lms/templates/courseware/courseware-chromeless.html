@@ -35,7 +35,7 @@ ${static.get_page_title_breadcrumbs(course_name())}
 <%static:css group='style-course-vendor'/>
 % if paragon_css_urls:
   % for css_url in paragon_css_urls:
-    <link rel="stylesheet" href="${css_url | h}" type="text/css">
+    <link rel="stylesheet" href="${css_url}" type="text/css">
   % endfor
   ## LMS CSS used to hide dialogs marked as aria-hidden; Paragon doesn't, so we add it back explicitly.
   <style>[role="dialog"][aria-hidden="true"] { display: none !important; }</style>
