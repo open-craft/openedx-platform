@@ -1,7 +1,11 @@
 ## xss-lint: disable=mako-missing-default
 <%!
 from openedx.core.djangolib.js_utils import dump_js_escaped_json
+from django.utils.translation import gettext as _
 %>
+% if 'data-is-explicitly-optional="True"' in data_attributes:
+  <span class="optional-completion-badge text-uppercase border badge badge-light mb-3">${_("Optional")}</span>
+% endif
 <div class="${' '.join(classes) | n, decode.utf8}" ${data_attributes}>
 % if js_init_parameters:
   <script type="json/xblock-args" class="xblock-json-init-args">

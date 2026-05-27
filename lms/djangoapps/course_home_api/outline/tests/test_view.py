@@ -431,6 +431,13 @@ class OutlineTabTestViews(BaseCourseHomeTests):
         for block in response.data["course_blocks"]["blocks"].values():
             assert "hide_from_toc" in block
 
+    def test_optional_completion_field(self):
+        """Test that the `optional_completion` field is included for every block in the outline."""
+        CourseEnrollment.enroll(self.user, self.course.id)
+        response = self.client.get(self.url)
+        for block in response.data["course_blocks"]["blocks"].values():
+            assert block.get("optional_completion") is False
+
     def assert_can_enroll(self, can_enroll):
         response = self.client.get(self.url)
         assert response.status_code == 200

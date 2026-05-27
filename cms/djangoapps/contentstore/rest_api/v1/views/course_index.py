@@ -17,6 +17,7 @@ from cms.djangoapps.contentstore.rest_api.v1.serializers import (
     ContainerChildrenSerializer,
 )
 from cms.djangoapps.contentstore.utils import (
+    ancestor_has_optional_completion,
     get_course_index_context,
     get_user_partition_info,
     get_visibility_partition_info,
@@ -281,6 +282,8 @@ class ContainerChildrenView(APIView, ContainerHandlerMixin):
                         ),
                         "validation_messages": validation_messages,
                         "render_error": render_error,
+                        "optional_completion": child_info.optional_completion,
+                        "ancestor_has_optional_completion": ancestor_has_optional_completion(child_info, parent_xblock=current_xblock),
                     })
 
             is_published = False
