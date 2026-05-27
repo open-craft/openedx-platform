@@ -140,3 +140,16 @@ class BlockCompletionTransformerTestCase(TransformerRegistryTestMixin, Completio
 
         assert completion_value == expected_completion
         assert complete_value == expected_complete
+
+    @XBlock.register_temp_plugin(StubCompletableXBlock, identifier="comp")
+    def test_collect_optional_completion(self):
+        """Check that the optional_completion field is collected."""
+        course = CourseFactory.create()
+        chapter = BlockFactory.create(category="chapter", parent=course)
+        optional_subsection = BlockFactory.create(category="sequential", parent=chapter, optional_completion=True)
+        regular_subsection = BlockFactory.create(category="sequential", parent=chapter)
+
+        block_structure = get_course_blocks(self.user, course.location, self.transformers)
+
+        assert block_structure.get_xblock_field(optional_subsection.location, "optional_completion") is True
+        assert block_structure.get_xblock_field(regular_subsection.location, "optional_completion") is False
