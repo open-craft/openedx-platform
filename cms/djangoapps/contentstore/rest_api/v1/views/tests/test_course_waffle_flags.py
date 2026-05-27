@@ -2,6 +2,7 @@
 Unit tests for the course waffle flags view
 """
 
+from completion.test_utils import CompletionWaffleTestMixin
 from django.urls import reverse
 
 from cms.djangoapps.contentstore import toggles
@@ -9,7 +10,7 @@ from cms.djangoapps.contentstore.tests.utils import CourseTestCase
 from openedx.core.djangoapps.waffle_utils.models import WaffleFlagCourseOverrideModel
 
 
-class CourseWaffleFlagsViewTest(CourseTestCase):
+class CourseWaffleFlagsViewTest(CourseTestCase, CompletionWaffleTestMixin):
     """
     Basic test for the CourseWaffleFlagsView endpoint, which returns waffle flag states
     for a specific course or globally if no course ID is provided.
@@ -38,6 +39,7 @@ class CourseWaffleFlagsViewTest(CourseTestCase):
         "use_react_markdown_editor": False,
         "use_video_gallery_flow": False,
         "enable_course_optimizer_check_prev_run_links": False,
+        "enable_completion_tracking": False,
     }
 
     def setUp(self):
@@ -69,3 +71,14 @@ class CourseWaffleFlagsViewTest(CourseTestCase):
             "enable_course_optimizer": True,
             "enable_course_optimizer_check_prev_run_links": True,
         }
+
+    def test_completion_tracking_switch(self):
+        """Verify that the `enable_completion_tracking` reflects the state of the waffle switch."""
+        self.override_waffle_switch(False)
+        url = reverse("cms.djangoapps.contentstore:v1:course_waffle_flags", kwargs={"course_id": self.course.id})
+        response = self.client.get(url)
+        assert response.data["enable_completion_tracking"] is False
+
+        self.override_waffle_switch(True)
+        response = self.client.get(url)
+        assert response.data["enable_completion_tracking"] is True

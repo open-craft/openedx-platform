@@ -2,6 +2,7 @@
 API Serializers for course waffle flags
 """
 
+from completion.waffle import ENABLE_COMPLETION_TRACKING_SWITCH
 from rest_framework import serializers
 
 from cms.djangoapps.contentstore import toggles
@@ -31,6 +32,7 @@ class CourseWaffleFlagsSerializer(serializers.Serializer):
     use_react_markdown_editor = serializers.SerializerMethodField()
     use_video_gallery_flow = serializers.SerializerMethodField()
     enable_course_optimizer_check_prev_run_links = serializers.SerializerMethodField()
+    enable_completion_tracking = serializers.SerializerMethodField()
 
     def get_course_key(self):
         """
@@ -186,3 +188,13 @@ class CourseWaffleFlagsSerializer(serializers.Serializer):
         """
         course_key = self.get_course_key()
         return toggles.enable_course_optimizer_check_prev_run_links(course_key)
+
+    def get_enable_completion_tracking(self, obj):
+        """
+        Method to get the enable_completion_tracking waffle switch.
+
+        This module is a central place used by the Authoring MFE to determine which features to show,
+        and completion tracking status is checked in multiple places in the Authoring MFE,
+        so it makes sense to include it here even though it is a switch and not a flag.
+        """
+        return ENABLE_COMPLETION_TRACKING_SWITCH.is_enabled()

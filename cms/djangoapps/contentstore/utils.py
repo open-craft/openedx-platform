@@ -681,18 +681,37 @@ def find_staff_lock_source(xblock):
     return find_staff_lock_source(parent)
 
 
+def _get_parent_xblock(xblock, parent_xblock=None):
+    """
+    Returns the parent xblock if provided, otherwise fetches it from the modulestore.
+    Returns None if the xblock has no parent (orphaned).
+    """
+    if parent_xblock is not None:
+        return parent_xblock
+    parent_location = modulestore().get_parent_location(
+        xblock.location, revision=ModuleStoreEnum.RevisionOption.draft_preferred
+    )
+    if not parent_location:
+        return None
+    return modulestore().get_item(parent_location)
+
+
 def ancestor_has_staff_lock(xblock, parent_xblock=None):
     """
-    Returns True iff one of xblock's ancestors has staff lock.
+    Returns True if one of xblock's ancestors has staff lock.
     Can avoid mongo query by passing in parent_xblock.
     """
-    if parent_xblock is None:
-        parent_location = modulestore().get_parent_location(xblock.location,
-                                                            revision=ModuleStoreEnum.RevisionOption.draft_preferred)
-        if not parent_location:
-            return False
-        parent_xblock = modulestore().get_item(parent_location)
-    return parent_xblock.visible_to_staff_only
+    parent = _get_parent_xblock(xblock, parent_xblock)
+    return parent.visible_to_staff_only if parent else False
+
+
+def ancestor_has_optional_completion(xblock, parent_xblock=None):
+    """
+    Returns True if one of xblock's ancestors has optional_completion.
+    Can avoid mongo query by passing in parent_xblock.
+    """
+    parent = _get_parent_xblock(xblock, parent_xblock)
+    return parent.optional_completion if parent else False
 
 
 def get_sequence_usage_keys(course):
@@ -2109,6 +2128,8 @@ def get_container_handler_context(request, usage_key, course, xblock):  # pylint
         'is_fullwidth_content': is_library_xblock,
         'course_sequence_ids': course_sequence_ids,
         'library_content_picker_url': get_library_content_picker_url(course.id),
+        'optional_completion': xblock.optional_completion,
+        'ancestor_has_optional_completion': ancestor_has_optional_completion(xblock),
     }
     return context
 

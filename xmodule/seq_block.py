@@ -815,6 +815,7 @@ class SequenceBlock(
                 'path': " > ".join(display_names + [block.display_name_with_default]),
                 'graded': block.graded,
                 'contains_content_type_gated_content': contains_content_type_gated_content,
+                'optional_completion': getattr(block, 'optional_completion', False),
             }
             if not render_blocks:
                 # The item url format can be defined in the template context like so:

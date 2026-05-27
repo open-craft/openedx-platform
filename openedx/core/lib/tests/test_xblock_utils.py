@@ -185,3 +185,67 @@ class TestXBlockAside(SharedModuleStoreTestCase):
     def test_get_aside(self):
         """test get aside success"""
         assert get_aside_from_xblock(self.block, "test_aside") is not None
+
+
+class TestWrapXblockOptionalCompletion(SharedModuleStoreTestCase):
+    """Tests for the optional completion badge rendering inside `wrap_xblock`."""
+
+    def setUp(self):
+        super().setUp()
+        self.course = CourseFactory.create()
+
+    def _wrap(self, block, view="student_view"):
+        """Helper that runs `wrap_xblock` with default args for the optional-completion tests."""
+        fragment = Fragment("<p>content</p>")
+        fragment.add_css("body {background-color:red;}")
+        fragment.add_javascript('alert("Hi!");')
+        return wrap_xblock(
+            runtime_class="TestRuntime",
+            block=block,
+            view=view,
+            frag=fragment,
+            context={},
+            usage_id_serializer=lambda usage_id: quote_slashes(str(usage_id)),
+            request_token=uuid.uuid1().hex,
+        ).content
+
+    def test_leaf_block_with_optional_completion(self):
+        """Verify that a leaf block (no children) with explicit `optional_completion` has the "Optional" badge."""
+        block = BlockFactory.create(category="html", parent=self.course)
+        block.optional_completion = True
+
+        content = self._wrap(block, view="student_view")
+
+        assert 'data-is-explicitly-optional="True"' in content
+        assert "optional-completion-badge" in content
+
+    def test_studio_view_does_not_show_optional_badge(self):
+        """Verify that the optional badge is not rendered in the Studio view."""
+        block = BlockFactory.create(category="html", parent=self.course)
+        block.optional_completion = True
+
+        content = self._wrap(block, view="studio_view")
+
+        assert "data-is-explicitly-optional" not in content
+        assert "optional-completion-badge" not in content
+
+    def test_blocks_with_children_do_not_show_optional_badge(self):
+        """Verify that blocks with children do not show the "Optional" badge."""
+        unit = BlockFactory.create(category="vertical", parent=self.course)
+        unit.optional_completion = True
+
+        content = self._wrap(unit, view="student_view")
+
+        assert "data-is-explicitly-optional" not in content
+        assert "optional-completion-badge" not in content
+
+    def test_inherited_optional_completion_does_not_show_badge(self):
+        """Verify that the optional badge is not shown when `optional_completion` is inherited."""
+        unit = BlockFactory.create(category="vertical", parent=self.course)
+        unit.optional_completion = True
+        block = BlockFactory.create(category="html", parent=unit)
+
+        content = self._wrap(block, view="student_view")
+
+        assert "data-is-explicitly-optional" not in content
+        assert "optional-completion-badge" not in content

@@ -66,6 +66,7 @@ from xmodule.modulestore.inheritance import own_metadata
 from xmodule.tabs import CourseTabList
 
 from ..utils import (
+    ancestor_has_optional_completion,
     ancestor_has_staff_lock,
     find_release_date_source,
     find_staff_lock_source,
@@ -1234,6 +1235,8 @@ def create_xblock_info(  # lint-amnesty, pylint: disable=too-many-statements
                 "hide_from_toc": xblock.hide_from_toc,
                 "enable_hide_from_toc_ui": settings.FEATURES.get("ENABLE_HIDE_FROM_TOC_UI", False),
                 "xblock_type": get_icon(xblock),
+                "optional_completion": xblock.optional_completion,
+                "ancestor_has_optional_completion": ancestor_has_optional_completion(xblock, parent_xblock),
             }
         )
 

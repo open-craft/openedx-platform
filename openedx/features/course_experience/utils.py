@@ -114,6 +114,7 @@ def get_course_outline_block_tree(request, course_id, user=None, allow_start_dat
             'weight',
             'completion',
             'complete',
+            'optional_completion',
             'resume_block',
             'hide_from_toc',
             'icon_class',
