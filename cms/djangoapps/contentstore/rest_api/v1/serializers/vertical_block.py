@@ -143,6 +143,8 @@ class ContainerChildSerializer(serializers.Serializer):
     actions = serializers.SerializerMethodField()
     validation_messages = MessageValidation(many=True)
     render_error = serializers.CharField()
+    optional_completion = serializers.BooleanField()
+    ancestor_has_optional_completion = serializers.BooleanField()
 
     def get_actions(self, obj):  # pylint: disable=unused-argument
         """

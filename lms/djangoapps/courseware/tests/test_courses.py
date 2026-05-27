@@ -17,6 +17,7 @@ from django.conf import settings
 from django.test.client import RequestFactory
 from django.test.utils import override_settings
 from django.urls import reverse
+from edx_django_utils.cache import RequestCache
 from freezegun import freeze_time
 from opaque_keys.edx.keys import CourseKey
 from xmodule.modulestore import ModuleStoreEnum
@@ -32,6 +33,7 @@ from lms.djangoapps.courseware.courses import (
     get_cms_course_link,
     get_course_about_section,
     get_course_assignments,
+    get_course_blocks_completion_summary,
     get_course_chapter_ids,
     get_course_info_section,
     get_course_overview_with_access,
@@ -699,3 +701,94 @@ class TestGetCourseAssignmentsORA(CompletionWaffleTestMixin, ModuleStoreTestCase
         assert 'Submission' in assignments[1].title
         assert 'Peer' in assignments[2].title
         assert 'Self' in assignments[3].title
+
+
+class TestGetCourseBlocksCompletionSummary(CompletionWaffleTestMixin, ModuleStoreTestCase):
+    """
+    Tests for the `get_course_blocks_completion_summary` function.
+
+    Verifies that the per-unit counts (complete / incomplete / locked) are correctly split into regular and optional
+    buckets based on the `optional_completion` field on the unit.
+    """
+
+    EMPTY_COUNTS = {
+        "complete_count": 0,
+        "incomplete_count": 0,
+        "locked_count": 0,
+        "optional_complete_count": 0,
+        "optional_incomplete_count": 0,
+        "optional_locked_count": 0,
+    }
+
+    def setUp(self):
+        """Enable completion tracking."""
+        super().setUp()
+        self.override_waffle_switch(True)
+
+    def _build_course(self, units: list[dict]) -> tuple:
+        """
+        Build a course with one chapter and one sequential containing the given units.
+
+        Each unit in `units` is a dict of fields to pass to the vertical's BlockFactory.
+        """
+        course = CourseFactory()
+        chapter = BlockFactory(parent=course, category="chapter")
+        sequential = BlockFactory(parent=chapter, category="sequential")
+        verticals = []
+        for unit_fields in units:
+            verticals.append(BlockFactory(parent=sequential, category="vertical", **unit_fields))
+        return course, verticals
+
+    def test_returns_empty_dict_for_anonymous_user(self):
+        """Test that the completion summary returns an empty dict for an anonymous user."""
+        course = CourseFactory()
+        anonymous_user = mock.Mock(id=None)
+
+        assert get_course_blocks_completion_summary(course.id, anonymous_user) == {}
+
+    def test_returns_zero_counts_without_units(self):
+        """Test that the completion summary returns zero counts when there are no units."""
+        course = CourseFactory()
+        BlockFactory(parent=course, category="chapter")
+
+        assert get_course_blocks_completion_summary(course.id, self.user) == self.EMPTY_COUNTS
+
+    def test_completion_summary(self):
+        """Test that the completion summary correctly counts complete and incomplete units."""
+        course, verticals = self._build_course(
+            [
+                {},
+                {"optional_completion": False},
+                {"optional_completion": True},
+                {"optional_completion": True},
+            ]
+        )
+        BlockFactory(parent=verticals[0], category="problem")
+        regular_complete_problem = BlockFactory(parent=verticals[1], category="problem")
+        BlockFactory(parent=verticals[2], category="problem")
+        optional_complete_problem = BlockFactory(parent=verticals[3], category="problem")
+
+        assert get_course_blocks_completion_summary(course.id, self.user) == {
+            **self.EMPTY_COUNTS,
+            "incomplete_count": 2,
+            "optional_incomplete_count": 2,
+        }
+
+        RequestCache.clear_all_namespaces()
+        BlockCompletion.objects.submit_completion(self.user, regular_complete_problem.location, 1)
+        assert get_course_blocks_completion_summary(course.id, self.user) == {
+            **self.EMPTY_COUNTS,
+            "complete_count": 1,
+            "incomplete_count": 1,
+            "optional_incomplete_count": 2,
+        }
+
+        RequestCache.clear_all_namespaces()
+        BlockCompletion.objects.submit_completion(self.user, optional_complete_problem.location, 1)
+        assert get_course_blocks_completion_summary(course.id, self.user) == {
+            **self.EMPTY_COUNTS,
+            "complete_count": 1,
+            "incomplete_count": 1,
+            "optional_complete_count": 1,
+            "optional_incomplete_count": 1,
+        }
