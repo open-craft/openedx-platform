@@ -1376,6 +1376,7 @@ openedx-filters==2.0.1
     #   ora2
 openedx-forum==0.4.1
     # via
+    #   -c requirements/edx/../constraints.txt
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
 openedx-learning==0.26.0
@@ -1831,6 +1832,7 @@ requests==2.32.3
     #   snowflake-connector-python
     #   social-auth-core
     #   sphinx
+    #   typesense
     #   xblock-google-drive
 requests-oauthlib==2.0.0
     # via
@@ -2093,17 +2095,18 @@ tqdm==4.67.1
     #   -r requirements/edx/testing.txt
     #   nltk
     #   openai
-typesense==2.0.0
-    # via
-    #   -r requirements/edx/doc.txt
-    #   -r requirements/edx/testing.txt
-    #   openedx-forum
 types-pyyaml==6.0.12.20250402
     # via
     #   django-stubs
     #   djangorestframework-stubs
 types-requests==2.32.0.20250328
     # via djangorestframework-stubs
+typesense==1.3.0
+    # via
+    #   -c requirements/edx/../constraints.txt
+    #   -r requirements/edx/doc.txt
+    #   -r requirements/edx/testing.txt
+    #   openedx-forum
 typing-extensions==4.13.2
     # via
     #   -r requirements/edx/doc.txt
@@ -2127,6 +2130,7 @@ typing-extensions==4.13.2
     #   pyopenssl
     #   referencing
     #   snowflake-connector-python
+    #   typesense
     #   typing-inspection
 typing-inspection==0.4.0
     # via
