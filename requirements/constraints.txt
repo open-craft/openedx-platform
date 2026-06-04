@@ -119,6 +119,17 @@ openedx-learning==0.26.0
 # Issue for unpinning: https://github.com/openedx/edx-platform/issues/35268
 openai<=0.28.1
 
+# Date: 2026-06-04
+# Cap openedx-forum to 0.4.1 on the Teak release line:
+#   * 0.4.1 contains the fix for the "pinned" NULL sort bug
+#     (https://github.com/openedx/forum/pull/270 — discussion threads were not
+#     ordering correctly when sorted by "recent first"). See user report:
+#     https://discuss.openedx.org/t/discuss-forum-messages-order-not-organized-as-expected-in-teak/18665
+#   * 0.4.2 drops Python 3.11 support, which Teak still supports.
+#   * 0.4.3 removes the MongoDB backend, which Teak deployments may still rely on.
+# Remove this cap on master / post-Teak release lines.
+openedx-forum<=0.4.1
+
 # Date: 2024-04-26
 # path==16.12.0 breaks the unit test collections check
 # needs to be investigated and fixed separately

@@ -815,7 +815,7 @@ openedx-filters==2.0.1
     #   -r requirements/edx/kernel.in
     #   lti-consumer-xblock
     #   ora2
-openedx-forum==0.4.0
+openedx-forum==0.4.1
     # via -r requirements/edx/kernel.in
 openedx-learning==0.26.0
     # via
@@ -1155,6 +1155,8 @@ tqdm==4.67.1
     # via
     #   nltk
     #   openai
+typesense==2.0.0
+    # via openedx-forum
 typing-extensions==4.13.2
     # via
     #   beautifulsoup4
