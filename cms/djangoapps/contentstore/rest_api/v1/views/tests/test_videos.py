@@ -142,7 +142,6 @@ class CourseVideosViewTest(CourseTestCase, PermissionAccessMixin):
             self.assertTrue(response.data["is_ai_translations_enabled"])
 
 
-
 class VideoDownloadViewTest(CourseTestCase):
     """
     Tests for VideoDownloadView.
