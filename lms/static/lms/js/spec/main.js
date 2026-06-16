@@ -88,7 +88,7 @@
             'squire': 'common/js/vendor/Squire',
             'jasmine-imagediff': 'xmodule_js/common_static/js/vendor/jasmine-imagediff',
             'domReady': 'xmodule_js/common_static/js/vendor/domReady',
-            mathjax: 'https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-mml-svg.js?noext',
+            mathjax: 'https://cdn.jsdelivr.net/npm/mathjax@4.1.2/tex-mml-svg.js?noext',
             'youtube': '//www.youtube.com/player_api?noext',
             'js/src/ajax_prefix': 'xmodule_js/common_static/js/src/ajax_prefix',
             'js/instructor_dashboard/student_admin': 'js/instructor_dashboard/student_admin',

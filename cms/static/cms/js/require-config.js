@@ -152,7 +152,7 @@
             'jquery_extend_patch': 'js/src/jquery_extend_patch',
 
             // externally hosted files
-            mathjax: 'https://cdn.jsdelivr.net/npm/mathjax@3.2.1/es5/tex-mml-svg.js?noext',
+            mathjax: 'https://cdn.jsdelivr.net/npm/mathjax@4.1.2/tex-mml-svg.js?noext',
             'youtube': [
                 // youtube URL does not end in '.js'. We add '?noext' to the path so
                 // that require.js adds the '.js' to the query component of the URL,

@@ -888,13 +888,16 @@
       mathjaxPreprocessor = this.inputtypeDisplays[preprocessorTag];
       if (typeof MathJax !== "undefined" && MathJax !== null) {
         var math = document.querySelector(target);
+        if (!math) {
+          return;
+        }
         eqn = $(element).val();
         if (mathjaxPreprocessor) {
           eqn = mathjaxPreprocessor(eqn);
         }
         MathJax.typesetClear([math]);
         // Surround eqn with backticks so MathJax processes it as AsciiMath
-        math.innerHTML = "`" + eqn + "`";
+        math.textContent = "`" + eqn + "`";
         MathJax.typesetPromise([math]).then(function () {
           jax = MathJax.startup.document.getMathItemsWithin(math)[0];
           if (jax) {

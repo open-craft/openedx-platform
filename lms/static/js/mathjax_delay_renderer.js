@@ -58,9 +58,9 @@
           text = preprocessor(text);
         }
         $(elem).html(text); // xss-lint: disable=javascript-jquery-html
-        if (typeof MathJax !== 'undefined' && MathJax !== null) {
+        if (typeof MathJax !== 'undefined' && MathJax !== null && MathJax.startup && MathJax.startup.promise) {
           return MathJax.startup.promise
-            .then(() => MathJax.typesetPromise([$(elem).attr("id")]));
+            .then(() => MathJax.typesetPromise([$(elem)[0]]));
         }
       } else {
         if (this.mathjaxTimeout) {
