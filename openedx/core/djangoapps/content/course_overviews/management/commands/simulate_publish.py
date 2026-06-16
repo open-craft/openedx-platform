@@ -15,17 +15,18 @@ behavior to trigger the necessary data updates.
 
 import copy
 import logging
-import os
 import sys
 import textwrap
 import time
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
-from openedx.core.djangoapps.content.course_overviews.models import SimulateCoursePublishConfig
+
 from lms.djangoapps.ccx.tasks import course_published_handler as ccx_receiver_fn
-from xmodule.modulestore.django import SignalHandler, modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from openedx.core.djangoapps.content.course_overviews.models import SimulateCoursePublishConfig
+from xmodule.modulestore.django import SignalHandler, modulestore  # pylint: disable=wrong-import-order
 
 log = logging.getLogger('simulate_publish')
 
@@ -189,14 +190,14 @@ class Command(BaseCommand):
             options['delay']
         )
 
-        if os.environ.get('SERVICE_VARIANT', 'cms').startswith('lms'):
+        if settings.SERVICE_VARIANT == 'lms':
             if options['force_lms']:
                 log.info("Forcing simulate_publish to run in LMS process.")
             else:
-                log.fatal(  # lint-amnesty, pylint: disable=logging-not-lazy
+                log.fatal(  # pylint: disable=logging-not-lazy
                     "simulate_publish should be run as a CMS (Studio) " +
                     "command, not %s (override with --force-lms).",
-                    os.environ.get('SERVICE_VARIANT')
+                    settings.SERVICE_VARIANT
                 )
                 sys.exit(1)
 
@@ -244,7 +245,7 @@ class Command(BaseCommand):
         log.info("%d receivers specified: %s", len(receiver_names), ", ".join(receiver_names))
         receiver_names_set = set(receiver_names)
         for receiver_fn in get_receiver_fns():
-            if receiver_fn == ccx_receiver_fn and not skip_ccx:  # lint-amnesty, pylint: disable=comparison-with-callable
+            if receiver_fn == ccx_receiver_fn and not skip_ccx:  # pylint: disable=comparison-with-callable
                 continue
             fn_name = name_from_fn(receiver_fn)
             if fn_name not in receiver_names_set:

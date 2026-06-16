@@ -4,50 +4,55 @@ Outline Tab Views
 from datetime import datetime, timezone
 from functools import cached_property
 
-from completion.exceptions import UnavailableCompletionData  # lint-amnesty, pylint: disable=wrong-import-order
+from completion.exceptions import UnavailableCompletionData  # pylint: disable=wrong-import-order
 from completion.models import BlockCompletion
-from completion.utilities import get_key_to_last_completed_block  # lint-amnesty, pylint: disable=wrong-import-order
-from django.conf import settings  # lint-amnesty, pylint: disable=wrong-import-order
+from completion.utilities import get_key_to_last_completed_block  # pylint: disable=wrong-import-order
+from django.conf import settings  # pylint: disable=wrong-import-order
 from django.core.cache import cache
-from django.shortcuts import get_object_or_404  # lint-amnesty, pylint: disable=wrong-import-order
-from django.urls import reverse  # lint-amnesty, pylint: disable=wrong-import-order
-from django.utils.translation import gettext as _  # lint-amnesty, pylint: disable=wrong-import-order
-from edx_django_utils import monitoring as monitoring_utils  # lint-amnesty, pylint: disable=wrong-import-order
-from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication  # lint-amnesty, pylint: disable=wrong-import-order
-from edx_rest_framework_extensions.auth.session.authentication import SessionAuthenticationAllowInactiveUser  # lint-amnesty, pylint: disable=wrong-import-order
-from opaque_keys.edx.keys import CourseKey  # lint-amnesty, pylint: disable=wrong-import-order
-from rest_framework.decorators import api_view, authentication_classes, permission_classes  # lint-amnesty, pylint: disable=wrong-import-order
-from rest_framework.exceptions import APIException, ParseError  # lint-amnesty, pylint: disable=wrong-import-order
-from rest_framework.generics import RetrieveAPIView  # lint-amnesty, pylint: disable=wrong-import-order
-from rest_framework.permissions import IsAuthenticated  # lint-amnesty, pylint: disable=wrong-import-order
-from rest_framework.response import Response  # lint-amnesty, pylint: disable=wrong-import-order
+from django.shortcuts import get_object_or_404  # pylint: disable=wrong-import-order
+from django.urls import reverse  # pylint: disable=wrong-import-order
+from django.utils.translation import gettext as _  # pylint: disable=wrong-import-order
+from edx_django_utils import monitoring as monitoring_utils  # pylint: disable=wrong-import-order
+from edx_rest_framework_extensions.auth.jwt.authentication import (
+    JwtAuthentication,  # pylint: disable=wrong-import-order
+)
+from edx_rest_framework_extensions.auth.session.authentication import (
+    SessionAuthenticationAllowInactiveUser,  # pylint: disable=wrong-import-order
+)
+from opaque_keys.edx.keys import CourseKey  # pylint: disable=wrong-import-order
+from rest_framework.decorators import (  # pylint: disable=wrong-import-order
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
+from rest_framework.exceptions import APIException, ParseError  # pylint: disable=wrong-import-order
+from rest_framework.generics import RetrieveAPIView  # pylint: disable=wrong-import-order
+from rest_framework.permissions import IsAuthenticated  # pylint: disable=wrong-import-order
+from rest_framework.response import Response  # pylint: disable=wrong-import-order
+from xblock.completable import XBlockCompletionMode
+from xblock.core import XBlock
 
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.util.views import expose_header
-from lms.djangoapps.course_goals.api import (
-    add_course_goal,
-    get_course_goal,
-)
+from lms.djangoapps.course_goals.api import add_course_goal, get_course_goal
 from lms.djangoapps.course_goals.models import CourseGoal
-from lms.djangoapps.course_home_api.outline.serializers import (
-    CourseBlockSerializer,
-    OutlineTabSerializer,
-)
-from lms.djangoapps.course_home_api.utils import get_course_or_403
+from lms.djangoapps.course_home_api.outline.serializers import CourseBlockSerializer, OutlineTabSerializer
 from lms.djangoapps.course_home_api.tasks import collect_progress_for_user_in_course
 from lms.djangoapps.course_home_api.toggles import send_course_progress_analytics_for_student_is_enabled
+from lms.djangoapps.course_home_api.utils import get_course_or_403
 from lms.djangoapps.courseware.access import has_access
 from lms.djangoapps.courseware.context_processor import user_timezone_locale_prefs
 from lms.djangoapps.courseware.courses import get_course_date_blocks, get_course_info_section
 from lms.djangoapps.courseware.date_summary import TodaysDate
 from lms.djangoapps.courseware.masquerade import is_masquerading, setup_masquerade
+from lms.djangoapps.courseware.tabs import DatesTab
 from lms.djangoapps.courseware.toggles import courseware_disable_navigation_sidebar_blocks_caching
 from lms.djangoapps.courseware.views.views import get_cert_data
 from lms.djangoapps.grades.course_grade_factory import CourseGradeFactory
 from lms.djangoapps.utils import OptimizelyClient
-from openedx.core.djangoapps.content.learning_sequences.api import get_user_course_outline
 from openedx.core.djangoapps.content.course_overviews.api import get_course_overview_or_404
+from openedx.core.djangoapps.content.learning_sequences.api import get_user_course_outline
 from openedx.core.djangoapps.course_groups.cohorts import get_cohort
 from openedx.core.lib.api.authentication import BearerAuthenticationAllowInactiveUser
 from openedx.features.course_duration_limits.access import get_access_expiration_data
@@ -55,14 +60,15 @@ from openedx.features.course_experience import COURSE_ENABLE_UNENROLLED_ACCESS_F
 from openedx.features.course_experience.course_tools import CourseToolsPluginManager
 from openedx.features.course_experience.course_updates import (
     dismiss_current_update_for_user,
-    get_current_update_for_user
+    get_current_update_for_user,
 )
 from openedx.features.course_experience.url_helpers import get_learning_mfe_home_url
 from openedx.features.course_experience.utils import get_course_outline_block_tree, get_start_block
 from openedx.features.discounts.utils import generate_offer_data
-from xblock.core import XBlock
-from xblock.completable import XBlockCompletionMode
-from xmodule.course_block import COURSE_VISIBILITY_PUBLIC, COURSE_VISIBILITY_PUBLIC_OUTLINE  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.course_block import (  # pylint: disable=wrong-import-order
+    COURSE_VISIBILITY_PUBLIC,
+    COURSE_VISIBILITY_PUBLIC_OUTLINE,
+)
 
 
 class UnableToDismissWelcomeMessage(APIException):
@@ -249,7 +255,12 @@ class OutlineTabView(RetrieveAPIView):
         if show_enrolled:
             course_blocks = get_course_outline_block_tree(request, course_key_string, request.user)
             date_blocks = get_course_date_blocks(course, request.user, request, num_assignments=1)
-            dates_widget['course_date_blocks'] = [block for block in date_blocks if not isinstance(block, TodaysDate)]
+            course_date_blocks = (
+                [block for block in date_blocks if not isinstance(block, TodaysDate)]
+                if DatesTab.is_enabled(course, request.user)
+                else []
+            )
+            dates_widget['course_date_blocks'] = course_date_blocks
 
             handouts_html = get_course_info_section(request, request.user, course, 'handouts')
             welcome_message_html = get_current_update_for_user(request, course)
@@ -309,7 +320,7 @@ class OutlineTabView(RetrieveAPIView):
         # so this is a tiny first step in that migration.
         if course_blocks:
             user_course_outline = get_user_course_outline(
-                course_key, request.user, datetime.now(tz=timezone.utc)
+                course_key, request.user, datetime.now(tz=timezone.utc)  # noqa: UP017
             )
             available_seq_ids = {str(usage_key) for usage_key in user_course_outline.sequences}
 
@@ -499,7 +510,7 @@ class CourseNavigationBlocksView(RetrieveAPIView):
         Filter out sections and subsections that are not accessible to the current user.
         """
         if course_blocks:
-            user_course_outline = get_user_course_outline(course_key, self.request.user, datetime.now(tz=timezone.utc))
+            user_course_outline = get_user_course_outline(course_key, self.request.user, datetime.now(tz=timezone.utc))  # noqa: UP017  # pylint: disable=line-too-long
             course_sections = course_blocks.get('children', [])
             course_blocks['children'] = self.get_accessible_sections(user_course_outline, course_sections)
 
@@ -663,7 +674,7 @@ def dismiss_welcome_message(request):  # pylint: disable=missing-function-docstr
         dismiss_current_update_for_user(request, course)
         return Response({'message': _('Welcome message successfully dismissed.')})
     except Exception:
-        raise UnableToDismissWelcomeMessage  # pylint: disable=raise-missing-from
+        raise UnableToDismissWelcomeMessage  # pylint: disable=raise-missing-from  # noqa: B904
 
 
 # Another version of this endpoint exists in ../course_goals/views.py

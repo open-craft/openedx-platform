@@ -12,35 +12,18 @@ from edx_ace.channel import ChannelType, get_channel_for_message
 from edx_ace.recipient import Recipient
 from edx_ace.renderers import EmailRenderer
 from edx_ace.utils import date
-from lms.djangoapps.discussion.django_comment_client.tests.mixins import (
-    MockForumApiMixin,
-)
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 
 import openedx.core.djangoapps.django_comment_common.comment_client as cc
-from common.djangoapps.student.tests.factories import (
-    CourseEnrollmentFactory,
-    UserFactory,
-)
-from lms.djangoapps.discussion.signals.handlers import (
-    ENABLE_FORUM_NOTIFICATIONS_FOR_SITE_KEY,
-)
-from lms.djangoapps.discussion.tasks import (
-    _is_first_comment,
-    _should_send_message,
-    _track_notification_sent,
-)
-from openedx.core.djangoapps.ace_common.template_context import (
-    get_base_template_context,
-)
-from openedx.core.djangoapps.content.course_overviews.tests.factories import (
-    CourseOverviewFactory,
-)
+from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
+from lms.djangoapps.discussion.django_comment_client.tests.mixins import MockForumApiMixin
+from lms.djangoapps.discussion.signals.handlers import ENABLE_FORUM_NOTIFICATIONS_FOR_SITE_KEY
+from lms.djangoapps.discussion.tasks import _is_first_comment, _should_send_message, _track_notification_sent
+from openedx.core.djangoapps.ace_common.template_context import get_base_template_context
+from openedx.core.djangoapps.content.course_overviews.tests.factories import CourseOverviewFactory
 from openedx.core.djangoapps.django_comment_common.signals import comment_created
-from openedx.core.djangoapps.site_configuration.tests.factories import (
-    SiteConfigurationFactory,
-)
+from openedx.core.djangoapps.site_configuration.tests.factories import SiteConfigurationFactory
 from openedx.core.lib.celery.task_utils import emulate_http_request
+from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 
 NOW = datetime.utcnow()
 ONE_HOUR_AGO = NOW - timedelta(hours=1)
@@ -52,7 +35,7 @@ def make_subscribed_threads_callback(subscribed_thread_ids, per_page=1):
     Creates a callback function for simulating user data.
     """
 
-    def callback(*args, **kwargs):  # lint-amnesty, pylint: disable=unused-argument
+    def callback(*args, **kwargs):  # pylint: disable=unused-argument
         subscribed_thread_collection = [
             {"id": thread_id} for thread_id in subscribed_thread_ids
         ]
@@ -75,7 +58,7 @@ def make_subscribed_threads_callback(subscribed_thread_ids, per_page=1):
 @ddt.ddt
 class TaskTestCase(
     ModuleStoreTestCase, MockForumApiMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
 
     @classmethod
     @mock.patch.dict(
@@ -129,7 +112,7 @@ class TaskTestCase(
     @classmethod
     def create_threads_and_comments(
         cls,
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         # Regular discussion threads and comments.
         cls.discussion_thread = {
             "id": cls.discussion_id,
@@ -351,7 +334,7 @@ class TaskTestCase(
 
     def _assert_rendered_email(
         self, message, comment
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         # check that we can actually render the message
         with emulate_http_request(
             site=message.context["site"], user=self.thread_author
@@ -380,7 +363,7 @@ class TaskTestCase(
         ):
             comment_created.send(sender=None, user=user, post=comment)
 
-        actual_result = _should_send_message(
+        actual_result = _should_send_message(  # noqa: F841
             {
                 "thread_author_id": self.thread_author.id,
                 "course_id": self.course.id,

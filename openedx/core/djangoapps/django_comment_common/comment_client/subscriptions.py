@@ -3,8 +3,10 @@ Subscription model is used to get users who are subscribed to the main thread/po
 """
 import logging
 
-from . import models, settings, utils
 from forum import api as forum_api
+from forum.backend import get_backend
+
+from . import models, settings, utils
 
 log = logging.getLogger(__name__)
 
@@ -48,3 +50,16 @@ class Subscription(models.Model):
             subscriptions_count=response.get('subscriptions_count', 0),
             corrected_text=response.get('corrected_text', None)
         )
+
+    @staticmethod
+    def is_user_subscribed_to_thread(user_id, thread_id, course_id):
+        """
+        Check if a user is subscribed to a thread
+        """
+        backend = get_backend(course_id)()
+        subscription = backend.get_subscription(
+            subscriber_id=user_id,
+            source_id=thread_id,
+            source_type="CommentThread"
+        )
+        return subscription is not None

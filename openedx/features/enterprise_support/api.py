@@ -9,8 +9,9 @@ from urllib.parse import urljoin
 
 import requests
 from crum import get_current_request
+from django.apps import apps as django_apps
 from django.conf import settings
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.contrib.sites.models import Site
 from django.core.cache import cache
 from django.shortcuts import redirect
@@ -33,14 +34,12 @@ try:
     from consent.models import DataSharingConsent, DataSharingConsentTextOverrides
     from enterprise.api.v1.serializers import (
         EnterpriseCustomerUserReadOnlySerializer,
-        EnterpriseCustomerUserWriteSerializer
+        EnterpriseCustomerUserWriteSerializer,
     )
     from enterprise.models import (
         EnterpriseCourseEnrollment,
         EnterpriseCustomer,
-        EnterpriseCustomerIdentityProvider,
         EnterpriseCustomerUser,
-        PendingEnterpriseCustomerUser
     )
 except ImportError:  # pragma: no cover
     pass
@@ -184,7 +183,7 @@ class EnterpriseApiClient:
             response = self.client.post(api_url, data=data)
             response.raise_for_status()
         except HTTPError:
-            message = (
+            message = (  # noqa: UP032
                 "An error occured while posting EnterpriseCourseEnrollment for user {username} and "
                 "course run {course_id}."
             ).format(
@@ -192,7 +191,7 @@ class EnterpriseApiClient:
                 course_id=course_id,
             )
             LOGGER.exception(message)
-            raise EnterpriseApiException(message)  # lint-amnesty, pylint: disable=raise-missing-from
+            raise EnterpriseApiException(message)  # pylint: disable=raise-missing-from  # noqa: B904
 
     def fetch_enterprise_learner_data(self, user):
         """
@@ -373,7 +372,7 @@ def enterprise_enabled():
     """
     Determines whether the Enterprise app is installed
     """
-    return 'enterprise' in settings.INSTALLED_APPS and settings.FEATURES.get('ENABLE_ENTERPRISE_INTEGRATION', False)
+    return django_apps.is_installed('enterprise') and settings.FEATURES.get('ENABLE_ENTERPRISE_INTEGRATION', False)
 
 
 def enterprise_is_enabled(otherwise=None):
@@ -604,7 +603,7 @@ def consent_needed_for_course(request, user, course_id, enrollment_exists=False)
     data sharing permissions before accessing a course.
     """
     LOGGER.info(
-        "[ENTERPRISE DSC] Determining if user [{username}] must consent to data sharing for course"
+        "[ENTERPRISE DSC] Determining if user [{username}] must consent to data sharing for course"  # noqa: UP032
         " [{course_id}]".format(
             username=user.username,
             course_id=course_id
@@ -615,7 +614,7 @@ def consent_needed_for_course(request, user, course_id, enrollment_exists=False)
     if not active_enterprise_learner_info:
         # user is not linked to any enterprise so return False
         LOGGER.info(
-            "[ENTERPRISE DSC] Consent from user [{username}] is not needed for course [{course_id}]."
+            "[ENTERPRISE DSC] Consent from user [{username}] is not needed for course [{course_id}]."  # noqa: UP032
             " The user is not linked to an enterprise.".format(
                 username=user.username,
                 course_id=course_id
@@ -630,7 +629,7 @@ def consent_needed_for_course(request, user, course_id, enrollment_exists=False)
     data_sharing_consent_needed_cache = TieredCache.get_cached_response(consent_cache_key)
     if data_sharing_consent_needed_cache.is_found and data_sharing_consent_needed_cache.value == 0:
         LOGGER.info(
-            "[ENTERPRISE DSC] Consent from user [{username}] is not needed for course [{course_id}]. "
+            "[ENTERPRISE DSC] Consent from user [{username}] is not needed for course [{course_id}]. "  # noqa: UP032
             "The DSC cache was checked and the value was 0.".format(
                 username=user.username,
                 course_id=course_id
@@ -673,7 +672,7 @@ def consent_needed_for_course(request, user, course_id, enrollment_exists=False)
     enterprise_and_learner_have_same_domain = enterprise_domain == request.site
     if not enterprise_and_learner_have_same_domain:
         LOGGER.info(
-            '[ENTERPRISE DSC] Site mismatch. USER: [{username}], RequestSite: [{request_site}], '
+            '[ENTERPRISE DSC] Site mismatch. USER: [{username}], RequestSite: [{request_site}], '  # noqa: UP032
             'LearnerEnterpriseDomain: [{enterprise_domain}]'.format(
                 username=user.username,
                 request_site=request.site,
@@ -693,7 +692,7 @@ def consent_needed_for_course(request, user, course_id, enrollment_exists=False)
     )
     if not consent_required:
         LOGGER.info(
-            "[ENTERPRISE DSC] Consent from user [{username}] is not needed for course [{course_id}]. The user's current"
+            "[ENTERPRISE DSC] Consent from user [{username}] is not needed for course [{course_id}]. The user's current"  # noqa: UP032  # pylint: disable=line-too-long
             " enterprise does not require data sharing consent.".format(
                 username=user.username,
                 course_id=course_id
@@ -703,36 +702,13 @@ def consent_needed_for_course(request, user, course_id, enrollment_exists=False)
         return False
 
     LOGGER.info(
-        "[ENTERPRISE DSC] Consent from user [{username}] is needed for course [{course_id}]. The user's "
+        "[ENTERPRISE DSC] Consent from user [{username}] is needed for course [{course_id}]. The user's "  # noqa: UP032
         "current enterprise requires data sharing consent, and it has not been given.".format(
             username=user.username,
             course_id=course_id
         )
     )
     return True
-
-
-@enterprise_is_enabled(otherwise=set())
-def get_consent_required_courses(user, course_ids):
-    """
-    Returns a set of course_ids that require consent
-    Note that this function makes use of the Enterprise models directly instead of using the API calls
-    """
-    result = set()
-    enterprise_learner = EnterpriseCustomerUser.objects.filter(user_id=user.id).first()
-    if not enterprise_learner or not enterprise_learner.enterprise_customer:
-        return result
-
-    enterprise_uuid = enterprise_learner.enterprise_customer.uuid
-    data_sharing_consent = DataSharingConsent.objects.filter(username=user.username,
-                                                             course_id__in=course_ids,
-                                                             enterprise_customer__uuid=enterprise_uuid)
-
-    for consent in data_sharing_consent:
-        if consent.consent_required():
-            result.add(consent.course_id)
-
-    return result
 
 
 @enterprise_is_enabled(otherwise='')
@@ -751,7 +727,7 @@ def get_enterprise_consent_url(request, course_id, user=None, return_to=None, en
     user = user or request.user
 
     LOGGER.info(
-        'Getting enterprise consent url for user [{username}] and course [{course_id}].'.format(
+        'Getting enterprise consent url for user [{username}] and course [{course_id}].'.format(  # noqa: UP032
             username=user.username,
             course_id=course_id
         )
@@ -817,7 +793,7 @@ def get_active_enterprise_customer_user(user):
             enterprise_customer_user = EnterpriseCustomerUser.objects.get(user_id=user.id, active=True)
         except EnterpriseCustomerUser.DoesNotExist:
             LOGGER.info(
-                "Active EnterpriseCustomerUser for user [{username}] does not exist".format(username=user.username)
+                "Active EnterpriseCustomerUser for user [{username}] does not exist".format(username=user.username)  # noqa: UP032  # pylint: disable=line-too-long
             )
             return None
         return EnterpriseCustomerUserReadOnlySerializer(instance=enterprise_customer_user).data
@@ -1025,50 +1001,3 @@ def get_dashboard_consent_notification(request, user, course_enrollments):
             }
         )
     return ''
-
-
-@enterprise_is_enabled()
-def insert_enterprise_pipeline_elements(pipeline):
-    """
-    If the enterprise app is enabled, insert additional elements into the
-    pipeline related to enterprise.
-    """
-    additional_elements = (
-        'enterprise.tpa_pipeline.handle_enterprise_logistration',
-    )
-
-    insert_point = pipeline.index('social_core.pipeline.social_auth.load_extra_data')
-    for index, element in enumerate(additional_elements):
-        pipeline.insert(insert_point + index, element)
-
-
-@enterprise_is_enabled()
-def unlink_enterprise_user_from_idp(request, user, idp_backend_name):
-    """
-    Un-links learner from their enterprise identity provider
-    Args:
-        request (wsgi request): request object
-        user (User): user who initiated disconnect request
-        idp_backend_name (str): Name of identity provider's backend
-
-    Returns: None
-
-    """
-    enterprise_customer = enterprise_customer_for_request(request)
-    if user and enterprise_customer:
-        enabled_providers = Registry.get_enabled_by_backend_name(idp_backend_name)
-        provider_ids = [enabled_provider.provider_id for enabled_provider in enabled_providers]
-        enterprise_customer_idps = EnterpriseCustomerIdentityProvider.objects.filter(
-            enterprise_customer__uuid=enterprise_customer['uuid'],
-            provider_id__in=provider_ids
-        )
-
-        if enterprise_customer_idps:
-            try:
-                # Unlink user email from each Enterprise Customer.
-                for enterprise_customer_idp in enterprise_customer_idps:
-                    EnterpriseCustomerUser.objects.unlink_user(
-                        enterprise_customer=enterprise_customer_idp.enterprise_customer, user_email=user.email
-                    )
-            except (EnterpriseCustomerUser.DoesNotExist, PendingEnterpriseCustomerUser.DoesNotExist):
-                pass

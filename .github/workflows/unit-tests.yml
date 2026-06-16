@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - master
+      - release/*
 
 concurrency:
   # We only need to be running tests for the latest commit on each PR
@@ -22,28 +23,24 @@ jobs:
     strategy:
       matrix:
         python-version:
-          - "3.11"
+          - "3.12"
         django-version:
           - "pinned"
-        # When updating the shards, remember to make the same changes in
-        # .github/workflows/unit-tests-gh-hosted.yml
         shard_name:
           - "lms-1"
           - "lms-2"
           - "lms-3"
           - "lms-4"
           - "lms-5"
-          - "lms-6"
-          - "openedx-1-with-lms"
-          - "openedx-2-with-lms"
-          - "openedx-1-with-cms"
-          - "openedx-2-with-cms"
+          - "shared-with-lms-1"
+          - "shared-with-lms-2"
+          # Note: The shared-with-cms-1 shard is currently a subset of both
+          # shared-with-lms-1 and shared-with-lms-2. Some shared tests are
+          # not run -with-cms at all.
+          # https://github.com/openedx/openedx-platform/issues/38355
+          - "shared-with-cms-1"
           - "cms-1"
           - "cms-2"
-          - "common-with-lms"
-          - "common-with-cms"
-          - "xmodule-with-lms"
-          - "xmodule-with-cms"
         mongo-version:
           - "7.0"
         os-version:
@@ -56,21 +53,21 @@ jobs:
         #
         # We're testing the older version of Ubuntu and running the xmodule tests since those rely on many
         # dependent complex libraries and will hopefully catch most issues quickly.
-        include:
-          - shard_name: "xmodule-with-cms"
-            python-version: "3.11"
-            django-version: "pinned"
-            mongo-version: "7.0"
-            os-version: "ubuntu-22.04"
-          - shard_name: "xmodule-with-lms"
-            python-version: "3.11"
-            django-version: "pinned"
-            mongo-version: "7.0"
-            os-version: "ubuntu-22.04"
-
+        #
+        # include:
+        #  - shard_name: "xmodule-with-cms"
+        #    python-version: "3.12"
+        #    django-version: "pinned"
+        #    mongo-version: "7.0"
+        #    os-version: "ubuntu-24.04"
+        #  - shard_name: "xmodule-with-lms"
+        #    python-version: "3.12"
+        #    django-version: "pinned"
+        #    mongo-version: "7.0"
+        #    os-version: "ubuntu-24.04"
     steps:
       - name: checkout repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: install system requirements
         run: |
@@ -85,7 +82,7 @@ jobs:
           key: docker-${{ runner.os }}-mongo-${{ matrix.mongo-version }}
 
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.0
+        uses: supercharge/mongodb-github-action@1.12.1
         with:
           mongodb-version: ${{ matrix.mongo-version }}
 
@@ -115,11 +112,25 @@ jobs:
         shell: bash
         run: |
           echo "unit_test_paths=$(python scripts/unit_test_shards_parser.py --shard-name=${{ matrix.shard_name }} )" >> $GITHUB_ENV
+          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            echo "report_log_arg=--report-log=reports/pytest-report-${{ matrix.shard_name }}.jsonl" >> $GITHUB_ENV
+          else
+            echo "report_log_arg=" >> $GITHUB_ENV
+          fi
 
       - name: run tests
         shell: bash
         run: |
-          python -Wd -m pytest -p no:randomly --ds=${{ env.settings_path }} ${{ env.unit_test_paths }} --cov=.
+          python -Wd -m pytest -p no:randomly --ds=${{ env.settings_path }} ${{ env.unit_test_paths }} --cov=. \
+            ${{ env.report_log_arg }}
+
+      - name: Upload pytest timing report
+        if: github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-report-${{ matrix.shard_name }}-${{ matrix.python-version }}-${{ matrix.django-version }}-${{ matrix.mongo-version }}-${{ matrix.os-version }}
+          path: reports/pytest-report-${{ matrix.shard_name }}.jsonl
+          overwrite: true
 
       - name: rename warnings json file
         if: success()
@@ -130,7 +141,7 @@ jobs:
 
       - name: save pytest warnings json file
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pytest-warnings-json-${{ matrix.shard_name }}-${{ matrix.python-version }}-${{ matrix.django-version }}-${{ matrix.mongo-version }}-${{ matrix.os-version }}
           path: |
@@ -142,7 +153,7 @@ jobs:
           mv reports/.coverage reports/${{ matrix.shard_name }}_${{ matrix.python-version }}_${{ matrix.django-version }}_${{ matrix.mongo-version }}_${{ matrix.os-version }}.coverage
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.shard_name }}-${{ matrix.python-version }}-${{ matrix.django-version }}-${{ matrix.mongo-version }}-${{ matrix.os-version }}
           path: reports/${{ matrix.shard_name }}_${{ matrix.python-version }}_${{ matrix.django-version }}_${{ matrix.mongo-version }}_${{ matrix.os-version }}.coverage
@@ -151,11 +162,11 @@ jobs:
   collect-and-verify:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: 3.11
+          python-version: 3.12
 
       - name: install system requirements
         run: |
@@ -204,7 +215,7 @@ jobs:
         if: ${{ env.root_all_unit_tests_count != env.shards_all_unit_tests_count }}
         run: |
           echo "::error title='Unit test modules in unit-test-shards.json (unit-tests.yml workflow) are outdated'::unit tests running in unit-tests
-          workflow don't match the count for unit tests for entire edx-platform suite, please update the unit-test-shards.json under .github/workflows
+          workflow don't match the count for unit tests for entire openedx-platform suite, please update the unit-test-shards.json under .github/workflows
           to add any missing apps and match the count. for more details please take a look at scripts/gha-shards-readme.md"
           exit 1
 
@@ -227,9 +238,9 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [run-tests]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: collect pytest warnings files
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: pytest-warnings-json-*
           merge-multiple: true
@@ -244,7 +255,7 @@ jobs:
 
       - name: save warning report
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pytest-warning-report-html
           path: |
@@ -256,14 +267,14 @@ jobs:
     needs: [compile-warnings-report]
     steps:
       - name: Merge Pytest Warnings JSON Artifacts
-        uses: actions/upload-artifact/merge@v4
+        uses: actions/upload-artifact/merge@v7
         with:
           name: pytest-warnings-json
           pattern: pytest-warnings-json-*
           delete-merged: true
 
       - name: Merge Coverage Artifacts
-        uses: actions/upload-artifact/merge@v4
+        uses: actions/upload-artifact/merge@v7
         with:
           name: coverage
           pattern: coverage-*
@@ -271,16 +282,16 @@ jobs:
 
   # Combine and upload coverage reports.
   coverage:
-    if: (github.repository == 'edx/edx-platform-private') || (github.repository == 'openedx/edx-platform' && (startsWith(github.base_ref, 'open-release') == false))
+    if: (github.repository == 'edx/edx-platform-private') || (github.repository == 'openedx/openedx-platform' && (startsWith(github.base_ref, 'release') == false))
     runs-on: ubuntu-24.04
     needs: [run-tests]
     strategy:
       matrix:
         python-version:
-          - 3.11
+          - 3.12
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -288,7 +299,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: coverage-*
           merge-multiple: true

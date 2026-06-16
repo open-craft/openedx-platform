@@ -6,10 +6,11 @@ import json
 import logging
 from datetime import datetime, timedelta
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import ddt
 import httpretty
-import pytz
+
 # Explicitly import the cache from ConfigurationModel so we can reset it after each test
 from config_models.models import cache
 from django.test.client import Client
@@ -26,8 +27,10 @@ from lms.djangoapps.certificates.data import CertificateStatuses
 from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
 from openedx.core.djangoapps.commerce.utils import ECOMMERCE_DATE_FORMAT
 from openedx.core.djangolib.testing.utils import skip_unless_lms
-from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    SharedModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 TEST_API_URL = 'http://www-internal.example.com/api'
@@ -56,7 +59,7 @@ class RefundableTest(SharedModuleStoreTestCase):
             course_id=self.course.id,
             mode_slug='verified',
             mode_display_name='Verified',
-            expiration_datetime=datetime.now(pytz.UTC) + timedelta(days=1)
+            expiration_datetime=datetime.now(ZoneInfo("UTC")) + timedelta(days=1)
         )
 
         self.enrollment = CourseEnrollment.enroll(self.user, self.course.id, mode='verified')
@@ -67,14 +70,14 @@ class RefundableTest(SharedModuleStoreTestCase):
     @patch('common.djangoapps.student.models.course_enrollment.CourseEnrollment.refund_cutoff_date')
     def test_refundable(self, cutoff_date):
         """ Assert base case is refundable"""
-        cutoff_date.return_value = datetime.now(pytz.UTC) + timedelta(days=1)
+        cutoff_date.return_value = datetime.now(ZoneInfo("UTC")) + timedelta(days=1)
         assert self.enrollment.refundable()
 
     @patch('common.djangoapps.student.models.course_enrollment.CourseEnrollment.refund_cutoff_date')
     def test_refundable_expired_verification(self, cutoff_date):
         """ Assert that enrollment is refundable if course mode has expired."""
-        cutoff_date.return_value = datetime.now(pytz.UTC) + timedelta(days=1)
-        self.verified_mode.expiration_datetime = datetime.now(pytz.UTC) - timedelta(days=1)
+        cutoff_date.return_value = datetime.now(ZoneInfo("UTC")) + timedelta(days=1)
+        self.verified_mode.expiration_datetime = datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
         self.verified_mode.save()
         assert self.enrollment.refundable()
 
@@ -82,7 +85,7 @@ class RefundableTest(SharedModuleStoreTestCase):
     def test_refundable_when_certificate_exists(self, cutoff_date):
         """ Assert that enrollment is not refundable once a certificat has been generated."""
 
-        cutoff_date.return_value = datetime.now(pytz.UTC) + timedelta(days=1)
+        cutoff_date.return_value = datetime.now(ZoneInfo("UTC")) + timedelta(days=1)
 
         assert self.enrollment.refundable()
 
@@ -110,13 +113,13 @@ class RefundableTest(SharedModuleStoreTestCase):
     @patch('common.djangoapps.student.models.course_enrollment.CourseEnrollment.refund_cutoff_date')
     def test_refundable_with_cutoff_date(self, cutoff_date):
         """ Assert enrollment is refundable before cutoff and not refundable after."""
-        cutoff_date.return_value = datetime.now(pytz.UTC) + timedelta(days=1)
+        cutoff_date.return_value = datetime.now(ZoneInfo("UTC")) + timedelta(days=1)
         assert self.enrollment.refundable()
 
-        cutoff_date.return_value = datetime.now(pytz.UTC) - timedelta(minutes=5)
+        cutoff_date.return_value = datetime.now(ZoneInfo("UTC")) - timedelta(minutes=5)
         assert not self.enrollment.refundable()
 
-        cutoff_date.return_value = datetime.now(pytz.UTC) + timedelta(minutes=5)
+        cutoff_date.return_value = datetime.now(ZoneInfo("UTC")) + timedelta(minutes=5)
         assert self.enrollment.refundable()
 
     @ddt.data(
@@ -132,7 +135,7 @@ class RefundableTest(SharedModuleStoreTestCase):
         """
         Assert that the later date is used with the configurable refund period in calculating the returned cutoff date.
         """
-        now = datetime.now(pytz.UTC).replace(microsecond=0)
+        now = datetime.now(ZoneInfo("UTC")).replace(microsecond=0)
         order_date = now + order_date_delta
         course_start = now + course_start_delta
         expected_date = now + expected_date_delta
@@ -170,9 +173,9 @@ class RefundableTest(SharedModuleStoreTestCase):
             assert expected_date_placed_attr in CourseEnrollmentAttribute.get_enrollment_attributes(self.enrollment)
 
     @ddt.data(
-        (datetime.now(pytz.UTC) + timedelta(days=1), True),
-        (datetime.now(pytz.UTC) - timedelta(days=1), False),
-        (datetime.now(pytz.UTC) - timedelta(minutes=5), False),
+        (datetime.now(ZoneInfo("UTC")) + timedelta(days=1), True),
+        (datetime.now(ZoneInfo("UTC")) - timedelta(days=1), False),
+        (datetime.now(ZoneInfo("UTC")) - timedelta(minutes=5), False),
     )
     @ddt.unpack
     @httpretty.activate
@@ -260,7 +263,7 @@ class RefundableTest(SharedModuleStoreTestCase):
         Assert that the refund_cutoff_date returns order placement date if order:date_placed
         attribute exist without calling ecommerce.
         """
-        now = datetime.now(pytz.UTC).replace(microsecond=0)
+        now = datetime.now(ZoneInfo("UTC")).replace(microsecond=0)
         order_date = now + timedelta(days=2)
         course_start = now + timedelta(days=1)
 
@@ -280,7 +283,7 @@ class RefundableTest(SharedModuleStoreTestCase):
     @override_settings(ECOMMERCE_API_URL=TEST_API_URL)
     def test_multiple_refunds_dashbaord_page_error(self):
         """ Order with mutiple refunds will not throw 500 error when dashboard page will access."""
-        now = datetime.now(pytz.UTC).replace(microsecond=0)
+        now = datetime.now(ZoneInfo("UTC")).replace(microsecond=0)
         order_date = now + timedelta(days=1)
         expected_content = f'{{"date_placed": "{order_date.strftime(ECOMMERCE_DATE_FORMAT)}"}}'
 
@@ -292,7 +295,7 @@ class RefundableTest(SharedModuleStoreTestCase):
         )
 
         # creating multiple attributes for same order.
-        for attribute_count in range(2):  # pylint: disable=unused-variable
+        for attribute_count in range(2):  # pylint: disable=unused-variable  # noqa: B007
             self.enrollment.attributes.create(
                 enrollment=self.enrollment,
                 namespace='order',

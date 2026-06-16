@@ -47,6 +47,7 @@ from lms.djangoapps.certificates.api import (
     get_certificate_url,
     get_certificates_for_user,
     get_certificates_for_user_by_course_keys,
+    get_course_ids_from_certs_for_user,
     has_self_generated_certificates_enabled,
     is_certificate_invalidated,
     is_on_allowlist,
@@ -677,7 +678,7 @@ class CertificatesBrandingTest(ModuleStoreTestCase):
         data = get_certificate_header_context(is_secure=True)
 
         # Make sure there are not unexpected keys in dict returned by 'get_certificate_header_context'
-        self.assertCountEqual(list(data.keys()), ["logo_src", "logo_url"])
+        self.assertCountEqual(list(data.keys()), ["logo_src", "logo_url"])  # noqa: PT009
         assert self.configuration["logo_image_url"] in data["logo_src"]
 
         assert self.configuration["SITE_NAME"] in data["logo_url"]
@@ -693,7 +694,7 @@ class CertificatesBrandingTest(ModuleStoreTestCase):
         data = get_certificate_footer_context()
 
         # Make sure there are not unexpected keys in dict returned by 'get_certificate_footer_context'
-        self.assertCountEqual(list(data.keys()), ["company_about_url", "company_privacy_url", "company_tos_url"])
+        self.assertCountEqual(list(data.keys()), ["company_about_url", "company_privacy_url", "company_tos_url"])  # noqa: PT009  # pylint: disable=line-too-long
         assert self.configuration["urls"]["ABOUT"] in data["company_about_url"]
         assert self.configuration["urls"]["PRIVACY"] in data["company_privacy_url"]
         assert self.configuration["urls"]["TOS_AND_HONOR"] in data["company_tos_url"]
@@ -1275,3 +1276,72 @@ class CertificatesLearnerRetirementFunctionality(ModuleStoreTestCase):
         cert_course2 = GeneratedCertificate.objects.get(user=self.user, course_id=self.course2.id)
         assert cert_course1.name == ""
         assert cert_course2.name == ""
+
+    def test_clear_pii_from_certificate_records_clears_history_table(self):
+        """
+        Verify that `clear_pii_from_certificate_records_for_user` blanks `name` in the
+        django-simple-history audit table only when the ``REDACT_CERTIFICATES_HISTORICAL_PII``
+        setting toggle is enabled, and leaves it untouched when the toggle is disabled.
+        """
+        with override_settings(REDACT_CERTIFICATES_HISTORICAL_PII=False):
+            clear_pii_from_certificate_records_for_user(self.user)
+
+        history_names = list(
+            GeneratedCertificate.history.filter(user=self.user).values_list("name", flat=True)
+        )
+        assert all(n == self.user_full_name for n in history_names), (
+            "History rows should be untouched when the waffle flag is disabled."
+        )
+
+        with override_settings(REDACT_CERTIFICATES_HISTORICAL_PII=True):
+            clear_pii_from_certificate_records_for_user(self.user)
+
+        history_names_after = list(
+            GeneratedCertificate.history.filter(user=self.user).values_list("name", flat=True)
+        )
+        assert all(n == "" for n in history_names_after), (
+            "Expected all history rows to have name blanked after retirement."
+        )
+
+
+class GetCourseIdsForUsernameTests(TestCase):
+    """
+    Test suite for the `get_course_ids_from_certs_for_user` function.
+    """
+
+    def setUp(self):
+        """
+        Set up a user and two course certificates for testing.
+
+        Creates a test user using a factory and generates two course certificates
+        associated with distinct course keys.
+        """
+        self.user = UserFactory()
+        self.course_key_1 = CourseKey.from_string("course-v1:some+fake+course1")
+        self.course_key_2 = CourseKey.from_string("course-v1:some+fake+course2")
+
+        GeneratedCertificate.objects.create(user=self.user, course_id=self.course_key_1)
+        GeneratedCertificate.objects.create(user=self.user, course_id=self.course_key_2)
+
+    def test_returns_correct_course_ids(self):
+        """
+        Test that the function returns all course IDs for which the user has certificates.
+
+        Verifies that both course keys created in setUp are returned when the
+        user's username is passed to the function.
+        """
+        course_ids = get_course_ids_from_certs_for_user(self.user)
+
+        self.assertIn(self.course_key_1, course_ids)  # noqa: PT009
+        self.assertIn(self.course_key_2, course_ids)  # noqa: PT009
+        self.assertEqual(len(course_ids), 2)  # noqa: PT009
+
+    def test_returns_empty_for_unknown_user(self):
+        """
+        Test that the function returns an empty list if the user has no certificates.
+
+        Uses a non-existent username to ensure that the function does not raise
+        errors and returns an empty list as expected.
+        """
+        course_ids = get_course_ids_from_certs_for_user("nonexistentuser")
+        self.assertEqual(course_ids, [])  # noqa: PT009

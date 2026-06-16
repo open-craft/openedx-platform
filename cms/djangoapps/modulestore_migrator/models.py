@@ -7,11 +7,8 @@ from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from model_utils.models import TimeStampedModel
-from opaque_keys.edx.django.models import (
-    LearningContextKeyField,
-    UsageKeyField,
-)
-from openedx_learning.api.authoring_models import (
+from opaque_keys.edx.django.models import LearningContextKeyField, UsageKeyField
+from openedx_content.models_api import (
     Collection,
     DraftChangeLog,
     DraftChangeLogRecord,
@@ -28,10 +25,29 @@ User = get_user_model()
 class ModulestoreSource(models.Model):
     """
     A legacy learning context (course or library) which can be a source of a migration.
+
+    One source can be associated with multiple (successful or unsuccessful) ModulestoreMigrations.
+    If a source has been migrated multiple times, then at most one of them can be considered the
+    "official" or "authoritative" migration; this is indicated by setting the `forwarded` field to
+    that ModulestoreMigration object.
+
+    Note that `forwarded` can be NULL even when 1+ migrations have happened for this source. This just
+    means that none of them were authoritative. In other words, they were all "imports"/"copies" rather
+    than true "migrations".
+
+    In practice, as of Ulmo:
+    * The `forwarded` field is used to decide how to update legacy library_content references.
+    * When using the Libraries Migration UI in Studio, `forwarded` is always set to the first
+      successful ModulestoreMigration.
+    * When using the REST API directly, the default is to use the same behavior as the UI, but
+      clients can also explicitly specify the `forward_source_to_target` boolean param in order to
+      control whether `forwarded` is set to any given migration.
+
+        .. no_pii:
     """
     key = LearningContextKeyField(
-        max_length=255,
         unique=True,
+        case_sensitive=True,
         help_text=_('Key of the content source (a course or a legacy library)'),
     )
     forwarded = models.OneToOneField(
@@ -40,7 +56,6 @@ class ModulestoreSource(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         help_text=_('If set, the system will forward references of this source over to the target of this migration'),
-        related_name="forwards",
     )
 
     def __str__(self):
@@ -52,7 +67,7 @@ class ModulestoreSource(models.Model):
 class ModulestoreMigration(models.Model):
     """
     Tracks the action of a user importing a Modulestore-based course or legacy library into a
-    learning-core based learning package
+    openedx_content based learning package
 
     Notes:
     * As of Ulmo, a learning package is always associated with a v2 content library, but we
@@ -61,6 +76,8 @@ class ModulestoreMigration(models.Model):
       contains the progress of the import.
     * A single ModulestoreSource may very well have multiple ModulestoreMigrations; however,
       at most one of them with be the "authoritative" migration, as indicated by `forwarded`.
+
+        .. no_pii:
     """
 
     ## MIGRATION SPECIFICATION
@@ -69,7 +86,7 @@ class ModulestoreMigration(models.Model):
         on_delete=models.CASCADE,
         related_name="migrations",
     )
-    source_version = models.CharField(
+    source_version = models.CharField(  # noqa: DJ001
         max_length=255,
         blank=True,
         null=True,
@@ -163,6 +180,11 @@ class ModulestoreMigration(models.Model):
 class ModulestoreBlockSource(TimeStampedModel):
     """
     A legacy block usage (in a course or library) which can be a source of a block migration.
+
+    The semantics of `forwarded` directly mirror those of `ModulestoreSource.forwarded`. Please see
+    that class's docstring for details.
+
+    .. no_pii:
     """
     overall_source = models.ForeignKey(
         ModulestoreSource,
@@ -170,7 +192,8 @@ class ModulestoreBlockSource(TimeStampedModel):
         related_name="blocks",
     )
     key = UsageKeyField(
-        max_length=255,
+        case_sensitive=True,
+        unique=True,
         help_text=_('Original usage key of the XBlock that has been imported.'),
     )
     forwarded = models.OneToOneField(
@@ -178,11 +201,10 @@ class ModulestoreBlockSource(TimeStampedModel):
         null=True,
         on_delete=models.SET_NULL,
         help_text=_(
-            'If set, the system will forward references of this block source over to the target of this block migration'
+            'If set, the system will forward references of this block source over to the '
+            'target of this block migration'
         ),
-        related_name="forwards",
     )
-    unique_together = [("overall_source", "key")]
 
     def __str__(self):
         return f"{self.__class__.__name__}('{self.key}')"
@@ -200,6 +222,8 @@ class ModulestoreBlockMigration(TimeStampedModel):
     * A single ModulestoreBlockSource may very well have multiple ModulestoreBlockMigrations; however,
       at most one of them with be the "authoritative" migration, as indicated by `forwarded`.
       This will coincide with the `overall_migration` being pointed to by `forwarded` as well.
+
+        .. no_pii:
     """
     overall_migration = models.ForeignKey(
         ModulestoreMigration,
@@ -224,7 +248,7 @@ class ModulestoreBlockMigration(TimeStampedModel):
         null=True,
         on_delete=models.SET_NULL,
     )
-    unsupported_reason = models.TextField(
+    unsupported_reason = models.TextField(  # noqa: DJ001
         null=True,
         blank=True,
         help_text=_('Reason if the block is unsupported and target is set to null'),

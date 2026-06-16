@@ -4,9 +4,9 @@ Tests for credit courses on the student dashboard.
 
 import datetime
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import ddt
-import pytz
 from django.conf import settings
 from django.test.utils import override_settings
 from django.urls import reverse
@@ -16,8 +16,10 @@ from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, U
 from openedx.core.djangoapps.credit import api as credit_api
 from openedx.core.djangoapps.credit.models import CreditCourse, CreditEligibility, CreditProvider
 from openedx.core.djangolib.testing.utils import skip_unless_lms
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 TEST_CREDIT_PROVIDER_SECRET_KEY = "931433d583c84ca7ba41784bad3232e6"
 
@@ -101,7 +103,7 @@ class CreditCourseDashboardTest(ModuleStoreTestCase):
 
         # Move the eligibility deadline so it's within 30 days
         eligibility = CreditEligibility.objects.get(username=self.USERNAME)
-        eligibility.deadline = datetime.datetime.now(pytz.UTC) + datetime.timedelta(days=29)
+        eligibility.deadline = datetime.datetime.now(ZoneInfo("UTC")) + datetime.timedelta(days=29)
         eligibility.save()
 
         # The user should still have the option to purchase credit,

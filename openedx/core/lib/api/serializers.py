@@ -6,13 +6,14 @@ Serializers to be used in APIs.
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework import serializers
+from user_tasks.serializers import StatusSerializer
 
 
 class CollapsedReferenceSerializer(serializers.HyperlinkedModelSerializer):
     """Serializes arbitrary models in a collapsed format, with just an id and url."""
     url = serializers.HyperlinkedIdentityField(view_name='')
 
-    def __init__(self, model_class, view_name, id_source='id', lookup_field=None, *args, **kwargs):  # lint-amnesty, pylint: disable=keyword-arg-before-vararg
+    def __init__(self, model_class, view_name, id_source='id', lookup_field=None, *args, **kwargs):  # pylint: disable=keyword-arg-before-vararg
         """Configures the serializer.
 
         Args:
@@ -45,7 +46,7 @@ class CollapsedReferenceSerializer(serializers.HyperlinkedModelSerializer):
 class CourseKeyField(serializers.Field):
     """ Serializer field for a model CourseKey field. """
 
-    def to_representation(self, data):  # lint-amnesty, pylint: disable=arguments-differ
+    def to_representation(self, data):  # pylint: disable=arguments-differ
         """Convert a course key to unicode. """
         return str(data)
 
@@ -60,7 +61,7 @@ class CourseKeyField(serializers.Field):
 class UsageKeyField(serializers.Field):
     """ Serializer field for a model UsageKey field. """
 
-    def to_representation(self, data):  # lint-amnesty, pylint: disable=arguments-differ
+    def to_representation(self, data):  # pylint: disable=arguments-differ
         """Convert a usage key to unicode. """
         return str(data)
 
@@ -70,3 +71,13 @@ class UsageKeyField(serializers.Field):
             return UsageKey.from_string(data)
         except InvalidKeyError as err:
             raise serializers.ValidationError("Invalid usage key") from err
+
+
+class StatusSerializerWithUuid(StatusSerializer):
+    """
+    Serializer for the user task status, including uuid.
+    """
+
+    class Meta:
+        model = StatusSerializer.Meta.model
+        fields = [*StatusSerializer.Meta.fields, 'uuid']

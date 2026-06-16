@@ -10,7 +10,7 @@ from django.conf import settings
 from django.test import override_settings
 from django.urls import reverse
 from opaque_keys.edx.locator import LibraryLocatorV2
-from openedx_learning.api import authoring as authoring_api
+from openedx_content import api as content_api
 from organizations.tests.factories import OrganizationFactory
 from rest_framework import status
 
@@ -18,7 +18,6 @@ from cms.djangoapps.contentstore.tests.test_libraries import LibraryTestCase
 from cms.djangoapps.contentstore.tests.utils import CourseTestCase
 from cms.djangoapps.modulestore_migrator import api as migrator_api
 from cms.djangoapps.modulestore_migrator.data import CompositionLevel, RepeatHandlingStrategy
-from cms.djangoapps.modulestore_migrator.tests.factories import ModulestoreSourceFactory
 from openedx.core.djangoapps.content.course_overviews.tests.factories import CourseOverviewFactory
 from openedx.core.djangoapps.content_libraries import api as lib_api
 
@@ -67,8 +66,8 @@ class HomePageViewTest(CourseTestCase):
         """Check successful response content"""
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictEqual(self.expected_response, response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertDictEqual(self.expected_response, response.data)  # noqa: PT009
 
     @override_settings(MEILISEARCH_ENABLED=True)
     def test_home_page_studio_with_meilisearch_enabled(self):
@@ -78,8 +77,8 @@ class HomePageViewTest(CourseTestCase):
         expected_response = self.expected_response
         expected_response["libraries_v2_enabled"] = True
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictEqual(expected_response, response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertDictEqual(expected_response, response.data)  # noqa: PT009
 
     @override_settings(ORGANIZATIONS_AUTOCREATE=False)
     def test_home_page_studio_with_org_autocreate_disabled(self):
@@ -89,13 +88,13 @@ class HomePageViewTest(CourseTestCase):
         expected_response = self.expected_response
         expected_response["allow_to_create_new_org"] = False
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictEqual(expected_response, response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertDictEqual(expected_response, response.data)  # noqa: PT009
 
     def test_taxonomy_list_link(self):
         response = self.client.get(self.url)
-        self.assertTrue(response.data['taxonomies_enabled'])
-        self.assertEqual(
+        self.assertTrue(response.data['taxonomies_enabled'])  # noqa: PT009
+        self.assertEqual(  # noqa: PT009
             response.data['taxonomy_list_mfe_url'],
             f'{settings.COURSE_AUTHORING_MICROFRONTEND_URL}/taxonomies'
         )
@@ -138,8 +137,8 @@ class HomePageCoursesViewTest(CourseTestCase):
             "in_process_course_actions": [],
         }
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictEqual(expected_response, response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertDictEqual(expected_response, response.data)  # noqa: PT009
 
     def test_home_page_response_with_api_v2(self):
         """Check successful response content with api v2 modifications.
@@ -167,8 +166,8 @@ class HomePageCoursesViewTest(CourseTestCase):
 
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictEqual(expected_response, response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertDictEqual(expected_response, response.data)  # noqa: PT009
 
     @ddt.data(
         ("active_only", "true", 2, 0),
@@ -208,9 +207,9 @@ class HomePageCoursesViewTest(CourseTestCase):
 
         response = self.client.get(self.url, {filter_key: filter_value})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["archived_courses"]), expected_archived_length)
-        self.assertEqual(len(response.data["courses"]), expected_active_length)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertEqual(len(response.data["archived_courses"]), expected_archived_length)  # noqa: PT009
+        self.assertEqual(len(response.data["courses"]), expected_active_length)  # noqa: PT009
 
     @ddt.data(
         ("active_only", "true"),
@@ -225,8 +224,8 @@ class HomePageCoursesViewTest(CourseTestCase):
 
         response = self.client.get(self.url, {filter_key: filter_value})
 
-        self.assertEqual(len(response.data["courses"]), 0)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["courses"]), 0)  # noqa: PT009
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
 
     @ddt.data(
         ("active_only", "true"),
@@ -241,8 +240,8 @@ class HomePageCoursesViewTest(CourseTestCase):
 
         response = self.non_staff_client.get(self.url, {filter_key: filter_value})
 
-        self.assertEqual(len(response.data["courses"]), 0)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["courses"]), 0)  # noqa: PT009
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
 
 
 @ddt.ddt
@@ -253,8 +252,9 @@ class HomePageLibrariesViewTest(LibraryTestCase):
 
     def setUp(self):
         super().setUp()
-        # Create an additional legacy library
+        # Create an two additional legacy libaries
         self.lib_key_1 = self._create_library(library="lib1")
+        self.lib_key_2 = self._create_library(library="lib2")
         self.organization = OrganizationFactory()
 
         # Create a new v2 library
@@ -269,31 +269,42 @@ class HomePageLibrariesViewTest(LibraryTestCase):
         library = lib_api.ContentLibrary.objects.get(slug=self.lib_key_v2.slug)
         learning_package = library.learning_package
         # Create a migration source for the legacy library
-        self.source = ModulestoreSourceFactory(key=self.lib_key_1)
         self.url = reverse("cms.djangoapps.contentstore:v1:libraries")
         # Create a collection to migrate this library to
         collection_key = "test-collection"
-        authoring_api.create_collection(
+        content_api.create_collection(
             learning_package_id=learning_package.id,
-            key=collection_key,
+            collection_code=collection_key,
             title="Test Collection",
             created_by=self.user.id,
         )
 
-        # Migrate self.lib_key_1 to self.lib_key_v2
+        # Migrate both lib_key_1 and lib_key_2 to v2
+        # Only make lib_key_1 a "forwarding" migration.
         migrator_api.start_migration_to_library(
             user=self.user,
-            source_key=self.source.key,
+            source_key=self.lib_key_1,
             target_library_key=self.lib_key_v2,
             target_collection_slug=collection_key,
-            composition_level=CompositionLevel.Component.value,
-            repeat_handling_strategy=RepeatHandlingStrategy.Skip.value,
+            composition_level=CompositionLevel.Component,
+            repeat_handling_strategy=RepeatHandlingStrategy.Skip,
+            preserve_url_slugs=True,
+            forward_source_to_target=True,
+        )
+        migrator_api.start_migration_to_library(
+            user=self.user,
+            source_key=self.lib_key_2,
+            target_library_key=self.lib_key_v2,
+            target_collection_slug=collection_key,
+            composition_level=CompositionLevel.Component,
+            repeat_handling_strategy=RepeatHandlingStrategy.Skip,
             preserve_url_slugs=True,
             forward_source_to_target=False,
         )
 
     def test_home_page_libraries_response(self):
-        """Check successful response content"""
+        """Check sucessful response content"""
+        self.maxDiff = None
         response = self.client.get(self.url)
 
         expected_response = {
@@ -318,15 +329,26 @@ class HomePageLibrariesViewTest(LibraryTestCase):
                     'can_edit': True,
                     'is_migrated': True,
                     'migrated_to_title': 'Test Library',
-                    'migrated_to_key': 'lib:name0:test-key',
+                    'migrated_to_key': str(self.lib_key_v2),
                     'migrated_to_collection_key': 'test-collection',
                     'migrated_to_collection_title': 'Test Collection',
+                },
+                # Third library was migrated, but not with forwarding.
+                # So, it appears just like the unmigrated library.
+                {
+                    'display_name': 'Test Library',
+                    'library_key': 'library-v1:org+lib2',
+                    'url': '/library/library-v1:org+lib2',
+                    'org': 'org',
+                    'number': 'lib2',
+                    'can_edit': True,
+                    'is_migrated': False,
                 },
             ]
         }
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictEqual(expected_response, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertDictEqual(expected_response, response.json())  # noqa: PT009
 
         # Fetch legacy libraries that were migrated to v2
         response = self.client.get(self.url + '?is_migrated=true')
@@ -342,15 +364,15 @@ class HomePageLibrariesViewTest(LibraryTestCase):
                     'can_edit': True,
                     'is_migrated': True,
                     'migrated_to_title': 'Test Library',
-                    'migrated_to_key': 'lib:name0:test-key',
+                    'migrated_to_key': str(self.lib_key_v2),
                     'migrated_to_collection_key': 'test-collection',
                     'migrated_to_collection_title': 'Test Collection',
                 }
             ],
         }
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictEqual(expected_response, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertDictEqual(expected_response, response.json())  # noqa: PT009
 
         # Fetch legacy libraries that were not migrated to v2
         response = self.client.get(self.url + '?is_migrated=false')
@@ -366,8 +388,17 @@ class HomePageLibrariesViewTest(LibraryTestCase):
                     'can_edit': True,
                     'is_migrated': False,
                 },
+                {
+                    'display_name': 'Test Library',
+                    'library_key': 'library-v1:org+lib2',
+                    'url': '/library/library-v1:org+lib2',
+                    'org': 'org',
+                    'number': 'lib2',
+                    'can_edit': True,
+                    'is_migrated': False,
+                },
             ],
         }
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictEqual(expected_response, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        self.assertDictEqual(expected_response, response.json())  # noqa: PT009

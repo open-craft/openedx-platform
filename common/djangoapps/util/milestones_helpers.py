@@ -3,7 +3,7 @@ Utility library for working with the edx-milestones app
 """
 from django.conf import settings
 from django.utils.translation import gettext as _
-from edx_toggles.toggles import SettingDictToggle
+from edx_toggles.toggles import SettingToggle
 from milestones import api as milestones_api
 from milestones.exceptions import InvalidMilestoneRelationshipTypeException, InvalidUserException
 from milestones.models import MilestoneRelationshipType
@@ -13,8 +13,7 @@ from opaque_keys.edx.keys import CourseKey
 
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.lib.cache_utils import get_cache
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 NAMESPACE_CHOICES = {
     'ENTRANCE_EXAM': 'entrance_exams'
@@ -23,15 +22,15 @@ NAMESPACE_CHOICES = {
 REQUEST_CACHE_NAME = "milestones"
 
 # TODO this should be moved to edx/edx-milestones
-# .. toggle_name: FEATURES['MILESTONES_APP']
-# .. toggle_implementation: SettingDictToggle
+# .. toggle_name: MILESTONES_APP
+# .. toggle_implementation: SettingToggle
 # .. toggle_default: False
 # .. toggle_description: Enable the milestones application, which manages significant Course and/or Student events in
 #   the Open edX platform. (see https://github.com/openedx/edx-milestones) Note that this feature is required to enable
 #   course pre-requisites.
 # .. toggle_use_cases: open_edx
 # .. toggle_creation_date: 2014-11-21
-ENABLE_MILESTONES_APP = SettingDictToggle("FEATURES", "MILESTONES_APP", default=False, module_name=__name__)
+ENABLE_MILESTONES_APP = SettingToggle("MILESTONES_APP", default=False, module_name=__name__)
 
 
 def get_namespace_choices():
@@ -233,7 +232,7 @@ def get_required_content(course_key, user):
             # For each outstanding milestone, see if this content is one of its fulfillment paths
             for path_key in milestone_paths:
                 milestone_path = milestone_paths[path_key]
-                if milestone_path.get('content') and len(milestone_path['content']):  # lint-amnesty, pylint: disable=len-as-condition
+                if milestone_path.get('content') and len(milestone_path['content']):  # pylint: disable=len-as-condition
                     for content in milestone_path['content']:
                         required_content.append(content)
         else:

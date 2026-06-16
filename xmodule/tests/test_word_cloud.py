@@ -1,11 +1,9 @@
 """Test for Word Cloud Block functional logic."""
 import json
-import os
 from unittest.mock import Mock
 
 from django.conf import settings
-from django.test import TestCase
-from django.test import override_settings
+from django.test import TestCase, override_settings
 from fs.memoryfs import MemoryFS
 from lxml import etree
 from opaque_keys.edx.locator import BlockUsageLocator, CourseLocator
@@ -15,6 +13,7 @@ from xblock.field_data import DictFieldData
 from xblock.fields import ScopeIds
 
 from xmodule import word_cloud_block
+
 from . import get_test_descriptor_system, get_test_system
 
 
@@ -68,32 +67,12 @@ class _TestWordCloudBase(TestCase):
         assert block.num_inputs == 3
         assert block.num_top_words == 100
 
-        if settings.USE_EXTRACTED_WORD_CLOUD_BLOCK:
-            # For extracted XBlocks, we need to manually export the XML definition to a file to properly test the
-            # import/export cycle. This is because extracted XBlocks use XBlock core's `add_xml_to_node` method,
-            # which does not export the XML to a file like `XmlMixin.add_xml_to_node` does.
-            filepath = 'word_cloud/block_id.xml'
-            runtime.export_fs.makedirs(os.path.dirname(filepath), recreate=True)
-            with runtime.export_fs.open(filepath, 'wb') as fileObj:
-                runtime.export_to_xml(block, fileObj)
-        else:
-            node = etree.Element("unknown_root")
-            # This will export the olx to a separate file.
-            block.add_xml_to_node(node)
+        node = etree.Element("unknown_root")
+        # This will export the olx to a separate file.
+        block.add_xml_to_node(node)
 
         with runtime.export_fs.open('word_cloud/block_id.xml') as f:
             exported_xml = f.read()
-
-        if settings.USE_EXTRACTED_WORD_CLOUD_BLOCK:
-            # For extracted XBlocks, we need to remove the `xblock-family` attribute from the exported XML to ensure
-            # consistency with the original XML.
-            # This is because extracted XBlocks use the core XBlock's `add_xml_to_node` method, which includes this
-            # attribute, whereas `XmlMixin.add_xml_to_node` does not.
-            exported_xml_tree = etree.fromstring(exported_xml.encode('utf-8'))
-            etree.cleanup_namespaces(exported_xml_tree)
-            if 'xblock-family' in exported_xml_tree.attrib:
-                del exported_xml_tree.attrib['xblock-family']
-            exported_xml = etree.tostring(exported_xml_tree, encoding='unicode', pretty_print=True)
 
         assert exported_xml == original_xml
 
@@ -107,12 +86,12 @@ class _TestWordCloudBase(TestCase):
         if settings.USE_EXTRACTED_WORD_CLOUD_BLOCK:
             # The extracted Word Cloud XBlock uses @XBlock.json_handler for handling AJAX requests,
             # which requires a different way of method invocation.
-            with self.assertRaises(AttributeError) as context:
+            with self.assertRaises(AttributeError) as context:  # noqa: PT027
                 json.loads(block.bad_dispatch('bad_dispatch', {}))
-            self.assertIn("'WordCloudBlock' object has no attribute 'bad_dispatch'", str(context.exception))
+            self.assertIn("'WordCloudBlock' object has no attribute 'bad_dispatch'", str(context.exception))  # noqa: PT009  # pylint: disable=line-too-long
         else:
             response = json.loads(block.handle_ajax('bad_dispatch', {}))
-            self.assertDictEqual(response, {
+            self.assertDictEqual(response, {  # noqa: PT009
                 'status': 'fail',
                 'error': 'Unknown Command!'
             })
@@ -135,12 +114,12 @@ class _TestWordCloudBase(TestCase):
         assert response['status'] == 'success'
         assert response['submitted'] is True
         assert response['total_count'] == 22
-        self.assertDictEqual(
+        self.assertDictEqual(  # noqa: PT009
             response['student_words'],
             {'sun': 1, 'dog': 6, 'cat': 12}
         )
 
-        self.assertListEqual(
+        self.assertListEqual(  # noqa: PT009
             response['top_words'],
             [{'text': 'cat', 'size': 12, 'percent': 55.0},
              {'text': 'dad', 'size': 2, 'percent': 9.0},

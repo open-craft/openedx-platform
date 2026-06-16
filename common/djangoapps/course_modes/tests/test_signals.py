@@ -5,17 +5,24 @@ Unit tests for the course_mode signals
 
 from datetime import datetime, timedelta
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import ddt
 from django.conf import settings
-from pytz import UTC
 
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.course_modes.signals import _listen_for_course_publish
-from xmodule.modulestore import ModuleStoreEnum  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory, BlockFactory  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.partitions.partitions import ENROLLMENT_TRACK_PARTITION_ID  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore import ModuleStoreEnum  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import (  # pylint: disable=wrong-import-order
+    BlockFactory,
+    CourseFactory,
+)
+from xmodule.partitions.partitions import (
+    ENROLLMENT_TRACK_PARTITION_ID,  # pylint: disable=wrong-import-order
+)
 
 
 @ddt.ddt
@@ -26,7 +33,7 @@ class CourseModeSignalTest(ModuleStoreTestCase):
 
     def setUp(self):
         super().setUp()
-        self.end = datetime.now(tz=UTC).replace(microsecond=0) + timedelta(days=7)
+        self.end = datetime.now(tz=ZoneInfo("UTC")).replace(microsecond=0) + timedelta(days=7)
         self.course = CourseFactory.create(end=self.end)
         CourseMode.objects.all().delete()
 

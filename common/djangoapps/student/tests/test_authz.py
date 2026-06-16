@@ -17,14 +17,15 @@ from common.djangoapps.student.auth import (
     has_studio_write_access,
     remove_users,
     update_org_role,
-    user_has_role
+    user_has_role,
 )
+from common.djangoapps.student.models.user import CourseAccessRole
 from common.djangoapps.student.roles import (
     CourseCreatorRole,
     CourseInstructorRole,
     CourseLimitedStaffRole,
     CourseStaffRole,
-    OrgContentCreatorRole
+    OrgContentCreatorRole,
 )
 from common.djangoapps.student.tests.factories import AdminFactory, UserFactory
 
@@ -119,7 +120,7 @@ class CreatorGroupTest(TestCase):
             assert not user_has_role(self.user, CourseCreatorRole())
 
     def test_add_user_to_group_requires_staff_access(self):
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(PermissionDenied):  # noqa: PT012
             self.admin.is_staff = False
             add_users(self.admin, CourseCreatorRole(), self.user)
 
@@ -127,12 +128,12 @@ class CreatorGroupTest(TestCase):
             add_users(self.user, CourseCreatorRole(), self.user)
 
     def test_add_user_to_group_requires_active(self):
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(PermissionDenied):  # noqa: PT012
             self.admin.is_active = False
             add_users(self.admin, CourseCreatorRole(), self.user)
 
     def test_add_user_to_group_requires_authenticated(self):
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(PermissionDenied):  # noqa: PT012
             with mock.patch(
                 'django.contrib.auth.models.User.is_authenticated',
                 new_callable=mock.PropertyMock
@@ -141,17 +142,17 @@ class CreatorGroupTest(TestCase):
                 add_users(self.admin, CourseCreatorRole(), self.user)
 
     def test_remove_user_from_group_requires_staff_access(self):
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(PermissionDenied):  # noqa: PT012
             self.admin.is_staff = False
             remove_users(self.admin, CourseCreatorRole(), self.user)
 
     def test_remove_user_from_group_requires_active(self):
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(PermissionDenied):  # noqa: PT012
             self.admin.is_active = False
             remove_users(self.admin, CourseCreatorRole(), self.user)
 
     def test_remove_user_from_group_requires_authenticated(self):
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(PermissionDenied):  # noqa: PT012
             with mock.patch(
                 'django.contrib.auth.models.User.is_authenticated',
                 new_callable=mock.PropertyMock
@@ -301,6 +302,23 @@ class CourseGroupTest(TestCase):
         Verifies that course limited staff have no read and no write access when SERVICE_VARIANT is not 'lms'.
         """
         add_users(self.global_admin, CourseLimitedStaffRole(self.course_key), self.limited_staff)
+
+        assert not has_studio_read_access(self.limited_staff, self.course_key)
+        assert not has_studio_write_access(self.limited_staff, self.course_key)
+
+    @override_settings(SERVICE_VARIANT='cms')
+    def test_limited_org_staff_no_studio_access_cms(self):
+        """
+        Verifies that course limited staff have no read and no write access when SERVICE_VARIANT is not 'lms'.
+        """
+        # Add a user as course_limited_staff on the org
+        # This is not possible using the course roles classes but is possible via Django admin so we
+        # insert a row into the model directly to test that scenario.
+        CourseAccessRole.objects.create(
+            user=self.limited_staff,
+            org=self.course_key.org,
+            role=CourseLimitedStaffRole.ROLE,
+        )
 
         assert not has_studio_read_access(self.limited_staff, self.course_key)
         assert not has_studio_write_access(self.limited_staff, self.course_key)

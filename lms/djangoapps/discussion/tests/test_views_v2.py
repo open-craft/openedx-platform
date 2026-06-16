@@ -5,96 +5,73 @@ Tests the forum notification views.
 
 import json
 import logging
-from datetime import datetime
-from unittest import mock
-from unittest.mock import ANY, Mock, call, patch
+from datetime import datetime  # noqa: F401
+from unittest import mock  # noqa: F401
+from unittest.mock import ANY, Mock, call, patch  # noqa: F401
 
 import ddt
 import pytest
 from django.conf import settings
 from django.http import Http404
-from django.test.client import Client, RequestFactory
+from django.test.client import Client, RequestFactory  # noqa: F401
 from django.test.utils import override_settings
 from django.urls import reverse
 from django.utils import translation
-from edx_django_utils.cache import RequestCache
+from edx_django_utils.cache import RequestCache  # noqa: F401
 from edx_toggles.toggles.testutils import override_waffle_flag
-from lms.djangoapps.discussion.django_comment_client.tests.mixins import (
-    MockForumApiMixin,
-)
-from xmodule.modulestore import ModuleStoreEnum
-from xmodule.modulestore.django import modulestore
-from xmodule.modulestore.tests.django_utils import (
-    TEST_DATA_SPLIT_MODULESTORE,
-    ModuleStoreTestCase,
-    SharedModuleStoreTestCase,
-)
-from xmodule.modulestore.tests.factories import (
-    CourseFactory,
-    BlockFactory,
-    check_mongo_calls,
-)
 
-from common.djangoapps.course_modes.models import CourseMode
-from common.djangoapps.course_modes.tests.factories import CourseModeFactory
+from common.djangoapps.course_modes.models import CourseMode  # noqa: F401
+from common.djangoapps.course_modes.tests.factories import CourseModeFactory  # noqa: F401
 from common.djangoapps.student.roles import CourseStaffRole, UserBasedRole
-from common.djangoapps.student.tests.factories import (
-    AdminFactory,
-    CourseEnrollmentFactory,
-    UserFactory,
-)
+from common.djangoapps.student.tests.factories import AdminFactory, CourseEnrollmentFactory, UserFactory
 from common.djangoapps.util.testing import EventTestMixin, UrlResetMixin
-from lms.djangoapps.courseware.exceptions import CourseAccessRedirect
+from lms.djangoapps.courseware.exceptions import CourseAccessRedirect  # noqa: F401
 from lms.djangoapps.discussion import views
-from lms.djangoapps.discussion.django_comment_client.constants import (
-    TYPE_ENTRY,
-    TYPE_SUBCATEGORY,
-)
+from lms.djangoapps.discussion.django_comment_client.constants import TYPE_ENTRY, TYPE_SUBCATEGORY  # noqa: F401
 from lms.djangoapps.discussion.django_comment_client.permissions import get_team
 from lms.djangoapps.discussion.django_comment_client.tests.group_id import (
     CohortedTopicGroupIdTestMixinV2,
     GroupIdAssertionMixinV2,
     NonCohortedTopicGroupIdTestMixinV2,
 )
-from lms.djangoapps.discussion.django_comment_client.tests.unicode import (
-    UnicodeTestMixin,
-)
+from lms.djangoapps.discussion.django_comment_client.tests.mixins import MockForumApiMixin
+from lms.djangoapps.discussion.django_comment_client.tests.unicode import UnicodeTestMixin
 from lms.djangoapps.discussion.django_comment_client.tests.utils import (
     CohortedTestCase,
-    config_course_discussions,
-    topic_name_to_id,
+    config_course_discussions,  # noqa: F401
+    topic_name_to_id,  # noqa: F401
 )
 from lms.djangoapps.discussion.django_comment_client.utils import strip_none
 from lms.djangoapps.discussion.toggles import ENABLE_DISCUSSIONS_MFE
-from lms.djangoapps.discussion.views import (
+from lms.djangoapps.discussion.views import (  # noqa: F401
     _get_discussion_default_topic_id,
     course_discussions_settings_handler,
 )
-from lms.djangoapps.teams.tests.factories import (
-    CourseTeamFactory,
-    CourseTeamMembershipFactory,
-)
+from lms.djangoapps.teams.tests.factories import CourseTeamFactory, CourseTeamMembershipFactory
 from openedx.core.djangoapps.course_groups.models import CourseUserGroup
-from openedx.core.djangoapps.course_groups.tests.helpers import config_course_cohorts
-from openedx.core.djangoapps.course_groups.tests.test_views import CohortViewsTestCase
+from openedx.core.djangoapps.course_groups.tests.helpers import config_course_cohorts  # noqa: F401
+from openedx.core.djangoapps.course_groups.tests.test_views import CohortViewsTestCase  # noqa: F401
 from openedx.core.djangoapps.django_comment_common.comment_client.utils import (
-    CommentClientPaginatedResult,
+    CommentClientPaginatedResult,  # noqa: F401
 )
-from openedx.core.djangoapps.django_comment_common.models import (
+from openedx.core.djangoapps.django_comment_common.models import (  # noqa: F401
     FORUM_ROLE_STUDENT,
     CourseDiscussionSettings,
 )
-from openedx.core.djangoapps.django_comment_common.utils import (
-    ThreadContext,
-    seed_permissions_roles,
-)
+from openedx.core.djangoapps.django_comment_common.utils import ThreadContext, seed_permissions_roles
 from openedx.core.djangoapps.util.testing import ContentGroupTestCase
 from openedx.core.djangoapps.waffle_utils.testutils import WAFFLE_TABLES
 from openedx.core.lib.teams_config import TeamsConfig
-from openedx.features.content_type_gating.models import ContentTypeGatingConfig
-from openedx.features.enterprise_support.tests.mixins.enterprise import (
-    EnterpriseTestConsentRequired,
+from openedx.features.content_type_gating.models import ContentTypeGatingConfig  # noqa: F401
+from openedx.features.enterprise_support.tests.mixins.enterprise import EnterpriseTestConsentRequired
+from xmodule.modulestore import ModuleStoreEnum  # noqa: F401
+from xmodule.modulestore.django import modulestore  # noqa: F401
+from xmodule.modulestore.tests.django_utils import (
+    TEST_DATA_SPLIT_MODULESTORE,  # noqa: F401
+    ModuleStoreTestCase,
+    SharedModuleStoreTestCase,
 )
+from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory, check_mongo_calls  # noqa: F401
 
 log = logging.getLogger(__name__)
 
@@ -315,7 +292,7 @@ class ForumViewsUtilsMixin(MockForumApiMixin):
         self.set_mock_side_effect("get_user", make_user_callback())
 
 
-class SingleThreadTestCase(ModuleStoreTestCase, ForumViewsUtilsMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class SingleThreadTestCase(ModuleStoreTestCase, ForumViewsUtilsMixin):  # pylint: disable=missing-class-docstring
 
     CREATE_USER = False
 
@@ -457,7 +434,7 @@ class SingleThreadTestCase(ModuleStoreTestCase, ForumViewsUtilsMixin):  # lint-a
         request.user = self.student
         # Mock request to return 404 for thread request
         self._configure_mock_responses(course=self.course, text="dummy", thread_id=None)
-        self.assertRaises(
+        self.assertRaises(  # noqa: PT027
             Http404,
             views.single_thread,
             request,
@@ -496,7 +473,7 @@ class SingleThreadTestCase(ModuleStoreTestCase, ForumViewsUtilsMixin):  # lint-a
             assert 'This is a private discussion. You do not have permissions to view this discussion' in html
 
 
-class SingleCohortedThreadTestCase(CohortedTestCase, ForumViewsUtilsMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class SingleCohortedThreadTestCase(CohortedTestCase, ForumViewsUtilsMixin):  # pylint: disable=missing-class-docstring
 
     @classmethod
     def setUpClass(cls):
@@ -508,7 +485,7 @@ class SingleCohortedThreadTestCase(CohortedTestCase, ForumViewsUtilsMixin):  # l
         super().tearDownClass()
         super().disposeForumMocks()
 
-    def _create_mock_cohorted_thread(self):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def _create_mock_cohorted_thread(self):  # pylint: disable=missing-function-docstring
         mock_text = "dummy content"
         mock_thread_id = "test_thread_id"
         self._configure_mock_responses(
@@ -564,10 +541,10 @@ class SingleCohortedThreadTestCase(CohortedTestCase, ForumViewsUtilsMixin):  # l
         html = response.content.decode('utf-8')
 
         # Verify that the group name is correctly included in the HTML
-        self.assertRegex(html, r'"group_name": "student_cohort"')
+        self.assertRegex(html, r'"group_name": "student_cohort"')  # noqa: PT009
 
 
-class SingleThreadAccessTestCase(CohortedTestCase, ForumViewsUtilsMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class SingleThreadAccessTestCase(CohortedTestCase, ForumViewsUtilsMixin):  # pylint: disable=missing-class-docstring
 
     @classmethod
     def setUpClass(cls):
@@ -579,7 +556,7 @@ class SingleThreadAccessTestCase(CohortedTestCase, ForumViewsUtilsMixin):  # lin
         super().tearDownClass()
         super().disposeForumMocks()
 
-    def call_view(self, commentable_id, user, group_id, thread_group_id=None, pass_group_id=True):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def call_view(self, commentable_id, user, group_id, thread_group_id=None, pass_group_id=True):  # pylint: disable=missing-function-docstring
         thread_id = "test_thread_id"
         self._configure_mock_responses(
             course=self.course, text="dummy context", thread_id=thread_id, group_id=thread_group_id
@@ -671,7 +648,7 @@ class SingleThreadAccessTestCase(CohortedTestCase, ForumViewsUtilsMixin):  # lin
             assert views.TEAM_PERMISSION_MESSAGE == response.content.decode('utf-8')
 
 
-class SingleThreadGroupIdTestCase(CohortedTestCase, GroupIdAssertionMixinV2, ForumViewsUtilsMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class SingleThreadGroupIdTestCase(CohortedTestCase, GroupIdAssertionMixinV2, ForumViewsUtilsMixin):  # pylint: disable=missing-class-docstring
     function_name = "get_thread"
 
     @classmethod
@@ -684,7 +661,7 @@ class SingleThreadGroupIdTestCase(CohortedTestCase, GroupIdAssertionMixinV2, For
         super().tearDownClass()
         super().disposeForumMocks()
 
-    def call_view(self, commentable_id, user, group_id, pass_group_id=True, is_ajax=False):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def call_view(self, commentable_id, user, group_id, pass_group_id=True, is_ajax=False):  # pylint: disable=missing-function-docstring
         self._configure_mock_responses(
             course=self.course, text="dummy context", group_id=self.student_cohort.id
         )
@@ -725,7 +702,7 @@ class SingleThreadGroupIdTestCase(CohortedTestCase, GroupIdAssertionMixinV2, For
         )
 
 
-class SingleThreadContentGroupTestCase(UrlResetMixin, ContentGroupTestCase, ForumViewsUtilsMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class SingleThreadContentGroupTestCase(UrlResetMixin, ContentGroupTestCase, ForumViewsUtilsMixin):  # pylint: disable=missing-class-docstring
 
     @patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
     def setUp(self):
@@ -844,7 +821,7 @@ class SingleThreadContentGroupTestCase(UrlResetMixin, ContentGroupTestCase, Foru
         self.assert_can_access(self.beta_user, self.alpha_block.discussion_id, thread_id, True)
 
 
-class FollowedThreadsDiscussionGroupIdTestCase(CohortedTestCase, CohortedTopicGroupIdTestMixinV2, ForumViewsUtilsMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class FollowedThreadsDiscussionGroupIdTestCase(CohortedTestCase, CohortedTopicGroupIdTestMixinV2, ForumViewsUtilsMixin):  # pylint: disable=missing-class-docstring
     function_name = "get_user_subscriptions"
 
     @classmethod
@@ -895,7 +872,7 @@ class FollowedThreadsDiscussionGroupIdTestCase(CohortedTestCase, CohortedTopicGr
         )
 
 
-class SingleThreadUnicodeTestCase(SharedModuleStoreTestCase, UnicodeTestMixin, ForumViewsUtilsMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class SingleThreadUnicodeTestCase(SharedModuleStoreTestCase, UnicodeTestMixin, ForumViewsUtilsMixin):  # pylint: disable=missing-class-docstring
 
     @classmethod
     def setUpClass(cls):  # pylint: disable=super-method-not-called
@@ -916,7 +893,7 @@ class SingleThreadUnicodeTestCase(SharedModuleStoreTestCase, UnicodeTestMixin, F
         CourseEnrollmentFactory(user=cls.student, course_id=cls.course.id)
 
     @patch('openedx.core.djangoapps.django_comment_common.comment_client.utils.requests.request', autospec=True)
-    def _test_unicode_data(self, text, mock_request):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def _test_unicode_data(self, text, mock_request):  # pylint: disable=missing-function-docstring
         thread_id = "test_thread_id"
         self._configure_mock_responses(course=self.course, text=text, thread_id=thread_id)
         request = RequestFactory().get("dummy_url")
@@ -984,7 +961,7 @@ class ForumFormDiscussionContentGroupTestCase(
 
     def call_view(
         self, user
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         self._configure_mock_responses(
             course=self.course, text="dummy content", thread_list=self.thread_list
         )
@@ -1057,7 +1034,7 @@ class ForumFormDiscussionUnicodeTestCase(
 
     def _test_unicode_data(
         self, text
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         self._configure_mock_responses(course=self.course, text=text)
         request = RequestFactory().get("dummy_url")
         request.user = self.student
@@ -1140,7 +1117,7 @@ class EnterpriseConsentTestCase(
             )
 
 
-class InlineDiscussionGroupIdTestCase(  # lint-amnesty, pylint: disable=missing-class-docstring
+class InlineDiscussionGroupIdTestCase(  # pylint: disable=missing-class-docstring
     CohortedTestCase,
     CohortedTopicGroupIdTestMixinV2,
     NonCohortedTopicGroupIdTestMixinV2,
@@ -1195,7 +1172,7 @@ class InlineDiscussionGroupIdTestCase(  # lint-amnesty, pylint: disable=missing-
 
 class InlineDiscussionContextTestCase(
         ModuleStoreTestCase, ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
 
     def setUp(self):
         super().setUp()
@@ -1270,7 +1247,7 @@ class InlineDiscussionContextTestCase(
 
 class UserProfileDiscussionGroupIdTestCase(
     CohortedTestCase, CohortedTopicGroupIdTestMixinV2, ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
     function_name = "get_user_active_threads"
 
     @classmethod
@@ -1452,7 +1429,7 @@ class UserProfileDiscussionGroupIdTestCase(
 @ddt.ddt
 class ForumDiscussionXSSTestCase(
         UrlResetMixin, ModuleStoreTestCase, ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
 
     @patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
     def setUp(self):
@@ -1532,7 +1509,7 @@ class ForumDiscussionXSSTestCase(
 
 class InlineDiscussionTestCase(
         ModuleStoreTestCase, ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
 
     def setUp(self):
         super().setUp()
@@ -1607,7 +1584,7 @@ class InlineDiscussionTestCase(
 
 class ForumDiscussionSearchUnicodeTestCase(
         SharedModuleStoreTestCase, UnicodeTestMixin, ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
 
     @classmethod
     def setUpClass(cls):  # pylint: disable=super-method-not-called
@@ -1629,7 +1606,7 @@ class ForumDiscussionSearchUnicodeTestCase(
 
     def _test_unicode_data(
         self, text
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         self._configure_mock_responses(course=self.course, text=text)
         data = {
             "ajax": 1,
@@ -1649,7 +1626,7 @@ class ForumDiscussionSearchUnicodeTestCase(
 
 class InlineDiscussionUnicodeTestCase(
         SharedModuleStoreTestCase, UnicodeTestMixin, ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
 
     @classmethod
     def setUpClass(cls):  # pylint: disable=super-method-not-called
@@ -1672,7 +1649,7 @@ class InlineDiscussionUnicodeTestCase(
 
     def _test_unicode_data(
         self, text
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         self._configure_mock_responses(course=self.course, text=text)
         request = RequestFactory().get("dummy_url")
         request.user = self.student
@@ -1688,7 +1665,7 @@ class InlineDiscussionUnicodeTestCase(
 
 class ForumFormDiscussionGroupIdTestCase(
     CohortedTestCase, CohortedTopicGroupIdTestMixinV2, ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
     function_name = "get_user_threads"
 
     def call_view(
@@ -1740,7 +1717,7 @@ class ForumFormDiscussionGroupIdTestCase(
 
 class UserProfileTestCase(
         UrlResetMixin, ModuleStoreTestCase, ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
 
     TEST_THREAD_TEXT = "userprofile-test-text"
     TEST_THREAD_ID = "userprofile-test-thread-id"
@@ -1769,7 +1746,7 @@ class UserProfileTestCase(
 
     def get_response(
         self, params, **headers
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         self._configure_mock_responses(
             course=self.course,
             text=self.TEST_THREAD_TEXT,
@@ -1798,25 +1775,25 @@ class UserProfileTestCase(
 
     def check_html(
         self, **params
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         response = self.get_response(params)
         assert response.status_code == 200
         assert response["Content-Type"] == "text/html; charset=utf-8"
         html = response.content.decode("utf-8")
-        self.assertRegex(html, r'data-page="1"')
-        self.assertRegex(html, r'data-num-pages="1"')
-        self.assertRegex(
+        self.assertRegex(html, r'data-page="1"')  # noqa: PT009
+        self.assertRegex(html, r'data-num-pages="1"')  # noqa: PT009
+        self.assertRegex(  # noqa: PT009
             html, r'<span class="discussion-count">1</span> discussion started'
         )
-        self.assertRegex(html, r'<span class="discussion-count">2</span> comments')
-        self.assertRegex(html, f"&#39;id&#39;: &#39;{self.TEST_THREAD_ID}&#39;")
-        self.assertRegex(html, f"&#39;title&#39;: &#39;{self.TEST_THREAD_TEXT}&#39;")
-        self.assertRegex(html, f"&#39;body&#39;: &#39;{self.TEST_THREAD_TEXT}&#39;")
-        self.assertRegex(html, f"&#39;username&#39;: &#39;{self.student.username}&#39;")
+        self.assertRegex(html, r'<span class="discussion-count">2</span> comments')  # noqa: PT009
+        self.assertRegex(html, f"&#39;id&#39;: &#39;{self.TEST_THREAD_ID}&#39;")  # noqa: PT009
+        self.assertRegex(html, f"&#39;title&#39;: &#39;{self.TEST_THREAD_TEXT}&#39;")  # noqa: PT009
+        self.assertRegex(html, f"&#39;body&#39;: &#39;{self.TEST_THREAD_TEXT}&#39;")  # noqa: PT009
+        self.assertRegex(html, f"&#39;username&#39;: &#39;{self.student.username}&#39;")  # noqa: PT009
 
     def check_ajax(
         self, **params
-    ):  # lint-amnesty, pylint: disable=missing-function-docstring
+    ):  # pylint: disable=missing-function-docstring
         response = self.get_response(params, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         assert response.status_code == 200
         assert response["Content-Type"] == "application/json; charset=utf-8"
@@ -1947,7 +1924,7 @@ class ThreadViewedEventTestCase(
             thread_id=self.DUMMY_THREAD_ID,
             commentable_id=self.category.discussion_id,
         )
-        url = '/courses/{}/discussion/forum/{}/threads/{}'.format(
+        url = '/courses/{}/discussion/forum/{}/threads/{}'.format(  # noqa: UP032
             str(self.course.id),
             self.category.discussion_id,
             self.DUMMY_THREAD_ID
@@ -1978,7 +1955,7 @@ class FollowedThreadsUnicodeTestCase(
     SharedModuleStoreTestCase,
     UnicodeTestMixin,
     ForumViewsUtilsMixin
-):  # lint-amnesty, pylint: disable=missing-class-docstring
+):  # pylint: disable=missing-class-docstring
 
     @classmethod
     def setUpClass(cls):
@@ -1999,7 +1976,7 @@ class FollowedThreadsUnicodeTestCase(
         cls.student = UserFactory.create()
         CourseEnrollmentFactory(user=cls.student, course_id=cls.course.id)
 
-    def _test_unicode_data(self, text):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def _test_unicode_data(self, text):  # pylint: disable=missing-function-docstring
         self._configure_mock_responses(
             course=self.course,
             text=text,
@@ -2019,7 +1996,7 @@ class FollowedThreadsUnicodeTestCase(
         assert response_data['discussion_data'][0]['body'] == text
 
 
-class UserProfileUnicodeTestCase(SharedModuleStoreTestCase, UnicodeTestMixin, ForumViewsUtilsMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class UserProfileUnicodeTestCase(SharedModuleStoreTestCase, UnicodeTestMixin, ForumViewsUtilsMixin):  # pylint: disable=missing-class-docstring
 
     @classmethod
     def setUpClass(cls):
@@ -2040,7 +2017,7 @@ class UserProfileUnicodeTestCase(SharedModuleStoreTestCase, UnicodeTestMixin, Fo
         cls.student = UserFactory.create()
         CourseEnrollmentFactory(user=cls.student, course_id=cls.course.id)
 
-    def _test_unicode_data(self, text):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def _test_unicode_data(self, text):  # pylint: disable=missing-function-docstring
         self._configure_mock_responses(course=self.course, text=text)
         request = RequestFactory().get("dummy_url")
         request.user = self.student
@@ -2054,7 +2031,7 @@ class UserProfileUnicodeTestCase(SharedModuleStoreTestCase, UnicodeTestMixin, Fo
         assert response_data['discussion_data'][0]['body'] == text
 
 
-class ForumMFETestCase(SharedModuleStoreTestCase, ModuleStoreTestCase, MockForumApiMixin):  # lint-amnesty, pylint: disable=missing-class-docstring
+class ForumMFETestCase(SharedModuleStoreTestCase, ModuleStoreTestCase, MockForumApiMixin):  # pylint: disable=missing-class-docstring
     """
     Tests that the MFE upgrade banner and MFE is shown in the correct situation with the correct UI
     """

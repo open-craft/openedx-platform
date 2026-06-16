@@ -19,10 +19,8 @@ from opaque_keys.edx.keys import CourseKey
 from opaque_keys.edx.locator import LibraryLocator, LibraryUsageLocator
 from organizations.api import ensure_organization
 from organizations.exceptions import InvalidOrganizationException
-from xmodule.modulestore import ModuleStoreEnum
-from xmodule.modulestore.django import modulestore
-from xmodule.modulestore.exceptions import DuplicateCourseError
 
+from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import create_xblock_info
 from cms.djangoapps.course_creators.views import get_course_creator_status
 from common.djangoapps.edxmako.shortcuts import render_to_response
 from common.djangoapps.student.auth import (
@@ -40,11 +38,13 @@ from common.djangoapps.student.roles import (
     UserBasedRole,
 )
 from common.djangoapps.util.json_request import JsonResponse, JsonResponseBadRequest, expect_json
+from xmodule.modulestore import ModuleStoreEnum
+from xmodule.modulestore.django import modulestore
+from xmodule.modulestore.exceptions import DuplicateCourseError
 
-from ..utils import add_instructor, reverse_library_url
 from ..toggles import libraries_v1_enabled
+from ..utils import add_instructor, reverse_library_url
 from .component import CONTAINER_TEMPLATES, get_component_templates
-from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import create_xblock_info
 from .user import user_with_role
 
 __all__ = ['library_handler', 'manage_library_users']
@@ -73,24 +73,23 @@ def _user_can_create_library_for_org(user, org=None):
     elif user.is_staff:
         return True
     elif settings.FEATURES.get('ENABLE_CREATOR_GROUP', False):
-        org_filter_params = {}
-        if org:
-            org_filter_params['org'] = org
         is_course_creator = get_course_creator_status(user) == 'granted'
-        has_org_staff_role = OrgStaffRole().get_orgs_for_user(user).filter(**org_filter_params).exists()
-        has_course_staff_role = (
-            UserBasedRole(user=user, role=CourseStaffRole.ROLE)
-            .courses_with_role()
-            .filter(**org_filter_params)
-            .exists()
-        )
-        has_course_admin_role = (
-            UserBasedRole(user=user, role=CourseInstructorRole.ROLE)
-            .courses_with_role()
-            .filter(**org_filter_params)
-            .exists()
-        )
-        return is_course_creator or has_org_staff_role or has_course_staff_role or has_course_admin_role
+        if is_course_creator:
+            return True
+
+        has_org_staff_role = OrgStaffRole().has_org_for_user(user, org)
+        if has_org_staff_role:
+            return True
+
+        has_course_staff_role = UserBasedRole(user=user, role=CourseStaffRole.ROLE).has_courses_with_role(org)
+        if has_course_staff_role:
+            return True
+
+        has_course_admin_role = UserBasedRole(user=user, role=CourseInstructorRole.ROLE).has_courses_with_role(org)
+        if has_course_admin_role:
+            return True
+
+        return False
     else:
         # EDUCATOR-1924: DISABLE_LIBRARY_CREATION overrides DISABLE_COURSE_CREATION, if present.
         disable_library_creation = settings.FEATURES.get('DISABLE_LIBRARY_CREATION', None)
@@ -228,7 +227,7 @@ def _create_library(request):
             )
         # Give the user admin ("Instructor") role for this library:
         add_instructor(new_lib.location.library_key, request.user, request.user)
-    except PermissionDenied as error:  # pylint: disable=unused-variable
+    except PermissionDenied as error:  # pylint: disable=unused-variable  # noqa: F841
         log.info(
             "User does not have the permission to create LIBRARY in this organization."
             "User: '%s' Org: '%s' LIBRARY #: '%s'.",

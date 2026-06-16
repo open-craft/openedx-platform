@@ -23,7 +23,6 @@ acid-xblock                         # This XBlock is used for unit tests as well
 analytics-python                    # Used for Segment analytics
 attrs                               # Reduces boilerplate code involving class attributes
 Babel                               # Internationalization utilities, used for date formatting in a few places
-boto                                # Deprecated version of the AWS SDK; we should stop using this
 boto3                               # Amazon Web Services SDK for Python
 botocore                            # via boto3, s3transfer
 bridgekeeper                        # Used for determining permissions for courseware. Use of django-rules is preferred.
@@ -102,7 +101,7 @@ jsonfield                           # Django model field for validated JSON; use
 laboratory                          # Library for testing that code refactors/infrastructure changes produce identical results
 importlib_metadata                  # Used to access entry_points in i18n_api plugin
 lxml[html_clean]                    # XML parser
-lti-consumer-xblock>=9.14.2
+lti-consumer-xblock>=11.0.0
 mako                                # Primary template language used for server-side page rendering
 Markdown                            # Convert text markup to HTML; used in capa problems, forums, and course wikis
 meilisearch                         # Library to access Meilisearch search engine (will replace ElasticSearch)
@@ -114,11 +113,11 @@ oauthlib                            # OAuth specification support for authentica
 olxcleaner
 openedx-atlas                       # CLI tool to manage translations
 openedx-calc                        # Library supporting mathematical calculations for Open edX
+openedx-core
 openedx-django-require
 openedx-events                      # Open edX Events from Hooks Extension Framework (OEP-50)
 openedx-filters                     # Open edX Filters from Hooks Extension Framework (OEP-50)
 openedx-forum                       # Open edX forum v2 application
-openedx-learning                    # Open edX Learning core (experimental)
 openedx-django-wiki
 path
 piexif                              # Exif image metadata manipulation, used in the profile_images app
@@ -159,4 +158,5 @@ wrapt                               # Better functools.wrapped. TODO: functools 
 XBlock[django]                      # Courseware component architecture
 xss-utils                           # https://github.com/openedx/edx-platform/pull/20633 Fix XSS via Translations
 unicodeit                           # Converts mathjax equation to plain text by using unicode symbols
+psycopg2-binary
 openedx-authz                       # Authorization Framework for the Open edX Ecosystem

@@ -382,7 +382,6 @@ STORAGES:
     staticfiles:
       BACKEND: openedx.core.storage.ProductionStorage
 DEFAULT_FROM_EMAIL: sandbox-notifications@example.com
-DEFAULT_HASHING_ALGORITHM: sha256
 DEFAULT_MOBILE_AVAILABLE: true
 DEFAULT_NOTIFICATION_ICON_URL: https://notifications-static.localhost/icons/post_outline.png
 DEFAULT_SITE_THEME: localhost
@@ -686,8 +685,8 @@ GRADES_DOWNLOAD:
     querystring_expire: 300
   STORAGE_TYPE: ''
 HELP_TOKENS_BOOKS:
-  course_author: http://edx.readthedocs.io/projects/open-edx-building-and-running-a-course
-  learner: http://edx.readthedocs.io/projects/open-edx-learner-guide
+  course_author: https://docs.openedx.org/en/latest/educators
+  learner: https://docs.openedx.org/en/latest/learners
 HIBP_LOGIN_BLOCK_PASSWORD_FREQUENCY_THRESHOLD: 5
 HOME_MICROFRONTEND_URL: hello
 HOTJAR_SITE_ID: 12345
@@ -1109,10 +1108,6 @@ SOCIAL_SHARING_SETTINGS:
   DASHBOARD_TWITTER: true
 SOFTWARE_SECURE_RETRY_MAX_ATTEMPTS: 5
 SOFTWARE_SECURE_VERIFICATION_ROUTING_KEY: hello
-STATICFILES_STORAGE_KWARGS:
-  openedx.core.storage.ProductionS3Storage:
-    bucket_name: hello
-    default_acl: hello
 STATIC_ROOT_BASE: /tmp/static
 STATIC_URL_BASE: /static
 STUDIO_NAME: Studio
@@ -1247,4 +1242,3 @@ ZENDESK_GROUP_ID_MAPPING:
 ZENDESK_OAUTH_ACCESS_TOKEN: test_zendesk_oauth
 ZENDESK_URL: https://12345.zendesk.com
 ZENDESK_USER: daemon@example.com
-

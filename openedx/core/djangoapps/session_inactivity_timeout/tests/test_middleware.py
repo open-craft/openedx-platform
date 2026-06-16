@@ -3,7 +3,7 @@ Unit tests for SessionInactivityTimeout middleware.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import patch, call, ANY
+from unittest.mock import ANY, call, patch
 
 import ddt
 from django.contrib.auth.models import AnonymousUser
@@ -11,12 +11,8 @@ from django.contrib.sessions.backends.db import SessionStore
 from django.test import TestCase, override_settings
 
 from common.djangoapps.student.tests.factories import UserFactory
+from openedx.core.djangoapps.session_inactivity_timeout.middleware import LAST_TOUCH_KEYNAME, SessionInactivityTimeout
 from openedx.core.djangolib.testing.utils import get_mock_request
-
-from openedx.core.djangoapps.session_inactivity_timeout.middleware import (
-    SessionInactivityTimeout,
-    LAST_TOUCH_KEYNAME,
-)
 
 
 @ddt.ddt
@@ -36,7 +32,7 @@ class SessionInactivityTimeoutTestCase(TestCase):
 
     def test_process_request_unauthenticated_user_does_nothing(self):
         self.request.user = AnonymousUser()
-        response = self.middleware.process_request(self.request)  # lint-amnesty, pylint: disable=assignment-from-none
+        response = self.middleware.process_request(self.request)  # pylint: disable=assignment-from-none
         assert response is None
         assert LAST_TOUCH_KEYNAME not in self.request.session
 
@@ -60,7 +56,7 @@ class SessionInactivityTimeoutTestCase(TestCase):
         mock_now = datetime(2025, 6, 16, 12, 0, 0)
         mock_datetime.utcnow.return_value = mock_now
 
-        response = self.middleware.process_request(self.request)  # lint-amnesty, pylint: disable=assignment-from-none
+        response = self.middleware.process_request(self.request)  # pylint: disable=assignment-from-none
 
         assert response is None
         assert self.request.session[LAST_TOUCH_KEYNAME] == mock_now.isoformat()
@@ -85,7 +81,7 @@ class SessionInactivityTimeoutTestCase(TestCase):
 
         # The middleware should raise an exception when it tries to parse the invalid timestamp
         # in the save delay logic (after already catching it once in the timeout logic)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):  # noqa: PT027
             self.middleware.process_request(self.request)
 
         mock_log.warning.assert_called_once()
@@ -115,7 +111,7 @@ class SessionInactivityTimeoutTestCase(TestCase):
             mock_datetime.utcnow.return_value = current_time
             mock_datetime.fromisoformat = datetime.fromisoformat
 
-            response = self.middleware.process_request(self.request)  # lint-amnesty, pylint: disable=assignment-from-none
+            response = self.middleware.process_request(self.request)  # pylint: disable=assignment-from-none
 
             assert response is None
 
@@ -158,7 +154,7 @@ class SessionInactivityTimeoutTestCase(TestCase):
             mock_datetime.utcnow.return_value = current_time
             mock_datetime.fromisoformat = datetime.fromisoformat
 
-            response = self.middleware.process_request(self.request)  # lint-amnesty, pylint: disable=assignment-from-none
+            response = self.middleware.process_request(self.request)  # pylint: disable=assignment-from-none
 
             assert response is None
             assert self.request.user.is_authenticated
@@ -198,7 +194,7 @@ class SessionInactivityTimeoutTestCase(TestCase):
         mock_datetime.utcnow.return_value = current_time
         mock_datetime.fromisoformat = datetime.fromisoformat
 
-        response = self.middleware.process_request(self.request)  # lint-amnesty, pylint: disable=assignment-from-none
+        response = self.middleware.process_request(self.request)  # pylint: disable=assignment-from-none
 
         assert response is None
 

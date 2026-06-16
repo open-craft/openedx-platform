@@ -5,16 +5,26 @@ Serializers for the Course to Library Import API.
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import LearningContextKey
 from opaque_keys.edx.locator import LibraryLocatorV2
-from openedx_learning.api.authoring_models import Collection
+from openedx_content.models_api import Collection
 from rest_framework import serializers
 from user_tasks.models import UserTaskStatus
 from user_tasks.serializers import StatusSerializer
 
 from cms.djangoapps.modulestore_migrator.data import CompositionLevel, RepeatHandlingStrategy
-from cms.djangoapps.modulestore_migrator.models import (
-    ModulestoreMigration,
-    ModulestoreSource,
-)
+from cms.djangoapps.modulestore_migrator.models import ModulestoreMigration, ModulestoreSource
+
+
+class LibraryMigrationCollectionSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the target collection of a library migration.
+    """
+    # Expose Collection.collection_code as "key" to preserve the REST API field name.
+    # This is temporary: https://github.com/openedx/openedx-platform/issues/38406
+    key = serializers.CharField(source='collection_code')
+
+    class Meta:
+        model = Collection
+        fields = ["key", "title"]
 
 
 class ModulestoreMigrationSerializer(serializers.Serializer):
@@ -45,7 +55,7 @@ class ModulestoreMigrationSerializer(serializers.Serializer):
     preserve_url_slugs = serializers.BooleanField(
         help_text="If true, current slugs will be preserved.",
         required=False,
-        default=True,
+        default=False,
     )
     target_collection_slug = serializers.CharField(
         help_text="The target collection slug within the library to import into. Optional.",
@@ -53,10 +63,20 @@ class ModulestoreMigrationSerializer(serializers.Serializer):
         allow_blank=True,
         default=None,
     )
+    create_collection = serializers.BooleanField(
+        help_text=(
+            "If true and `target_collection_slug` is not set, "
+            "create the collections in the library where the import will be made"
+        ),
+        required=False,
+        default=False,
+    )
+    target_collection = LibraryMigrationCollectionSerializer(required=False)
     forward_source_to_target = serializers.BooleanField(
         help_text="Forward references of this block source over to the target of this block migration.",
         required=False,
-        default=False,
+        allow_null=True,
+        default=None,  # Note: "None" means "unspecified"
     )
     is_failed = serializers.BooleanField(
         help_text="It is true if this migration is failed",
@@ -185,15 +205,14 @@ class MigrationInfoSerializer(serializers.Serializer):
     Serializer for the migration info
     """
 
-    source_key = serializers.CharField(source="key")
-    target_key = serializers.CharField(source="migrations__target__key")
-    target_title = serializers.CharField(source="migrations__target__title")
+    source_key = serializers.CharField()
+    target_key = serializers.CharField()
+    target_title = serializers.CharField()
     target_collection_key = serializers.CharField(
-        source="migrations__target_collection__key",
+        source="target_collection_slug",
         allow_null=True
     )
     target_collection_title = serializers.CharField(
-        source="migrations__target_collection__title",
         allow_null=True
     )
 
@@ -226,19 +245,11 @@ class LibraryMigrationCourseSourceSerializer(serializers.ModelSerializer):
         return self.context["course_names"].get(str(obj.key), None)
 
 
-class LibraryMigrationCollectionSerializer(serializers.ModelSerializer):
-    """
-    Serializer for the target collection of a library migration.
-    """
-    class Meta:
-        model = Collection
-        fields = ["key", "title"]
-
-
 class LibraryMigrationCourseSerializer(serializers.ModelSerializer):
     """
     Serializer for the course or legacylibrary migrations to V2 library.
     """
+    task_uuid = serializers.UUIDField(source='task_status.uuid', read_only=True)
     source = LibraryMigrationCourseSourceSerializer()  # type: ignore[assignment]
     target_collection = LibraryMigrationCollectionSerializer(required=False)
     state = serializers.SerializerMethodField()
@@ -247,6 +258,7 @@ class LibraryMigrationCourseSerializer(serializers.ModelSerializer):
     class Meta:
         model = ModulestoreMigration
         fields = [
+            'task_uuid',
             'source',
             'target_collection',
             'state',
@@ -275,6 +287,21 @@ class BlockMigrationInfoSerializer(serializers.Serializer):
     """
     Serializer for the block migration info.
     """
-    source_key = serializers.CharField(source="source__key")
-    target_key = serializers.CharField(source="target__key")
-    unsupported_reason = serializers.CharField()
+    source_key = serializers.CharField()
+    target_key = serializers.CharField(allow_null=True)
+    unsupported_reason = serializers.CharField(allow_null=True)
+
+
+class PreviewMigrationSerializer(serializers.Serializer):
+    """
+    Serializer for the preview migration response.
+    """
+    state = serializers.CharField()
+    unsupported_blocks = serializers.IntegerField()
+    unsupported_percentage = serializers.FloatField()
+    blocks_limit = serializers.IntegerField()
+    total_blocks = serializers.IntegerField()
+    total_components = serializers.IntegerField()
+    sections = serializers.IntegerField()
+    subsections = serializers.IntegerField()
+    units = serializers.IntegerField()

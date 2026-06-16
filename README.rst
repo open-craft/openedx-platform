@@ -5,10 +5,12 @@ Open edX Platform
 .. |License: AGPL v3| image:: https://img.shields.io/badge/License-AGPL_v3-blue.svg
   :target: https://www.gnu.org/licenses/agpl-3.0
 
-.. |Python CI| image:: https://github.com/openedx/edx-platform/actions/workflows/unit-tests.yml/badge.svg
-  :target: https://github.com/openedx/edx-platform/actions/workflows/unit-tests.yml
+.. |Python CI| image:: https://github.com/openedx/openedx-platform/actions/workflows/unit-tests.yml/badge.svg
+  :target: https://github.com/openedx/openedx-platform/actions/workflows/unit-tests.yml
 
 .. |Status| image:: https://img.shields.io/badge/status-maintained-31c653
+
+*Formerly known as "edx-platform"*
 
 Purpose
 *******
@@ -20,7 +22,7 @@ modular monolith, some independently deployable applications (IDAs), and
 micro-frontends (MFEs) based on the ReactJS.
 
 This repository hosts the monolith at the center of the Open edX
-platform.  Functionally, the edx-platform repository provides two services:
+platform.  Functionally, the openedx-platform repository provides two services:
 
 * CMS (Content Management Service), which powers Open edX Studio, the platform's learning content authoring environment; and
 * LMS (Learning Management Service), which delivers learning content.
@@ -53,7 +55,7 @@ For Development
 ===============
 
 Tutor also features a `development mode`_ which will also help you modify,
-test, and extend edx-platform. We recommend this method for all Open edX
+test, and extend openedx-platform. We recommend this method for all Open edX
 developers.
 
 Bare Metal (Advanced)
@@ -74,9 +76,9 @@ OS:
 
 * Ubuntu 24.04
 
-Interperters/Tools:
+Interpreters/Tools:
 
-* Python 3.11
+* Python 3.12
 
 * Node: See the ``.nvmrc`` file in this repository.
 
@@ -228,13 +230,30 @@ running at the given ports.
      - localhost:1997
      - ACCOUNT_MICROFRONTEND_URL
 
+Security Deployment Requirements
+********************************
+
+Some platform features require a **shared** Django cache backend (Redis or
+Memcached) to function correctly across multiple LMS nodes:
+
+* **LTI Provider** — OAuth nonce replay protection stores seen nonces in the
+  Django ``default`` cache. A per-process backend (e.g. ``LocMemCache``) will
+  not detect replays that arrive on a different node. See
+  `lms/djangoapps/lti_provider/README.rst`_ for details.
+
+Tutor-based deployments satisfy this requirement automatically. For bare-metal
+or custom deployments, verify that ``CACHES['default']`` points at a shared
+Redis or Memcached instance before enabling these features.
+
+.. _lms/djangoapps/lti_provider/README.rst: lms/djangoapps/lti_provider/README.rst
+
 License
 *******
 
 The code in this repository is licensed under version 3 of the AGPL
 unless otherwise noted. Please see the `LICENSE`_ file for details.
 
-.. _LICENSE: https://github.com/openedx/edx-platform/blob/master/LICENSE
+.. _LICENSE: https://github.com/openedx/openedx-platform/blob/master/LICENSE
 
 
 More about Open edX
@@ -271,8 +290,8 @@ We use Github Issues for our issue tracker. You can search
 `previously reported issues`_.  If you need to report a bug, or want to discuss
 a new feature before you implement it, please `create a new issue`_.
 
-.. _previously reported issues: https://github.com/openedx/edx-platform/issues
-.. _create a new issue: https://github.com/openedx/edx-platform/issues/new/choose
+.. _previously reported issues: https://github.com/openedx/openedx-platform/issues
+.. _create a new issue: https://github.com/openedx/openedx-platform/issues/new/choose
 
 
 How to Contribute
@@ -291,6 +310,11 @@ Code of Conduct
 
 Please read the `Community Code of Conduct`_ for interacting with this repository.
 
+AI Contribution Policy
+**********************
+
+Note that contributions are expected to follow the Open edX `AI Contribution Policy`_.
+
 Reporting Security Issues
 *************************
 
@@ -300,11 +324,11 @@ security@openedx.org.
 .. _individual contributor agreement: https://openedx.org/cla
 .. _CONTRIBUTING: https://github.com/openedx/.github/blob/master/CONTRIBUTING.md
 .. _Community Code of Conduct: https://openedx.org/code-of-conduct/
+.. _AI Contribution Policy: https://github.com/openedx/.github/blob/master/AI_POLICY.md
 
 People
 ******
 
 The current maintainers of this repository can be found on `Backstage`_.
 
-.. _Backstage: https://backstage.openedx.org/catalog/default/component/edx-platform
-
+.. _Backstage: https://backstage.openedx.org/catalog/default/component/openedx-platform

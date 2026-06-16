@@ -5,24 +5,25 @@ Centralized in openedx/features/course_experience instead of lms/djangoapps/cour
 because the Studio course outline may need these utilities.
 """
 from typing import Optional
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest
 from django.http.request import QueryDict
 from opaque_keys.edx.keys import CourseKey, UsageKey
-from urllib.parse import urlparse
 
-from xmodule.modulestore import ModuleStoreEnum  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.search import path_to_location  # lint-amnesty, pylint: disable=wrong-import-order
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
+from xmodule.modulestore import ModuleStoreEnum  # pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.search import path_to_location  # pylint: disable=wrong-import-order
 
 User = get_user_model()
 
 
 def get_courseware_url(
         usage_key: UsageKey,
-        request: Optional[HttpRequest] = None,
+        request: Optional[HttpRequest] = None,  # noqa: UP045
         is_staff: bool = False,
 ) -> str:
     """
@@ -45,7 +46,7 @@ def get_courseware_url(
 
 def _get_new_courseware_url(
         usage_key: UsageKey,
-        request: Optional[HttpRequest] = None,
+        request: Optional[HttpRequest] = None,  # noqa: UP045
         is_staff: bool = None,
 ) -> str:
     """
@@ -90,9 +91,9 @@ def _get_new_courseware_url(
 
 def make_learning_mfe_courseware_url(
         course_key: CourseKey,
-        sequence_key: Optional[UsageKey] = None,
-        unit_key: Optional[UsageKey] = None,
-        params: Optional[QueryDict] = None,
+        sequence_key: Optional[UsageKey] = None,  # noqa: UP045
+        unit_key: Optional[UsageKey] = None,  # noqa: UP045
+        params: Optional[QueryDict] = None,  # noqa: UP045
         preview: bool = None,
 ) -> str:
     """
@@ -124,7 +125,11 @@ def make_learning_mfe_courseware_url(
     strings. They're only ever used to concatenate a URL string.
     `params` is an optional QueryDict object (e.g. request.GET)
     """
-    mfe_link = f'{settings.LEARNING_MICROFRONTEND_URL}/course/{course_key}'
+    learning_microfrontend_url = configuration_helpers.get_value(
+        'LEARNING_MICROFRONTEND_URL',
+        settings.LEARNING_MICROFRONTEND_URL,
+    )
+    mfe_link = f'{learning_microfrontend_url}/course/{course_key}'
     get_params = params.copy() if params else None
 
     if preview:
@@ -134,7 +139,7 @@ def make_learning_mfe_courseware_url(
             get_params = None
 
         if (unit_key or sequence_key):
-            mfe_link = f'{settings.LEARNING_MICROFRONTEND_URL}/preview/course/{course_key}'
+            mfe_link = f'{learning_microfrontend_url}/preview/course/{course_key}'
 
     if sequence_key:
         mfe_link += f'/{sequence_key}'
@@ -150,8 +155,8 @@ def make_learning_mfe_courseware_url(
 
 def get_learning_mfe_home_url(
         course_key: CourseKey,
-        url_fragment: Optional[str] = None,
-        params: Optional[QueryDict] = None,
+        url_fragment: Optional[str] = None,  # noqa: UP045
+        params: Optional[QueryDict] = None,  # noqa: UP045
 ) -> str:
     """
     Given a course run key and view name, return the appropriate course home (MFE) URL.
@@ -164,7 +169,11 @@ def get_learning_mfe_home_url(
     `url_fragment` is an optional string.
     `params` is an optional QueryDict object (e.g. request.GET)
     """
-    mfe_link = f'{settings.LEARNING_MICROFRONTEND_URL}/course/{course_key}'
+    learning_microfrontend_url = configuration_helpers.get_value(
+        'LEARNING_MICROFRONTEND_URL',
+        settings.LEARNING_MICROFRONTEND_URL,
+    )
+    mfe_link = f'{learning_microfrontend_url}/course/{course_key}'
 
     if url_fragment:
         mfe_link += f'/{url_fragment}'
@@ -179,9 +188,13 @@ def is_request_from_learning_mfe(request: HttpRequest):
     """
     Returns whether the given request was made by the frontend-app-learning MFE.
     """
-    if not settings.LEARNING_MICROFRONTEND_URL:
+    url_str = configuration_helpers.get_value(
+        'LEARNING_MICROFRONTEND_URL',
+        settings.LEARNING_MICROFRONTEND_URL,
+    )
+    if not url_str:
         return False
 
-    url = urlparse(settings.LEARNING_MICROFRONTEND_URL)
+    url = urlparse(url_str)
     mfe_url_base = f'{url.scheme}://{url.netloc}'
     return request.META.get('HTTP_REFERER', '').startswith(mfe_url_base)

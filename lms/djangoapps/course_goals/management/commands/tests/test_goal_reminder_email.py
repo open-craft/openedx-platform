@@ -1,30 +1,32 @@
 """Tests for the goal_reminder_email command"""
 import uuid
 from datetime import datetime
-
-from botocore.exceptions import NoCredentialsError
-from django.contrib.sites.models import Site
-from edx_ace import Recipient, Message
-from pytz import UTC
-from unittest import mock  # lint-amnesty, pylint: disable=wrong-import-order
+from unittest import mock  # pylint: disable=wrong-import-order
 
 import ddt
+from botocore.exceptions import NoCredentialsError
 from django.conf import settings
+from django.contrib.sites.models import Site
 from django.core.management import call_command
 from django.test import TestCase
+from django.test.utils import override_settings
+from edx_ace import Message, Recipient
 from edx_toggles.toggles.testutils import override_waffle_flag
 from freezegun import freeze_time
+from pytz import UTC
 from waffle import get_waffle_flag_model  # pylint: disable=invalid-django-waffle-import
 
 from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
-from lms.djangoapps.course_goals.management.commands.goal_reminder_email import send_email_using_ses, send_ace_message
-from lms.djangoapps.course_goals.models import CourseGoalReminderStatus
-from lms.djangoapps.course_goals.tests.factories import (
-    CourseGoalFactory, CourseGoalReminderStatusFactory, UserActivityFactory,
-)
 from lms.djangoapps.certificates.data import CertificateStatuses
 from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
+from lms.djangoapps.course_goals.management.commands.goal_reminder_email import send_ace_message, send_email_using_ses
+from lms.djangoapps.course_goals.models import CourseGoalReminderStatus
+from lms.djangoapps.course_goals.tests.factories import (
+    CourseGoalFactory,
+    CourseGoalReminderStatusFactory,
+    UserActivityFactory,
+)
 from openedx.core.djangoapps.ace_common.template_context import get_base_template_context
 from openedx.core.djangolib.testing.utils import skip_unless_lms
 from openedx.core.lib.celery.task_utils import emulate_http_request
@@ -235,6 +237,45 @@ class TestGoalReminderEmailCommand(TestCase):
         send_ace_message(goal, str(uuid.uuid4()))
         assert mock_ace.called is value
 
+    def test_goals_unsubscribe_url_uses_site_config(self):
+        """Test goals unsubscribe URL uses site-configured MFE base."""
+        goal = self.make_valid_goal()
+        with mock.patch('lms.djangoapps.course_goals.management.commands.goal_reminder_email.ace.send') as mock_ace:
+            with mock.patch(
+                'lms.djangoapps.course_goals.management.commands.goal_reminder_email.configuration_helpers.get_value',
+                return_value='https://learning.siteconf',
+            ) as mock_get_value:
+                assert send_ace_message(goal, str(uuid.uuid4())) is True
+
+        assert mock_ace.call_count == 1
+        msg = mock_ace.call_args[0][0]
+        assert msg.context[
+            'goals_unsubscribe_url'
+        ] == f'https://learning.siteconf/goal-unsubscribe/{goal.unsubscribe_token}'
+        mock_get_value.assert_any_call('LEARNING_MICROFRONTEND_URL', settings.LEARNING_MICROFRONTEND_URL)
+
+    def test_goals_unsubscribe_url_falls_back_to_settings(self):
+        """Test goals unsubscribe URL falls back to settings when site config is absent."""
+        default_url = 'https://learning.default'
+        goal = self.make_valid_goal()
+        with override_settings(LEARNING_MICROFRONTEND_URL=default_url):
+            with mock.patch(
+                'lms.djangoapps.course_goals.management.commands.goal_reminder_email.ace.send',
+            ) as mock_ace:
+                with mock.patch(
+                    (
+                        'lms.djangoapps.course_goals.management.commands.'
+                        'goal_reminder_email.configuration_helpers.get_value'
+                    ),
+                    side_effect=lambda k, d: d,
+                ) as mock_get_value:
+                    assert send_ace_message(goal, str(uuid.uuid4())) is True
+
+        assert mock_ace.call_count == 1
+        msg = mock_ace.call_args[0][0]
+        assert msg.context['goals_unsubscribe_url'] == f'{default_url}/goal-unsubscribe/{goal.unsubscribe_token}'
+        mock_get_value.assert_any_call('LEARNING_MICROFRONTEND_URL', default_url)
+
 
 class TestGoalReminderEmailSES(TestCase):
     """
@@ -277,5 +318,5 @@ class TestGoalReminderEmailSES(TestCase):
                 options=options,
             )
             # expect an exception here
-            with self.assertRaises(NoCredentialsError):
+            with self.assertRaises(NoCredentialsError):  # noqa: PT027
                 send_email_using_ses(user, msg)

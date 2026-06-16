@@ -3,22 +3,32 @@ Test cases for tabs.
 """
 
 from unittest.mock import MagicMock, Mock, patch
+
 import ddt
 import pytest
 from crum import set_current_request
 from django.contrib.auth.models import AnonymousUser
 from django.http import Http404
+from django.test import override_settings
 from django.urls import reverse
 from edx_toggles.toggles.testutils import override_waffle_flag
 from milestones.tests.utils import MilestonesTestCaseMixin
 
+from common.djangoapps.student.models import CourseEnrollment
+from common.djangoapps.student.tests.factories import InstructorFactory, StaffFactory, UserFactory
+from common.djangoapps.util.milestones_helpers import (
+    add_course_content_milestone,
+    add_course_milestone,
+    add_milestone,
+    get_milestone_relationship_types,
+)
 from lms.djangoapps.courseware.tabs import (
     CoursewareTab,
     DatesTab,
     ExternalDiscussionCourseTab,
     ExternalLinkCourseTab,
     ProgressTab,
-    get_course_tab_list
+    get_course_tab_list,
 )
 from lms.djangoapps.courseware.tests.helpers import LoginEnrollmentTestCase
 from lms.djangoapps.courseware.views.views import StaticCourseTabView, get_static_tab_fragment
@@ -26,25 +36,18 @@ from lms.djangoapps.discussion.toggles import ENABLE_DISCUSSIONS_MFE
 from openedx.core.djangoapps.discussions.url_helpers import get_discussions_mfe_url
 from openedx.core.djangolib.testing.utils import get_mock_request
 from openedx.core.lib.courses import get_course_by_id
-from common.djangoapps.student.models import CourseEnrollment
-from common.djangoapps.student.tests.factories import InstructorFactory
-from common.djangoapps.student.tests.factories import StaffFactory
-from common.djangoapps.student.tests.factories import UserFactory
-from common.djangoapps.util.milestones_helpers import (
-    add_course_content_milestone,
-    add_course_milestone,
-    add_milestone,
-    get_milestone_relationship_types
-)
-from xmodule import tabs as xmodule_tabs  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.django_utils import (  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule import tabs as xmodule_tabs  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (  # pylint: disable=wrong-import-order
     TEST_DATA_SPLIT_MODULESTORE,
     ModuleStoreTestCase,
-    SharedModuleStoreTestCase
+    SharedModuleStoreTestCase,
 )
-from xmodule.modulestore.tests.factories import CourseFactory, BlockFactory  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.utils import TEST_DATA_DIR  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.xml_importer import import_course_from_xml  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.factories import (  # pylint: disable=wrong-import-order
+    BlockFactory,
+    CourseFactory,
+)
+from xmodule.modulestore.tests.utils import TEST_DATA_DIR  # pylint: disable=wrong-import-order
+from xmodule.modulestore.xml_importer import import_course_from_xml  # pylint: disable=wrong-import-order
 
 
 class TabTestCase(SharedModuleStoreTestCase):
@@ -333,12 +336,12 @@ class StaticTabDateTestCaseXML(LoginEnrollmentTestCase, ModuleStoreTestCase):
         self.assertContains(resp, self.xml_data)
 
 
-@patch.dict('django.conf.settings.FEATURES', {'ENTRANCE_EXAMS': True})
+@override_settings(ENTRANCE_EXAMS=True)
 class EntranceExamsTabsTestCase(LoginEnrollmentTestCase, ModuleStoreTestCase, MilestonesTestCaseMixin):
     """
     Validate tab behavior when dealing with Entrance Exams
     """
-    @patch.dict('django.conf.settings.FEATURES', {'ENTRANCE_EXAMS': True})
+    @override_settings(ENTRANCE_EXAMS=True)
     def setUp(self):
         """
         Test case scaffolding
@@ -869,6 +872,12 @@ class DatesTabTestCase(TabListTestCase):
         """Test cases for making sure no persisted dates tab is surfaced"""
         user = self.create_mock_user()
         self.course.tabs = self.all_valid_tab_list
+
+        # Ensure hidden state from other tests does not affect this test's intent.
+        dates_tab = xmodule_tabs.CourseTabList.get_tab_by_id(self.course.tabs, 'dates')
+        assert dates_tab is not None
+        dates_tab.is_hidden = False
+
         self.course.save()
 
         # Verify that there is a dates tab in the modulestore
@@ -885,3 +894,21 @@ class DatesTabTestCase(TabListTestCase):
             if tab.type == 'dates':
                 num_dates_tabs += 1
         assert num_dates_tabs == 1
+
+    @patch('common.djangoapps.student.models.course_enrollment.CourseEnrollment.is_enrolled')
+    def test_dates_tab_respects_hide_flag(self, is_enrolled):
+        """Test that the dates tab respects the hide flag."""
+        is_enrolled.return_value = True
+        user = self.create_mock_user(is_staff=False, is_enrolled=True)
+        self.course.tabs = self.all_valid_tab_list
+        dates_tab = xmodule_tabs.CourseTabList.get_tab_by_id(self.course.tabs, 'dates')
+        assert dates_tab is not None
+
+        dates_tab.is_hidden = False
+        self.course.save()
+        tabs = get_course_tab_list(user, self.course)
+        assert any(tab.type == 'dates' for tab in tabs)
+
+        dates_tab.is_hidden = True
+        tabs = get_course_tab_list(user, self.course)
+        assert not any(tab.type == 'dates' for tab in tabs)

@@ -6,12 +6,12 @@ import logging
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import ddt
-import pytz
 from config_models.models import cache
 from django.conf import settings
-from django.contrib.auth.models import AnonymousUser, User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import AnonymousUser, User  # pylint: disable=imported-auth-user
 from django.test import TestCase, override_settings
 from django.test.client import Client
 from django.urls import reverse
@@ -31,7 +31,7 @@ from common.djangoapps.student.models import (
     UserAttribute,
     anonymous_id_for_user,
     unique_id_for_user,
-    user_by_anonymous_id
+    user_by_anonymous_id,
 )
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
 from common.djangoapps.student.toggles import REDIRECT_TO_COURSEWARE_AFTER_ENROLLMENT
@@ -46,12 +46,18 @@ from openedx.core.djangoapps.catalog.tests.factories import CourseRunFactory, Pr
 from openedx.core.djangoapps.content.course_overviews.tests.factories import CourseOverviewFactory
 from openedx.core.djangoapps.programs.tests.mixins import ProgramsApiConfigMixin
 from openedx.core.djangoapps.site_configuration.tests.mixins import SiteMixin
+from openedx.core.djangoapps.site_configuration.tests.test_util import with_site_configuration_context
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_unless_lms
 from openedx.features.course_experience.url_helpers import make_learning_mfe_courseware_url
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase, SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory, check_mongo_calls  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.data import CertificatesDisplayBehaviors  # lint-amnesty, pylint: disable=wrong-import-order
-from openedx.core.djangoapps.site_configuration.tests.test_util import with_site_configuration_context
+from xmodule.data import CertificatesDisplayBehaviors  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (  # pylint: disable=wrong-import-order
+    ModuleStoreTestCase,
+    SharedModuleStoreTestCase,
+)
+from xmodule.modulestore.tests.factories import (  # pylint: disable=wrong-import-order
+    CourseFactory,
+    check_mongo_calls,
+)
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +87,7 @@ class CourseEndingTest(ModuleStoreTestCase):
         course = CourseOverviewFactory.create(
             end_of_course_survey_url=survey_url,
             certificates_display_behavior=CertificatesDisplayBehaviors.END,
-            end=datetime.now(pytz.UTC) - timedelta(days=2)
+            end=datetime.now(ZoneInfo("UTC")) - timedelta(days=2)
         )
         cert = GeneratedCertificateFactory.create(
             user=user,
@@ -287,7 +293,7 @@ class CourseEndingTest(ModuleStoreTestCase):
         course = CourseOverviewFactory.create(
             end_of_course_survey_url=survey_url,
             certificates_display_behavior=CertificatesDisplayBehaviors.END,
-            end=datetime.now(pytz.UTC) - timedelta(days=2),
+            end=datetime.now(ZoneInfo("UTC")) - timedelta(days=2),
         )
         enrollment = CourseEnrollmentFactory(user=user, course_id=course.id, mode=CourseMode.VERIFIED)
 
@@ -314,7 +320,7 @@ class CourseEndingTest(ModuleStoreTestCase):
         course = CourseOverviewFactory.create(
             end_of_course_survey_url=survey_url,
             certificates_display_behavior=CertificatesDisplayBehaviors.END,
-            end=datetime.now(pytz.UTC) - timedelta(days=2),
+            end=datetime.now(ZoneInfo("UTC")) - timedelta(days=2),
         )
         cert_status = {'status': 'generating', 'mode': 'honor', 'uuid': None}
         enrollment = CourseEnrollmentFactory(user=user, course_id=course.id, mode=CourseMode.VERIFIED)
@@ -412,14 +418,14 @@ class DashboardTest(ModuleStoreTestCase, TestVerificationBase):
             course_id=self.course.id,
             mode_slug='verified',
             mode_display_name='Verified',
-            expiration_datetime=datetime.now(pytz.UTC) + timedelta(days=1)
+            expiration_datetime=datetime.now(ZoneInfo("UTC")) + timedelta(days=1)
         )
         enrollment = CourseEnrollment.enroll(self.user, self.course.id)
         course_mode_info = complete_course_mode_info(self.course.id, enrollment)
         assert course_mode_info['show_upsell']
         assert course_mode_info['days_for_upsell'] == 1
 
-        verified_mode.expiration_datetime = datetime.now(pytz.UTC) + timedelta(days=-1)
+        verified_mode.expiration_datetime = datetime.now(ZoneInfo("UTC")) + timedelta(days=-1)
         verified_mode.save()
         course_mode_info = complete_course_mode_info(self.course.id, enrollment)
         assert not course_mode_info['show_upsell']
@@ -434,13 +440,13 @@ class DashboardTest(ModuleStoreTestCase, TestVerificationBase):
             course_id=self.course.id,
             mode_slug='verified',
             mode_display_name='verified',
-            expiration_datetime=datetime.now(pytz.UTC) - timedelta(days=1)
+            expiration_datetime=datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
         )
 
         CourseEnrollment.enroll(self.user, self.course.id, mode='honor')
 
-        self.course.start = datetime.now(pytz.UTC) - timedelta(days=2)
-        self.course.end = datetime.now(pytz.UTC) - timedelta(days=1)
+        self.course.start = datetime.now(ZoneInfo("UTC")) - timedelta(days=2)
+        self.course.end = datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
         self.course.display_name = "Omega"
         self.course = self.update_course(self.course, self.user.id)
 
@@ -482,12 +488,12 @@ class DashboardTest(ModuleStoreTestCase, TestVerificationBase):
             course_id=self.course.id,
             mode_slug='verified',
             mode_display_name='verified',
-            expiration_datetime=datetime.now(pytz.UTC) - timedelta(days=1)
+            expiration_datetime=datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
         )
         CourseEnrollment.enroll(self.user, self.course.id, mode='honor')
-        self.course.certificate_available_date = datetime.now(pytz.UTC) - timedelta(days=1)
-        self.course.start = datetime.now(pytz.UTC) - timedelta(days=2)
-        self.course.end = datetime.now(pytz.UTC) - timedelta(days=1)
+        self.course.certificate_available_date = datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
+        self.course.start = datetime.now(ZoneInfo("UTC")) - timedelta(days=2)
+        self.course.end = datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
         self.course.display_name = 'Omega'
         self.course.course_organization = 'Omega Org'
         self.course = self.update_course(self.course, self.user.id)
@@ -593,7 +599,7 @@ class DashboardTest(ModuleStoreTestCase, TestVerificationBase):
             course_id=self.course.id,
             mode_slug='verified',
             mode_display_name='Verified',
-            expiration_datetime=datetime.now(pytz.UTC) + timedelta(days=1)
+            expiration_datetime=datetime.now(ZoneInfo("UTC")) + timedelta(days=1)
         )
         enrollment = CourseEnrollment.enroll(self.user, self.course.id, mode=enrollment_mode)
         return complete_course_mode_info(self.course.id, enrollment)
@@ -661,7 +667,7 @@ class UserSettingsEventTestMixin(EventTestMixin):
     """
     Mixin for verifying that user setting events were emitted during a test.
     """
-    def setUp(self):  # lint-amnesty, pylint: disable=arguments-differ
+    def setUp(self):  # pylint: disable=arguments-differ
         super().setUp('common.djangoapps.util.model_utils.tracker')
 
     def assert_user_setting_event_emitted(self, **kwargs):
@@ -688,7 +694,7 @@ class UserSettingsEventTestMixin(EventTestMixin):
 
 class EnrollmentEventTestMixin(EventTestMixin):
     """ Mixin with assertions for validating enrollment events. """
-    def setUp(self):  # lint-amnesty, pylint: disable=arguments-differ
+    def setUp(self):  # pylint: disable=arguments-differ
         super().setUp('common.djangoapps.student.models.course_enrollment.tracker')
         segment_patcher = patch('common.djangoapps.student.models.course_enrollment.segment')
         self.mock_segment_tracker = segment_patcher.start()
@@ -853,7 +859,7 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         assert CourseEnrollment.enroll_by_email('not_jack@fake.edx.org', course_id) is None
         self.assert_no_events_were_emitted()
 
-        self.assertRaises(
+        self.assertRaises(  # noqa: PT027
             User.DoesNotExist,
             CourseEnrollment.enroll_by_email,
             "not_jack@fake.edx.org",

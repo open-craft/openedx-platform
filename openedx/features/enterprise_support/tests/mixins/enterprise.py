@@ -1,10 +1,9 @@
-"""  # lint-amnesty, pylint: disable=cyclic-import
+"""  # pylint: disable=cyclic-import
 Mixins for the EnterpriseApiClient.
 """
 
 
 import json
-
 from unittest import mock
 
 import httpretty
@@ -12,6 +11,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.urls import reverse
+
 from openedx.features.enterprise_support.tests import FAKE_ENTERPRISE_CUSTOMER
 
 
@@ -78,7 +78,7 @@ class EnterpriseServiceMockMixin:
             status=500
         )
 
-    def mock_consent_response(  # lint-amnesty, pylint: disable=missing-function-docstring
+    def mock_consent_response(  # pylint: disable=missing-function-docstring
             self,
             username,
             course_id,

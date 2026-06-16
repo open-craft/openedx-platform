@@ -2,17 +2,18 @@
 Code for serializing a modulestore XBlock to OLX.
 """
 from __future__ import annotations
+
 import logging
 import os
 
 from lxml import etree
 from opaque_keys.edx.locator import LibraryLocatorV2
 
-from openedx.core.djangoapps.content_tagging.api import get_all_object_tags, TagValuesByObjectIdDict
+from openedx.core.djangoapps.content_tagging.api import TagValuesByObjectIdDict, get_all_object_tags
 from xmodule.xml_block import serialize_field
 
-from .data import StaticFile
 from . import utils
+from .data import StaticFile
 
 log = logging.getLogger(__name__)
 
@@ -49,8 +50,7 @@ class XBlockSerializer:
         runtime_supports_explicit_assets = hasattr(block.runtime, 'get_block_assets')
         if runtime_supports_explicit_assets:
             # If a block supports explicitly tracked assets, things are simple.
-            # Learning Core backed content supports this, which currently means
-            # v2 Content Libraries.
+            # openedx_content (v2 Content Libraries) currently supports this.
             self.static_files.extend(
                 block.runtime.get_block_assets(block, fetch_asset_data)
             )

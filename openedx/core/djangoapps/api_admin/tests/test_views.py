@@ -11,15 +11,15 @@ from django.test.utils import override_settings
 from django.urls import reverse
 from oauth2_provider.models import get_application_model
 
+from common.djangoapps.student.tests.factories import UserFactory
 from openedx.core.djangoapps.api_admin.models import ApiAccessConfig, ApiAccessRequest
 from openedx.core.djangoapps.api_admin.tests.factories import (
     ApiAccessRequestFactory,
     ApplicationFactory,
-    CatalogFactory
+    CatalogFactory,
 )
 from openedx.core.djangoapps.api_admin.tests.utils import VALID_DATA
 from openedx.core.djangolib.testing.utils import skip_unless_lms
-from common.djangoapps.student.tests.factories import UserFactory
 
 Application = get_application_model()  # pylint: disable=invalid-name
 
@@ -351,17 +351,18 @@ class CatalogEditViewTest(CatalogTest):
         )
         response = self.client.post(self.url, {'delete-catalog': 'on'})
         self.assertRedirects(response, reverse('api_admin:catalog-search'))
-        assert httpretty.last_request().method == 'DELETE'  # lint-amnesty, pylint: disable=no-member
+        assert httpretty.last_request().method == 'DELETE'  # pylint: disable=no-member
         assert httpretty.last_request().path == \
-               f'/api/v1/catalogs/{self.catalog.id}/'  # lint-amnesty, pylint: disable=no-member
+               f'/api/v1/catalogs/{self.catalog.id}/'  # pylint: disable=no-member
         assert len(httpretty.httpretty.latest_requests) == 1
 
     @httpretty.activate
     def test_edit(self):
+        # Mock both PATCH and GET endpoints before making the POST request
         self.mock_catalog_endpoint(self.catalog.attributes, method=httpretty.PATCH, catalog_id=self.catalog.id)
         new_attributes = dict(self.catalog.attributes, **{'delete-catalog': 'off', 'name': 'changed'})
-        response = self.client.post(self.url, new_attributes)
         self.mock_catalog_endpoint(new_attributes, catalog_id=self.catalog.id)
+        response = self.client.post(self.url, new_attributes)
         self.assertRedirects(response, reverse('api_admin:catalog-edit', kwargs={'catalog_id': self.catalog.id}))
 
     @httpretty.activate

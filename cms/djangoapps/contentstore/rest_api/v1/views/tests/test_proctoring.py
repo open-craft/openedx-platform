@@ -13,13 +13,13 @@ from rest_framework.test import APITestCase
 
 from cms.djangoapps.contentstore.tests.test_utils import AuthorizeStaffTestCase
 from cms.djangoapps.contentstore.tests.utils import CourseTestCase
+from openedx.core import toggles as core_toggles
 from openedx.core.djangoapps.course_apps.toggles import EXAMS_IDA
-from xmodule.modulestore.django import (
-    modulestore,
-)  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.django_utils import (
+from xmodule.course_metadata_utils import DEFAULT_START_DATE
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (  # pylint: disable=wrong-import-order
     ModuleStoreTestCase,
-)  # lint-amnesty, pylint: disable=wrong-import-order
+)
 
 from ...mixins import PermissionAccessMixin
 
@@ -60,7 +60,7 @@ class ProctoringExamSettingsGetTests(
                 "proctoring_escalation_email": course.proctoring_escalation_email,
                 "create_zendesk_tickets": course.create_zendesk_tickets,
             },
-            "course_start_date": "2030-01-01T00:00:00Z",
+            "course_start_date": DEFAULT_START_DATE.strftime('%Y-%m-%dT%H:%M:%SZ'),
             "available_proctoring_providers": ["null"],
             "requires_escalation_email_providers": [],
         }
@@ -99,7 +99,7 @@ class ProctoringExamSettingsGetTests(
                 "proctoring_escalation_email": self.course.proctoring_escalation_email,
                 "create_zendesk_tickets": self.course.create_zendesk_tickets,
             },
-            "course_start_date": "2030-01-01T00:00:00Z",
+            "course_start_date": DEFAULT_START_DATE.strftime('%Y-%m-%dT%H:%M:%SZ'),
             "available_proctoring_providers": ["null"],
             "requires_escalation_email_providers": [],
         }
@@ -122,7 +122,7 @@ class ProctoringExamSettingsGetTests(
                 "proctoring_escalation_email": self.course.proctoring_escalation_email,
                 "create_zendesk_tickets": self.course.create_zendesk_tickets,
             },
-            "course_start_date": "2030-01-01T00:00:00Z",
+            "course_start_date": DEFAULT_START_DATE.strftime('%Y-%m-%dT%H:%M:%SZ'),
             "available_proctoring_providers": ["lti_external", "null"],
             "requires_escalation_email_providers": ["lti_external"],
         }
@@ -182,7 +182,7 @@ class ProctoringExamSettingsPostTests(
 
         # response is correct
         assert response.status_code == status.HTTP_200_OK
-        self.assertDictEqual(
+        self.assertDictEqual(  # noqa: PT009
             response.data,
             {
                 "proctored_exam_settings": {
@@ -219,7 +219,7 @@ class ProctoringExamSettingsPostTests(
 
         # response is correct
         assert response.status_code == status.HTTP_200_OK
-        self.assertDictEqual(
+        self.assertDictEqual(  # noqa: PT009
             response.data,
             {
                 "proctored_exam_settings": {
@@ -250,7 +250,7 @@ class ProctoringExamSettingsPostTests(
 
         # response is correct
         assert response.status_code == status.HTTP_200_OK
-        self.assertDictEqual(
+        self.assertDictEqual(  # noqa: PT009
             response.data,
             {
                 "proctored_exam_settings": {
@@ -283,7 +283,7 @@ class ProctoringExamSettingsPostTests(
 
         # response is correct
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        self.assertIn(
+        self.assertIn(  # noqa: PT009
             {
                 "proctoring_provider": (
                     "The selected proctoring provider, notvalidprovider, is not a valid provider. "
@@ -350,7 +350,7 @@ class ProctoringExamSettingsPostTests(
         assert response.status_code == status.HTTP_200_OK
         if expect_log:
             logger_string = (
-                "create_zendesk_tickets set to {ticket_value} but proctoring "
+                "create_zendesk_tickets set to {ticket_value} but proctoring "  # noqa: UP032
                 "provider is {provider} for course {course_id}. create_zendesk_tickets "
                 "should be updated for this course.".format(
                     ticket_value=create_zendesk_tickets,
@@ -378,7 +378,7 @@ class ProctoringExamSettingsPostTests(
         # response is correct
         assert response.status_code == status.HTTP_200_OK
 
-        self.assertDictEqual(
+        self.assertDictEqual(  # noqa: PT009
             response.data,
             {
                 "proctored_exam_settings": {
@@ -410,7 +410,7 @@ class ProctoringExamSettingsPostTests(
 
         # response is correct
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        self.assertIn(
+        self.assertIn(  # noqa: PT009
             {
                 "proctoring_provider": (
                     "The selected proctoring provider, lti_external, is not a valid provider. "
@@ -450,6 +450,42 @@ class CourseProctoringErrorsViewTest(CourseTestCase, PermissionAccessMixin):
             FEATURES={"DISABLE_ADVANCED_SETTINGS": disable_advanced_settings}
         ):
             response = self.non_staff_client.get(self.url)
-            self.assertEqual(
+            self.assertEqual(  # noqa: PT009
                 response.status_code, 403 if disable_advanced_settings else 200
             )
+
+    @patch.object(core_toggles.AUTHZ_COURSE_AUTHORING_FLAG, 'is_enabled', return_value=True)
+    @patch('common.djangoapps.student.auth.authz_api.is_user_allowed')
+    def test_authz_user_allowed(self, mock_is_user_allowed, mock_flag):
+        """User with authz permission can access proctoring errors."""
+        mock_is_user_allowed.return_value = True
+        response = self.non_staff_client.get(self.url)
+        self.assertEqual(response.status_code, 200)  # noqa: PT009
+        mock_is_user_allowed.assert_called_once()
+
+    @patch.object(core_toggles.AUTHZ_COURSE_AUTHORING_FLAG, 'is_enabled', return_value=True)
+    @patch('common.djangoapps.student.auth.authz_api.is_user_allowed')
+    def test_authz_user_not_allowed(self, mock_is_user_allowed, mock_flag):
+        """User without authz permission cannot access proctoring errors."""
+        mock_is_user_allowed.return_value = False
+        response = self.non_staff_client.get(self.url)
+        self.assertEqual(response.status_code, 403)  # noqa: PT009
+        mock_is_user_allowed.assert_called_once()
+
+    @patch.object(core_toggles.AUTHZ_COURSE_AUTHORING_FLAG, 'is_enabled', return_value=True)
+    @patch('common.djangoapps.student.auth.authz_api.is_user_allowed')
+    def test_authz_with_disable_advanced_settings_staff_allowed(self, mock_is_user_allowed, mock_flag):
+        """Staff user can access when DISABLE_ADVANCED_SETTINGS is enabled, bypassing authz."""
+        with override_settings(FEATURES={"DISABLE_ADVANCED_SETTINGS": True}):
+            response = self.client.get(self.url)
+            self.assertEqual(response.status_code, 200)  # noqa: PT009
+            mock_is_user_allowed.assert_not_called()
+
+    @patch.object(core_toggles.AUTHZ_COURSE_AUTHORING_FLAG, 'is_enabled', return_value=True)
+    @patch('common.djangoapps.student.auth.authz_api.is_user_allowed')
+    def test_authz_with_disable_advanced_settings_non_staff_denied(self, mock_is_user_allowed, mock_flag):
+        """Non-staff user is denied when DISABLE_ADVANCED_SETTINGS is enabled, bypassing authz."""
+        with override_settings(FEATURES={"DISABLE_ADVANCED_SETTINGS": True}):
+            response = self.non_staff_client.get(self.url)
+            self.assertEqual(response.status_code, 403)  # noqa: PT009
+            mock_is_user_allowed.assert_not_called()

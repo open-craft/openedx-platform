@@ -1,21 +1,19 @@
 """
 Discussion notifications sender util.
 """
-import re
 import html
+import re
 
 from bs4 import BeautifulSoup, Tag
 from django.conf import settings
 from django.utils.text import Truncator
+from django.utils.translation import gettext_lazy as _
+from openedx_events.learning.data import CourseNotificationData, UserNotificationData
+from openedx_events.learning.signals import COURSE_NOTIFICATION_REQUESTED, USER_NOTIFICATION_REQUESTED
 
 from lms.djangoapps.discussion.django_comment_client.permissions import get_team
-from openedx_events.learning.data import UserNotificationData, CourseNotificationData
-from openedx_events.learning.signals import USER_NOTIFICATION_REQUESTED, COURSE_NOTIFICATION_REQUESTED
-
 from openedx.core.djangoapps.course_groups.models import CourseCohortsSettings
 from openedx.core.djangoapps.discussions.utils import get_divided_discussions
-from django.utils.translation import gettext_lazy as _
-
 from openedx.core.djangoapps.django_comment_common.comment_client.comment import Comment
 from openedx.core.djangoapps.django_comment_common.comment_client.subscriptions import Subscription
 from openedx.core.djangoapps.django_comment_common.models import (
@@ -118,10 +116,17 @@ class DiscussionNotificationSender:
         Send notification to users who are subscribed to the main thread/post i.e.
         there is a response to the main thread.
         """
+        if not Subscription.is_user_subscribed_to_thread(
+            str(self.thread.user_id),
+            self.thread.id,
+            str(self.course.id)
+        ):
+            return
         notification_type = "new_response"
         if not self.parent_id and self.creator.id != int(self.thread.user_id):
             context = {
                 'email_content': clean_thread_html_body(self.comment.body),
+                'group_by_id': str(self.thread.id),
             }
             self._populate_context_with_ids_for_mobile(context, notification_type)
             self._send_notification([self.thread.user_id], notification_type, extra_context=context)
@@ -140,6 +145,12 @@ class DiscussionNotificationSender:
         Send notification to parent thread creator i.e. comment on the response.
         """
         notification_type = "new_comment"
+        if not Subscription.is_user_subscribed_to_thread(
+            str(self.thread.user_id),
+            self.thread.id,
+            str(self.course.id)
+        ):
+            return
         if (
             self.parent_response and
             self.creator.id != int(self.thread.user_id)
@@ -229,6 +240,7 @@ class DiscussionNotificationSender:
         if not self.parent_id:
             context = {
                 "email_content": clean_thread_html_body(self.comment.body),
+                "group_by_id": str(self.thread.id),
             }
             notification_type = "response_on_followed_post"
             self._populate_context_with_ids_for_mobile(context, notification_type)
@@ -424,6 +436,7 @@ def strip_empty_tags(soup):
     """
     Strip starting and ending empty tags from the soup object
     """
+
     def strip_tag(element, reverse=False):
         """
         Checks if element is empty and removes it
@@ -451,6 +464,14 @@ def clean_thread_html_body(html_body):
     truncated_body = Truncator(html_body).chars(500, html=True)
     truncated_body = html.unescape(truncated_body)
     html_body = BeautifulSoup(truncated_body, 'html.parser')
+
+    # Remove tags including their content (decompose, not unwrap)
+    tags_to_decompose = [
+        "style",  # CSS injection
+    ]
+    for tag in tags_to_decompose:
+        for match in html_body.find_all(tag):
+            match.decompose()
 
     tags_to_remove = [
         "a", "link",  # Link Tags

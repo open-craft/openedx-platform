@@ -9,9 +9,9 @@ import json
 from collections import namedtuple
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
 import ddt
-import pytz
 from django.contrib.auth.models import AnonymousUser
 from django.test import override_settings
 from fs.memoryfs import MemoryFS
@@ -87,7 +87,7 @@ class TestVerticalBlockChildRenderStep(PipelineStep):
     """
     filter_content = "Altered Content"
 
-    def run_filter(self, block, context):  # lint-amnesty, pylint: disable=arguments-differ
+    def run_filter(self, block, context):  # pylint: disable=arguments-differ
         """Pipeline step that changes child content"""
         if type(block).__name__ == "HtmlBlockWithMixins":
             block.get_html = lambda: TestVerticalBlockChildRenderStep.filter_content
@@ -99,7 +99,7 @@ class TestPreventVerticalBlockChildRender(PipelineStep):
     Utility class to test vertical block children are skipped in rendering.
     """
 
-    def run_filter(self, block, context):  # lint-amnesty, pylint: disable=arguments-differ
+    def run_filter(self, block, context):  # pylint: disable=arguments-differ
         """Pipeline step that raises exceptions during child block rendering"""
         if type(block).__name__ == "HtmlBlockWithMixins":
             raise VerticalBlockChildRenderStarted.PreventChildBlockRender(
@@ -113,7 +113,7 @@ class TestVerticalBlockRenderCompletedStep(PipelineStep):
     """
     filter_content = "Extra content added"
 
-    def run_filter(self, block, fragment, context, view):  # lint-amnesty, pylint: disable=arguments-differ
+    def run_filter(self, block, fragment, context, view):  # pylint: disable=arguments-differ
         """Pipeline step that alters the output of the fragment"""
         fragment.content += TestVerticalBlockRenderCompletedStep.filter_content
         return {
@@ -130,7 +130,7 @@ class TestPreventVerticalBlockRenderStep(PipelineStep):
     """
     filter_content = "<div class=\"alert alert-danger\">Assignments are not available for Audit students.<div>"
 
-    def run_filter(self, block, fragment, context, view):  # lint-amnesty, pylint: disable=arguments-differ
+    def run_filter(self, block, fragment, context, view):  # pylint: disable=arguments-differ
         """Pipeline step that raises an exception"""
         raise VerticalBlockRenderCompleted.PreventVerticalBlockRender(
             TestPreventVerticalBlockRenderStep.filter_content
@@ -213,7 +213,7 @@ class VerticalBlockTestCase(BaseVerticalBlockTest):
         Test the rendering of the student and public view.
         """
         self.course.runtime._services['bookmarks'] = Mock()
-        now = datetime.now(pytz.UTC)
+        now = datetime.now(ZoneInfo("UTC"))
         self.vertical.due = now + timedelta(days=days)
         if view == STUDENT_VIEW:
             self.course.runtime._services['user'] = StubUserService(user=Mock(username=self.username))
@@ -253,7 +253,7 @@ class VerticalBlockTestCase(BaseVerticalBlockTest):
         self.course.runtime._services['user'] = StubUserService(user=Mock())
         self.course.runtime._services['completion'] = StubCompletionService(enabled=True, completion_value=0)
 
-        now = datetime.now(pytz.UTC)
+        now = datetime.now(ZoneInfo("UTC"))
         self.vertical.due = now + timedelta(days=-1)
         self.problem_block.has_score = has_score
 
@@ -273,7 +273,7 @@ class VerticalBlockTestCase(BaseVerticalBlockTest):
         """ Tests access denied blocks are not rendered when hide_access_error_blocks is True """
         self.course.runtime._services['bookmarks'] = Mock()
         self.course.runtime._services['user'] = StubUserService(user=Mock())
-        self.vertical.due = datetime.now(pytz.UTC) + timedelta(days=-1)
+        self.vertical.due = datetime.now(ZoneInfo("UTC")) + timedelta(days=-1)
         self.problem_block.has_access_error = node_has_access_error
         self.nested_problem_block.has_access_error = child_has_access_error
 

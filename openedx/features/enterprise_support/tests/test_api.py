@@ -6,18 +6,17 @@ from unittest import mock
 import ddt
 import httpretty
 import pytest
-from testfixtures import LogCapture
 from consent.models import DataSharingConsent
 from django.conf import settings
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.core.cache import cache
 from django.http import HttpResponseRedirect
 from django.test.utils import override_settings
 from django.urls import reverse
-from edx_django_utils.cache import get_cache_key, TieredCache
-from enterprise.models import EnterpriseCustomerUser  # lint-amnesty, pylint: disable=wrong-import-order
+from edx_django_utils.cache import TieredCache, get_cache_key
 from requests.exceptions import HTTPError
 from six.moves.urllib.parse import parse_qs
+from testfixtures import LogCapture
 
 from common.djangoapps.student.tests.factories import UserFactory
 from openedx.core.djangoapps.site_configuration.tests.factories import SiteFactory
@@ -42,7 +41,6 @@ from openedx.features.enterprise_support.api import (
     enterprise_enabled,
     get_active_enterprise_customer_user,
     get_consent_notification_data,
-    get_consent_required_courses,
     get_dashboard_consent_notification,
     get_data_sharing_consents,
     get_enterprise_consent_url,
@@ -50,8 +48,6 @@ from openedx.features.enterprise_support.api import (
     get_enterprise_learner_data_from_api,
     get_enterprise_learner_data_from_db,
     get_enterprise_learner_portal_enabled_message,
-    insert_enterprise_pipeline_elements,
-    unlink_enterprise_user_from_idp,
 )
 from openedx.features.enterprise_support.tests import FEATURES_WITH_ENTERPRISE_ENABLED
 from openedx.features.enterprise_support.tests.factories import (
@@ -532,38 +528,6 @@ class TestEnterpriseApi(EnterpriseServiceMockMixin, CacheIsolationTestCase):
                     expected_message.format(username=user.username, course_id=course_id)
                 )
             )
-
-    @httpretty.activate
-    @mock.patch('enterprise.models.EnterpriseCustomer.catalog_contains_course')
-    def test_get_consent_required_courses(self, mock_catalog_contains_course):
-        mock_catalog_contains_course.return_value = True
-        user = UserFactory()
-        enterprise_customer_user = EnterpriseCustomerUserFactory(user_id=user.id)
-
-        course_id = 'fake-course'
-        data_sharing_consent = DataSharingConsent(
-            course_id=course_id,
-            enterprise_customer=enterprise_customer_user.enterprise_customer,
-            username=user.username,
-            granted=False
-        )
-        data_sharing_consent.save()
-        consent_required = get_consent_required_courses(user, [course_id])
-        assert course_id in consent_required
-
-        # now grant consent and call our method again
-        data_sharing_consent.granted = True
-        data_sharing_consent.save()
-        consent_required = get_consent_required_courses(user, [course_id])
-        assert course_id not in consent_required
-
-    def test_consent_not_required_for_non_enterprise_user(self):
-        user = UserFactory()
-        course_id = 'fake-course'
-
-        consent_required_courses = get_consent_required_courses(user, [course_id])
-
-        assert set() == consent_required_courses
 
     @mock.patch('openedx.features.enterprise_support.api.create_jwt_for_user')
     def test_fetch_enterprise_learner_data_unauthenticated(self, mock_jwt_builder):
@@ -1075,21 +1039,6 @@ class TestEnterpriseApi(EnterpriseServiceMockMixin, CacheIsolationTestCase):
         the utilities to return the expected default values.
         """
         assert not enterprise_enabled()
-        assert insert_enterprise_pipeline_elements(None) is None
-
-    def test_utils_with_enterprise_enabled(self):
-        """
-        Test that enabling enterprise integration (which is currently on by default) causes the
-        the utilities to return the expected values.
-        """
-        assert enterprise_enabled()
-        pipeline = ['abc', 'social_core.pipeline.social_auth.load_extra_data', 'def']
-        insert_enterprise_pipeline_elements(pipeline)
-        assert pipeline == \
-               [
-                   'abc', 'enterprise.tpa_pipeline.handle_enterprise_logistration',
-                   'social_core.pipeline.social_auth.load_extra_data', 'def'
-               ]
 
     @mock.patch('openedx.features.enterprise_support.api.get_enterprise_learner_data_from_db')
     def test_enterprise_customer_from_session_or_db_cache_miss_no_customer(self, mock_learner_data_from_db):
@@ -1363,45 +1312,3 @@ class TestEnterpriseApi(EnterpriseServiceMockMixin, CacheIsolationTestCase):
 
         assert mock_override.declined_notification_title == title_template
         assert mock_override.declined_notification_message == message_template
-
-    @mock.patch('openedx.features.enterprise_support.api.Registry')
-    @mock.patch('openedx.features.enterprise_support.api.enterprise_customer_for_request')
-    def test_unlink_enterprise_user_from_idp(self, mock_customer_from_request, mock_registry):
-        customer_idp = EnterpriseCustomerIdentityProviderFactory.create(
-            provider_id='the-provider',
-        )
-        customer = customer_idp.enterprise_customer
-        customer_user = EnterpriseCustomerUserFactory.create(  # lint-amnesty, pylint: disable=unused-variable
-            enterprise_customer=customer,
-            user_id=self.user.id,
-        )
-        mock_customer_from_request.return_value = {
-            'uuid': customer.uuid,
-        }
-        mock_registry.get_enabled_by_backend_name.return_value = [
-            mock.Mock(provider_id='the-provider')
-        ]
-        request = mock.Mock()
-
-        unlink_enterprise_user_from_idp(request, self.user, idp_backend_name='the-backend-name')
-
-        assert 0 == EnterpriseCustomerUser.objects.filter(user_id=self.user.id).count()
-
-    @mock.patch('openedx.features.enterprise_support.api.Registry')
-    @mock.patch('openedx.features.enterprise_support.api.enterprise_customer_for_request')
-    def test_unlink_enterprise_user_from_idp_no_customer_user(self, mock_customer_from_request, mock_registry):
-        customer_idp = EnterpriseCustomerIdentityProviderFactory.create(
-            provider_id='the-provider',
-        )
-        customer = customer_idp.enterprise_customer
-        mock_customer_from_request.return_value = {
-            'uuid': customer.uuid,
-        }
-        mock_registry.get_enabled_by_backend_name.return_value = [
-            mock.Mock(provider_id='the-provider')
-        ]
-        request = mock.Mock()
-
-        unlink_enterprise_user_from_idp(request, self.user, idp_backend_name='the-backend-name')
-
-        assert 0 == EnterpriseCustomerUser.objects.filter(user_id=self.user.id).count()

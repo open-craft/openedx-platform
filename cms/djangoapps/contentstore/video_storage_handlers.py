@@ -9,16 +9,17 @@ import io
 import json
 import logging
 import os
-import requests
-import shutil
 import pathlib
+import shutil
 import zipfile
-
 from contextlib import closing
 from datetime import datetime, timedelta
+from tempfile import NamedTemporaryFile, mkdtemp
 from uuid import uuid4
-from boto.s3.connection import S3Connection
-from boto import s3
+from wsgiref.util import FileWrapper
+
+import boto3
+import requests
 from django.conf import settings
 from django.contrib.staticfiles.storage import staticfiles_storage
 from django.http import FileResponse, HttpResponseNotFound, StreamingHttpResponse
@@ -33,13 +34,13 @@ from edxval.api import (
     create_video,
     get_3rd_party_transcription_plans,
     get_available_transcript_languages,
-    get_video_transcript_url,
     get_transcript_preferences,
+    get_video_transcript_url,
     get_videos_for_course,
     remove_transcript_preferences,
     remove_video_for_course,
     update_video_image,
-    update_video_status
+    update_video_status,
 )
 from fs.osfs import OSFS
 from opaque_keys import InvalidKeyError
@@ -47,24 +48,19 @@ from opaque_keys.edx.keys import CourseKey
 from path import Path as path
 from pytz import UTC
 from rest_framework import status as rest_status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
-from tempfile import NamedTemporaryFile, mkdtemp
-from wsgiref.util import FileWrapper
 
-from common.djangoapps.edxmako.shortcuts import render_to_response
 from common.djangoapps.util.json_request import JsonResponse
 from openedx.core.djangoapps.video_config.models import VideoTranscriptEnabledFlag
 from openedx.core.djangoapps.video_config.toggles import PUBLIC_VIDEO_SHARE
-from openedx.core.djangoapps.video_pipeline.config.waffle import (
-    DEPRECATE_YOUTUBE,
-    ENABLE_DEVSTACK_VIDEO_UPLOADS,
-)
+from openedx.core.djangoapps.video_pipeline.config.waffle import DEPRECATE_YOUTUBE, ENABLE_DEVSTACK_VIDEO_UPLOADS
 from openedx.core.djangoapps.waffle_utils import CourseWaffleFlag
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 from .models import VideoUploadConfig
-from .toggles import use_new_video_uploads_page, use_mock_video_uploads
-from .utils import get_video_uploads_url, get_course_videos_context
+from .toggles import use_mock_video_uploads
+from .utils import get_video_uploads_url
 from .video_utils import validate_video_image
 from .views.course import get_course_and_check_access
 
@@ -74,14 +70,14 @@ LOGGER = logging.getLogger(__name__)
 WAFFLE_NAMESPACE = 'videos'
 
 # Waffle switch for enabling/disabling video image upload feature
-VIDEO_IMAGE_UPLOAD_ENABLED = WaffleSwitch(  # lint-amnesty, pylint: disable=toggle-missing-annotation
+VIDEO_IMAGE_UPLOAD_ENABLED = WaffleSwitch(  # pylint: disable=toggle-missing-annotation
     f'{WAFFLE_NAMESPACE}.video_image_upload_enabled', __name__
 )
 
 # Waffle flag namespace for studio
 WAFFLE_STUDIO_FLAG_NAMESPACE = 'studio'
 
-ENABLE_VIDEO_UPLOAD_PAGINATION = CourseWaffleFlag(  # lint-amnesty, pylint: disable=toggle-missing-annotation
+ENABLE_VIDEO_UPLOAD_PAGINATION = CourseWaffleFlag(  # pylint: disable=toggle-missing-annotation
     f'{WAFFLE_STUDIO_FLAG_NAMESPACE}.enable_video_upload_pagination', __name__
 )
 # Default expiration, in seconds, of one-time URLs used for uploading videos.
@@ -237,9 +233,32 @@ def send_zip(zip_file, size=None):
     """
     wrapper = FileWrapper(zip_file, settings.COURSE_EXPORT_DOWNLOAD_CHUNK_SIZE)
     response = StreamingHttpResponse(wrapper, content_type='application/zip')
-    response['Content-Dispositon'] = 'attachment; filename=%s' % os.path.basename(zip_file.name)
+    response['Content-Dispositon'] = 'attachment; filename=%s' % os.path.basename(zip_file.name)  # noqa: UP031
     response['Content-Length'] = size
     return response
+
+
+def get_course_video_download_urls(course_key_string):
+    """
+    Return the set of encoded-video URLs that legitimately belong to the given
+    course, as recorded in VAL.
+
+    The video download endpoint only ever needs to fetch URLs that were already
+    surfaced to the client by the video listing. Restricting fetches to this set
+    prevents server-side request forgery (SSRF) via attacker-supplied URLs.
+    """
+    videos, __ = get_videos_for_course(
+        course_key_string,
+        VideoSortField.created,
+        SortDirection.desc,
+        None,
+    )
+    return {
+        encoding['url']
+        for video in videos
+        for encoding in video['encoded_videos']
+        if encoding.get('url')
+    }
 
 
 def create_video_zip(course_key_string, files):
@@ -250,10 +269,17 @@ def create_video_zip(course_key_string, files):
     """
     name = course_key_string + '_videos'
     video_folder_zip = NamedTemporaryFile(prefix=name + '_',
-                                          suffix=".zip")  # lint-amnesty, pylint: disable=consider-using-with
+                                          suffix=".zip")  # pylint: disable=consider-using-with
     root_dir = path(mkdtemp())
     video_dir = root_dir + '/' + name
     zip_folder = None
+    # Only allow fetching URLs that belong to this course's videos. Anything
+    # else (internal services, cloud metadata endpoints, arbitrary hosts) is a
+    # potential SSRF target and is rejected before any request is made.
+    allowed_urls = get_course_video_download_urls(course_key_string)
+    for file in files:
+        if file['url'] not in allowed_urls:
+            raise ValidationError(f"Invalid video download url: {file['url']}")
     try:
         for file in files:
             url = file['url']
@@ -390,7 +416,7 @@ def validate_transcript_preferences(provider, cielo24_fidelity, cielo24_turnarou
 
     # validate transcription providers
     transcription_plans = get_3rd_party_transcription_plans()
-    if provider in list(transcription_plans.keys()):   # lint-amnesty, pylint: disable=consider-iterating-dictionary
+    if provider in list(transcription_plans.keys()):   # pylint: disable=consider-iterating-dictionary
 
         # Further validations for providers
         if provider == TranscriptProvider.CIELO24:
@@ -741,13 +767,7 @@ def videos_index_html(course, pagination_conf=None):
     """
     Returns an HTML page to display previous video uploads and allow new ones
     """
-    if use_new_video_uploads_page(course.id):
-        return redirect(get_video_uploads_url(course.id))
-    context = get_course_videos_context(
-        course,
-        pagination_conf,
-    )
-    return render_to_response('videos_index.html', context)
+    return redirect(get_video_uploads_url(course.id))
 
 
 def videos_index_json(course):
@@ -822,11 +842,11 @@ def videos_post(course, request):
         try:
             file_name.encode('ascii')
         except UnicodeEncodeError:
-            error_msg = 'The file name for %s must contain only ASCII characters.' % file_name
+            error_msg = 'The file name for %s must contain only ASCII characters.' % file_name  # noqa: UP031
             return {'error': error_msg}, 400
 
         edx_video_id = str(uuid4())
-        key = storage_service_key(bucket, file_name=edx_video_id)
+        key_name = storage_service_key(bucket, file_name=edx_video_id)
 
         metadata_list = [
             ('client_video_id', file_name),
@@ -846,12 +866,20 @@ def videos_post(course, request):
             if transcript_preferences is not None:
                 metadata_list.append(('transcript_preferences', json.dumps(transcript_preferences)))
 
-        for metadata_name, value in metadata_list:
-            key.set_metadata(metadata_name, value)
-        upload_url = key.generate_url(
-            KEY_EXPIRATION_IN_SECONDS,
-            'PUT',
-            headers={'Content-Type': req_file['content_type']}
+        # Prepare metadata for presigned URL
+        metadata = dict(metadata_list)
+
+        # Generate presigned URL using boto3
+        s3_client = bucket.meta.client
+        upload_url = s3_client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': bucket.name,
+                'Key': key_name,
+                'ContentType': req_file['content_type'],
+                'Metadata': metadata
+            },
+            ExpiresIn=KEY_EXPIRATION_IN_SECONDS
         )
 
         # persist edx_video_id in VAL
@@ -886,24 +914,19 @@ def storage_service_bucket():
             'aws_secret_access_key': settings.AWS_SECRET_ACCESS_KEY
         }
 
-    conn = S3Connection(**params)
+    conn = boto3.resource("s3", **params)
 
-    # We don't need to validate our bucket, it requires a very permissive IAM permission
-    # set since behind the scenes it fires a HEAD request that is equivalent to get_all_keys()
-    # meaning it would need ListObjects on the whole bucket, not just the path used in each
-    # environment (since we share a single bucket for multiple deployments in some configurations)
-    return conn.get_bucket(settings.VIDEO_UPLOAD_PIPELINE['VEM_S3_BUCKET'], validate=False)
+    return conn.Bucket(settings.VIDEO_UPLOAD_PIPELINE['VEM_S3_BUCKET'])
 
 
 def storage_service_key(bucket, file_name):
     """
-    Returns an S3 key to the given file in the given bucket.
+    Returns an S3 key name for the given file in the given bucket.
     """
-    key_name = "{}/{}".format(
+    return "{}/{}".format(
         settings.VIDEO_UPLOAD_PIPELINE.get("ROOT_PATH", ""),
         file_name
     )
-    return s3.key.Key(bucket, key_name)
 
 
 def send_video_status_update(updates):
@@ -969,10 +992,10 @@ def get_course_youtube_edx_video_ids(course_id):
     """
     Get a list of youtube edx_video_ids
     """
-    invalid_key_error_msg = "Invalid course_key: '%s'." % course_id
-    unexpected_error_msg = "Unexpected error occurred for course_id: '%s'." % course_id
+    invalid_key_error_msg = "Invalid course_key: '%s'." % course_id  # noqa: UP031
+    unexpected_error_msg = "Unexpected error occurred for course_id: '%s'." % course_id  # noqa: UP031
 
-    try:  # lint-amnesty, pylint: disable=too-many-nested-blocks
+    try:  # pylint: disable=too-many-nested-blocks
         course_key = CourseKey.from_string(course_id)
         course = modulestore().get_course(course_key)
 

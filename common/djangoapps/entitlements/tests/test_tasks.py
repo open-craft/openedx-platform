@@ -5,9 +5,9 @@ Test entitlements tasks
 
 from datetime import datetime, timedelta
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 import pytest
-import pytz
 from django.test import TestCase
 
 from common.djangoapps.entitlements import tasks
@@ -17,9 +17,9 @@ from common.djangoapps.student.tests.factories import AdminFactory
 from openedx.core.djangolib.testing.utils import skip_unless_lms
 
 
-def make_entitlement(expired=False):  # lint-amnesty, pylint: disable=missing-function-docstring
+def make_entitlement(expired=False):  # pylint: disable=missing-function-docstring
     age = CourseEntitlementPolicy.DEFAULT_EXPIRATION_PERIOD_DAYS
-    past_datetime = datetime.now(tz=pytz.UTC) - timedelta(days=age)
+    past_datetime = datetime.now(tz=ZoneInfo("UTC")) - timedelta(days=age)
     expired_at = past_datetime if expired else None
     entitlement = CourseEntitlementFactory.create(created=past_datetime, expired_at=expired_at)
     return entitlement
@@ -80,7 +80,7 @@ class TestExpireOldEntitlementsTask(TestCase):
         ) as mock_datetime:
             task = tasks.expire_old_entitlements.delay(1, 2)
 
-        pytest.raises(Exception, task.get)
+        pytest.raises(Exception, task.get)  # noqa: B017
         assert mock_datetime.call_count == (tasks.MAX_RETRIES + 1)
 
 

@@ -8,11 +8,11 @@ import itertools
 import json
 from unittest.mock import patch
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import ddt
 import httpretty
 import pytest
-from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
@@ -20,7 +20,6 @@ from django.core.handlers.wsgi import WSGIRequest
 from django.test import Client
 from django.test.utils import override_settings
 from django.urls import reverse
-from edx_toggles.toggles.testutils import override_waffle_flag
 from freezegun import freeze_time
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -39,8 +38,6 @@ from openedx.core.djangoapps.embargo.test_utils import restrict_course
 from openedx.core.djangoapps.enrollments import api, data
 from openedx.core.djangoapps.enrollments.errors import CourseEnrollmentError
 from openedx.core.djangoapps.enrollments.views import EnrollmentUserThrottle
-from openedx.core.djangoapps.notifications.config.waffle import ENABLE_NOTIFICATIONS
-from openedx.core.djangoapps.notifications.models import CourseNotificationPreference
 from openedx.core.djangoapps.oauth_dispatch.jwt import create_jwt_for_user
 from openedx.core.djangoapps.user_api.models import RetirementState, UserOrgTag, UserRetirementStatus
 from openedx.core.djangolib.testing.utils import skip_unless_lms
@@ -56,20 +53,20 @@ class EnrollmentTestMixin:
     API_KEY = "i am a key"
 
     def assert_enrollment_status(
-            self,
-            course_id=None,
-            username=None,
-            expected_status=status.HTTP_200_OK,
-            email_opt_in=None,
-            as_server=False,
-            mode=CourseMode.DEFAULT_MODE_SLUG,
-            is_active=None,
-            enrollment_attributes=None,
-            min_mongo_calls=0,
-            max_mongo_calls=0,
-            linked_enterprise_customer=None,
-            cohort=None,
-            force_enrollment=False,
+        self,
+        course_id=None,
+        username=None,
+        expected_status=status.HTTP_200_OK,
+        email_opt_in=None,
+        as_server=False,
+        mode=CourseMode.DEFAULT_MODE_SLUG,
+        is_active=None,
+        enrollment_attributes=None,
+        min_mongo_calls=0,
+        max_mongo_calls=0,
+        linked_enterprise_customer=None,
+        cohort=None,
+        force_enrollment=False,
     ):
         """
         Enroll in the course and verify the response's status code. If the expected status is 200, also validates
@@ -156,7 +153,6 @@ class EnrollmentTestMixin:
 
 
 @override_settings(EDX_API_KEY="i am a key")
-@override_waffle_flag(ENABLE_NOTIFICATIONS, True)
 @ddt.ddt
 @skip_unless_lms
 class EnrollmentTest(EnrollmentTestMixin, ModuleStoreTestCase, APITestCase, EnterpriseServiceMockMixin):
@@ -199,10 +195,6 @@ class EnrollmentTest(EnrollmentTestMixin, ModuleStoreTestCase, APITestCase, Ente
             password=self.PASSWORD,
         )
         self.client.login(username=self.USERNAME, password=self.PASSWORD)
-        CourseNotificationPreference.objects.create(
-            user=self.user,
-            course_id=self.course.id,
-        )
 
     @ddt.data(
         # Default (no course modes in the database)
@@ -546,7 +538,7 @@ class EnrollmentTest(EnrollmentTestMixin, ModuleStoreTestCase, APITestCase, Ente
         response = self.client.get(reverse('courseenrollments'), {'user': self.user.username}, **kwargs)
         assert response.status_code == status.HTTP_200_OK
         data = json.loads(response.content.decode('utf-8'))
-        self.assertCountEqual(
+        self.assertCountEqual(  # noqa: PT009
             [(datum['course_details']['course_id'], datum['course_details']['course_name']) for datum in data],
             [(str(course.id), course.display_name_with_default) for course in courses]
         )
@@ -982,11 +974,11 @@ class EnrollmentTest(EnrollmentTestMixin, ModuleStoreTestCase, APITestCase, Ente
         assert course_mode == CourseMode.DEFAULT_MODE_SLUG
 
     @ddt.data(
-        ((CourseMode.DEFAULT_MODE_SLUG, ), CourseMode.DEFAULT_MODE_SLUG),
+        ((CourseMode.DEFAULT_MODE_SLUG,), CourseMode.DEFAULT_MODE_SLUG),
         ((CourseMode.DEFAULT_MODE_SLUG, CourseMode.VERIFIED), CourseMode.DEFAULT_MODE_SLUG),
         ((CourseMode.DEFAULT_MODE_SLUG, CourseMode.VERIFIED), CourseMode.VERIFIED),
-        ((CourseMode.PROFESSIONAL, ), CourseMode.PROFESSIONAL),
-        ((CourseMode.NO_ID_PROFESSIONAL_MODE, ), CourseMode.NO_ID_PROFESSIONAL_MODE),
+        ((CourseMode.PROFESSIONAL,), CourseMode.PROFESSIONAL),
+        ((CourseMode.NO_ID_PROFESSIONAL_MODE,), CourseMode.NO_ID_PROFESSIONAL_MODE),
         ((CourseMode.VERIFIED, CourseMode.CREDIT_MODE), CourseMode.VERIFIED),
         ((CourseMode.VERIFIED, CourseMode.CREDIT_MODE), CourseMode.CREDIT_MODE),
     )
@@ -1155,7 +1147,7 @@ class EnrollmentTest(EnrollmentTestMixin, ModuleStoreTestCase, APITestCase, Ente
             assert is_active == old_is_active
             assert course_mode == old_mode
             # error message should contain specific text.  Otto checks for this text in the message.
-            self.assertRegex(
+            self.assertRegex(  # noqa: PT009
                 json.loads(response.content.decode('utf-8'))['message'],
                 'Enrollment mode mismatch'
             )
@@ -1274,7 +1266,7 @@ class EnrollmentTest(EnrollmentTestMixin, ModuleStoreTestCase, APITestCase, Ente
             username='enterprise_worker',
             linked_enterprise_customer='this-is-a-real-uuid',
         )
-        assert httpretty.last_request().path == '/consent/api/v1/data_sharing_consent'    # pylint: disable=no-member
+        assert httpretty.last_request().path == '/consent/api/v1/data_sharing_consent'  # pylint: disable=no-member
         assert httpretty.last_request().method == httpretty.POST
 
     def test_enrollment_attributes_always_written(self):
@@ -1770,7 +1762,7 @@ class UserRoleTest(ModuleStoreTestCase):
             response = self.client.get(reverse('roles'))
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             expected_response = {
-                "message": (
+                "message": (  # noqa: UP032
                     "An error occurred while retrieving roles for user '{username}"
                 ).format(username=self.user.username)
             }
@@ -1907,15 +1899,15 @@ class CourseEnrollmentsApiListTest(APITestCase, ModuleStoreTestCase):
 
     @ddt.data(
         # Non-existent user
-        ({'username': 'nobody'}, ),
-        ({'username': 'nobody', 'course_id': 'e/d/X'}, ),
+        ({'username': 'nobody'},),
+        ({'username': 'nobody', 'course_id': 'e/d/X'},),
 
         # Non-existent course
-        ({'course_id': 'a/b/c'}, ),
-        ({'course_id': 'a/b/c', 'username': 'student1'}, ),
+        ({'course_id': 'a/b/c'},),
+        ({'course_id': 'a/b/c', 'username': 'student1'},),
 
         # Non-existent course and user
-        ({'course_id': 'a/b/c', 'username': 'dummy'}, )
+        ({'course_id': 'a/b/c', 'username': 'dummy'},)
     )
     @ddt.unpack
     def test_non_existent_course_user(self, query_params):
@@ -1933,7 +1925,7 @@ class CourseEnrollmentsApiListTest(APITestCase, ModuleStoreTestCase):
         content = self._assert_list_of_enrollments(query_params, status.HTTP_200_OK)
         results = content['results']
 
-        self.assertCountEqual(results, expected_results)
+        self.assertCountEqual(results, expected_results)  # noqa: PT009
 
 
 @ddt.ddt

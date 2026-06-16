@@ -1,18 +1,10 @@
-# lint-amnesty, pylint: disable=missing-module-docstring
+# pylint: disable=missing-module-docstring
 class InvalidDefinitionError(Exception):
     pass
 
 
 class NotFoundError(Exception):
     pass
-
-
-class ProcessingError(Exception):
-    '''
-    An error occurred while processing a request to the XModule.
-    For example: if an exception occurs while checking a capa problem.
-    '''
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
 
 
 class InvalidVersionError(Exception):
@@ -38,7 +30,7 @@ class UndefinedContext(Exception):
     """
     Tried to access an xmodule field which needs a different context (runtime) to have a value.
     """
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass
 
 
 class HeartbeatFailure(Exception):

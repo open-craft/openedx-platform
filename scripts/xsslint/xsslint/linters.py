@@ -4,16 +4,16 @@ Linter classes containing logic for checking various filetypes.
 
 
 import ast
-import io
+import io  # noqa: F401
 import os
 import re
 import textwrap
 
 from xsslint import visitors
+from xsslint.django_linter import BlockTransExpression, HtmlInterpolateExpression, TransExpression
 from xsslint.reporting import ExpressionRuleViolation, FileResults, RuleViolation
 from xsslint.rules import RuleSet
 from xsslint.utils import Expression, ParseString, StringLines, is_skip_dir
-from xsslint.django_linter import TransExpression, BlockTransExpression, HtmlInterpolateExpression
 
 
 class BaseLinter:
@@ -652,7 +652,7 @@ class JavaScriptLinter(BaseLinter):
         )
         # Match quoted HTML strings next to a '+'.
         regex_concat_with_html = re.compile(
-            r"(\+\s*{string_with_html}|{string_with_html}\s*\+)".format(
+            r"(\+\s*{string_with_html}|{string_with_html}\s*\+)".format(  # noqa: UP032
                 string_with_html=regex_string_with_html,
             ),
             re.VERBOSE
@@ -1476,6 +1476,7 @@ class DjangoTemplateLinter(BaseLinter):
         django_trans_missing_escape='django-trans-missing-escape',
         django_trans_invalid_escape_filter='django-trans-invalid-escape-filter',
         django_trans_escape_variable_mismatch='django-trans-escape-variable-mismatch',
+        django_trans_escape_filter_parse_error='django-trans-escape-filter-parse-error',
         django_blocktrans_missing_escape_filter='django-blocktrans-missing-escape-filter',
         django_blocktrans_parse_error='django-blocktrans-parse-error',
         django_blocktrans_escape_filter_parse_error='django-blocktrans-escape-filter-parse-error',

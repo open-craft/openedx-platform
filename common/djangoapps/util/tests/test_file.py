@@ -7,9 +7,11 @@ import os
 from datetime import datetime
 from io import StringIO
 from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
-import pytest
 import ddt
+import pytest
+from ccx_keys.locator import CCXLocator
 from django.core import exceptions
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpRequest
@@ -17,9 +19,6 @@ from django.test import TestCase
 from django.test.utils import override_settings
 from opaque_keys.edx.keys import CourseKey
 from opaque_keys.edx.locations import CourseLocator
-from pytz import UTC
-
-from ccx_keys.locator import CCXLocator
 
 import common.djangoapps.util.file
 from common.djangoapps.util.file import (
@@ -27,7 +26,7 @@ from common.djangoapps.util.file import (
     UniversalNewlineIterator,
     course_and_time_based_filename_generator,
     course_filename_prefix_generator,
-    store_uploaded_file
+    store_uploaded_file,
 )
 
 
@@ -99,7 +98,7 @@ class FilenameGeneratorTestCase(TestCase):
     """
     Tests for course_and_time_based_filename_generator
     """
-    NOW = datetime.strptime('1974-06-22T01:02:03', '%Y-%m-%dT%H:%M:%S').replace(tzinfo=UTC)
+    NOW = datetime.strptime('1974-06-22T01:02:03', '%Y-%m-%dT%H:%M:%S').replace(tzinfo=ZoneInfo("UTC"))
 
     def setUp(self):
         super().setUp()
@@ -150,27 +149,27 @@ class StoreUploadedFileTestCase(TestCase):
         """
         Verifies that exceptions are thrown in the expected cases.
         """
-        with pytest.raises(ValueError) as error:
+        with pytest.raises(ValueError) as error:  # noqa: PT011, PT012
             self.request.FILES = {"uploaded_file": SimpleUploadedFile("tempfile.csv", self.file_content)}
             store_uploaded_file(self.request, "wrong_key", [".txt", ".csv"], "stored_file", self.default_max_size)
         self.verify_exception("No file uploaded with key 'wrong_key'.", error)
 
-        with pytest.raises(exceptions.PermissionDenied) as error:
+        with pytest.raises(exceptions.PermissionDenied) as error:  # noqa: PT012
             self.request.FILES = {"uploaded_file": SimpleUploadedFile("tempfile.csv", self.file_content)}
             store_uploaded_file(self.request, "uploaded_file", [], "stored_file", self.default_max_size)
         self.verify_exception("The file must end with one of the following extensions: ''.", error)
 
-        with pytest.raises(exceptions.PermissionDenied) as error:
+        with pytest.raises(exceptions.PermissionDenied) as error:  # noqa: PT012
             self.request.FILES = {"uploaded_file": SimpleUploadedFile("tempfile.csv", self.file_content)}
             store_uploaded_file(self.request, "uploaded_file", [".bar"], "stored_file", self.default_max_size)
         self.verify_exception("The file must end with the extension '.bar'.", error)
 
-        with pytest.raises(exceptions.PermissionDenied) as error:
+        with pytest.raises(exceptions.PermissionDenied) as error:  # noqa: PT012
             self.request.FILES = {"uploaded_file": SimpleUploadedFile("tempfile.csv", self.file_content)}
             store_uploaded_file(self.request, "uploaded_file", [".xxx", ".bar"], "stored_file", self.default_max_size)
         self.verify_exception("The file must end with one of the following extensions: '.xxx', '.bar'.", error)
 
-        with pytest.raises(exceptions.PermissionDenied) as error:
+        with pytest.raises(exceptions.PermissionDenied) as error:  # noqa: PT012
             self.request.FILES = {"uploaded_file": SimpleUploadedFile("tempfile.csv", self.file_content)}
             store_uploaded_file(self.request, "uploaded_file", [".csv"], "stored_file", 2)
         self.verify_exception("Maximum upload file size is 2 bytes.", error)
@@ -204,7 +203,7 @@ class StoreUploadedFileTestCase(TestCase):
             assert 'success_file' in os.path.basename(filename)
             store_file_data(storage, filename)
 
-        with pytest.raises(FileValidationException) as error:
+        with pytest.raises(FileValidationException) as error:  # noqa: PT012
             self.request.FILES = {"uploaded_file": SimpleUploadedFile("tempfile.csv", self.file_content)}
             store_uploaded_file(
                 self.request, "uploaded_file", [".csv"], "error_file",

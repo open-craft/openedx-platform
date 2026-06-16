@@ -1,5 +1,5 @@
 """
-A nice little admin interface for migrating courses and libraries from modulstore to Learning Core.
+A nice little admin interface for migrating courses and libraries from modulstore to openedx_content.
 """
 import logging
 
@@ -7,8 +7,6 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
 from django.db import models
-
-
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.locator import LibraryCollectionLocator, LibraryLocatorV2
 from user_tasks.models import UserTaskStatus
@@ -17,8 +15,7 @@ from openedx.core.types.http import AuthenticatedHttpRequest
 
 from . import api
 from .data import CompositionLevel, RepeatHandlingStrategy
-from .models import ModulestoreSource, ModulestoreMigration, ModulestoreBlockSource, ModulestoreBlockMigration
-
+from .models import ModulestoreBlockMigration, ModulestoreBlockSource, ModulestoreMigration, ModulestoreSource
 
 log = logging.getLogger(__name__)
 
@@ -147,8 +144,8 @@ class ModulestoreSourceAdmin(admin.ModelAdmin):
                     source_key=source.key,
                     target_library_key=target_library_key,
                     target_collection_slug=target_collection_slug,
-                    composition_level=form.cleaned_data['composition_level'],
-                    repeat_handling_strategy=form.cleaned_data['repeat_handling_strategy'],
+                    composition_level=CompositionLevel(form.cleaned_data['composition_level']),
+                    repeat_handling_strategy=RepeatHandlingStrategy(form.cleaned_data['repeat_handling_strategy']),
                     preserve_url_slugs=form.cleaned_data['preserve_url_slugs'],
                     forward_source_to_target=form.cleaned_data['forward_to_target'],
                 )

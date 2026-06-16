@@ -56,6 +56,7 @@ pull_translations: clean_translations  ## pull translations via atlas
 	make pull_plugin_translations
 	atlas pull $(ATLAS_OPTIONS) \
 	    translations/edx-platform/conf/locale:conf/locale \
+	    $(ATLAS_EXTRA_SOURCES)
 	python manage.py lms compilemessages
 	python manage.py lms compilejsi18n
 	python manage.py cms compilejsi18n
@@ -113,7 +114,7 @@ $(COMMON_CONSTRAINTS_TXT):
 	printf "$(COMMON_CONSTRAINTS_TEMP_COMMENT)" | cat - $(@) > temp && mv temp $(@)
 
 compile-requirements: export CUSTOM_COMPILE_COMMAND=make upgrade
-compile-requirements: pre-requirements $(COMMON_CONSTRAINTS_TXT) ## Re-compile *.in requirements to *.txt
+compile-requirements: pre-requirements ## Re-compile *.in requirements to *.txt
 	@# Bootstrapping: Rebuild pip and pip-tools first, and then install them
 	@# so that if there are any failures we'll know now, rather than the next
 	@# time someone tries to use the outputs.
@@ -134,7 +135,7 @@ compile-requirements: pre-requirements $(COMMON_CONSTRAINTS_TXT) ## Re-compile *
 		export REBUILD=''; \
 	done
 
-upgrade:  ## update the pip requirements files to use the latest releases satisfying our constraints
+upgrade: $(COMMON_CONSTRAINTS_TXT) ## update the pip requirements files to use the latest releases satisfying our constraints
 	$(MAKE) compile-requirements COMPILE_OPTS="--upgrade"
 
 upgrade-package: ## update just one package to the latest usable release
@@ -170,22 +171,20 @@ xsslint: ## check xss for quality issuest
 	--config=scripts.xsslint_config \
 	--thresholds=scripts/xsslint_thresholds.json
 
-pycodestyle: ## check python files for quality issues
-	pycodestyle .
+ruff: ## check python files with ruff
+	ruff check .
 
 ## Re-enable --lint flag when this issue https://github.com/openedx/edx-platform/issues/35775 is resolved
 pii_check: ## check django models for pii annotations
 	DJANGO_SETTINGS_MODULE=cms.envs.test \
 	code_annotations django_find_annotations \
 		--config_file .pii_annotations.yml \
-		--app_name cms \
 		--coverage \
 		--lint
 
 	DJANGO_SETTINGS_MODULE=lms.envs.test \
 	code_annotations django_find_annotations \
 		--config_file .pii_annotations.yml \
-		--app_name lms \
 		--coverage \
 		--lint
 

@@ -41,20 +41,12 @@ from cms.djangoapps.contentstore.toggles import (
     libraries_v1_enabled,
     libraries_v2_enabled,
     split_library_view_on_dashboard,
-    use_new_advanced_settings_page,
-    use_new_certificates_page,
-    use_new_course_team_page,
-    use_new_export_page,
-    use_new_grading_page,
-    use_new_group_configurations_page,
-    use_new_import_page,
-    use_new_schedule_details_page,
     use_new_unit_page,
-    use_new_video_uploads_page,
 )
 from cms.djangoapps.models.settings.course_grading import CourseGradingModel
 from cms.djangoapps.models.settings.course_metadata import CourseMetadata
-from cms.djangoapps.modulestore_migrator.api import get_migration_info
+from cms.djangoapps.modulestore_migrator import api as migrator_api
+from cms.djangoapps.modulestore_migrator.data import ModulestoreMigration
 from common.djangoapps.course_action_state.managers import CourseActionStateItemNotFoundError
 from common.djangoapps.course_action_state.models import CourseRerunState, CourseRerunUIStateManager
 from common.djangoapps.course_modes.models import CourseMode
@@ -62,11 +54,7 @@ from common.djangoapps.edxmako.services import MakoService
 from common.djangoapps.student import auth
 from common.djangoapps.student.auth import STUDIO_EDIT_ROLES, has_studio_read_access, has_studio_write_access
 from common.djangoapps.student.models import CourseEnrollment
-from common.djangoapps.student.roles import (
-    CourseInstructorRole,
-    CourseStaffRole,
-    GlobalStaff,
-)
+from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole, GlobalStaff
 from common.djangoapps.track import contexts
 from common.djangoapps.util.course import get_link_for_about_page
 from common.djangoapps.util.date_utils import get_default_time_display
@@ -92,6 +80,7 @@ from openedx.core.djangoapps.django_comment_common.utils import seed_permissions
 from openedx.core.djangoapps.models.course_details import CourseDetails
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
+from openedx.core.djangoapps.video_config.services import VideoConfigService
 from openedx.core.djangoapps.xblock.api import get_component_from_usage_key
 from openedx.core.lib.courses import course_image_url
 from openedx.core.lib.html_to_text import html_to_text
@@ -99,14 +88,14 @@ from openedx.core.lib.teams_config import CONTENT_GROUPS_FOR_TEAMS, TEAM_SCHEME
 from openedx.features.content_type_gating.models import ContentTypeGatingConfig
 from openedx.features.content_type_gating.partitions import CONTENT_TYPE_GATING_SCHEME
 from openedx.features.course_experience.waffle import ENABLE_COURSE_ABOUT_SIDEBAR_HTML
-from xmodule.course_block import DEFAULT_START_DATE  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.course_block import DEFAULT_START_DATE  # pylint: disable=wrong-import-order
 from xmodule.data import CertificatesDisplayBehaviors
 from xmodule.library_tools import LegacyLibraryToolsService
-from xmodule.modulestore import ModuleStoreEnum  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.exceptions import ItemNotFoundError  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore import ModuleStoreEnum  # pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.exceptions import ItemNotFoundError  # pylint: disable=wrong-import-order
 from xmodule.partitions.partitions_service import (
-    get_all_partitions_for_course,  # lint-amnesty, pylint: disable=wrong-import-order
+    get_all_partitions_for_course,  # pylint: disable=wrong-import-order
 )
 from xmodule.services import ConfigurationService, SettingsService, TeamsConfigurationService
 from xmodule.util.keys import BlockKey
@@ -182,7 +171,7 @@ def _remove_instructors(course_key):
 
     try:
         remove_all_instructors(course_key)
-    except Exception as err:  # lint-amnesty, pylint: disable=broad-except
+    except Exception as err:  # pylint: disable=broad-except
         log.error(f"Error in deleting course groups for {course_key}: {err}")
 
 
@@ -212,7 +201,7 @@ def get_lms_link_for_item(location, preview=False):
         query_string = urlencode(params)
 
     url_parts = list(urlparse(lms_base))
-    url_parts[2] = '/courses/{course_key}/jump_to/{location}'.format(
+    url_parts[2] = '/courses/{course_key}/jump_to/{location}'.format(  # noqa: UP032
         course_key=str(location.course_key),
         location=str(location),
     )
@@ -233,7 +222,7 @@ def get_lms_link_for_certificate_web_view(course_key, mode):
     if lms_base is None:
         return None
 
-    return "//{certificate_web_base}/certificates/course/{course_id}?preview={mode}".format(
+    return "//{certificate_web_base}/certificates/course/{course_id}?preview={mode}".format(  # noqa: UP032
         certificate_web_base=lms_base,
         course_id=str(course_key),
         mode=mode
@@ -307,52 +296,36 @@ def get_schedule_details_url(course_locator) -> str:
     """
     Gets course authoring microfrontend URL for schedule and details pages view.
     """
-    schedule_details_url = None
-    if use_new_schedule_details_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/settings/details'
-        if mfe_base_url:
-            schedule_details_url = course_mfe_url
-    return schedule_details_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/settings/details'
+    return course_mfe_url if mfe_base_url else None
 
 
-def get_advanced_settings_url(course_locator) -> str:
+def get_advanced_settings_url(course_locator) -> str | None:
     """
     Gets course authoring microfrontend URL for advanced settings page view.
     """
-    advanced_settings_url = None
-    if use_new_advanced_settings_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/settings/advanced'
-        if mfe_base_url:
-            advanced_settings_url = course_mfe_url
-    return advanced_settings_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/settings/advanced'
+    return course_mfe_url if mfe_base_url else None
 
 
 def get_grading_url(course_locator) -> str:
     """
     Gets course authoring microfrontend URL for grading page view.
     """
-    grading_url = None
-    if use_new_grading_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/settings/grading'
-        if mfe_base_url:
-            grading_url = course_mfe_url
-    return grading_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/settings/grading'
+    return course_mfe_url if mfe_base_url else None
 
 
 def get_course_team_url(course_locator) -> str:
     """
     Gets course authoring microfrontend URL for course team page view.
     """
-    course_team_url = None
-    if use_new_course_team_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/course_team'
-        if mfe_base_url:
-            course_team_url = course_mfe_url
-    return course_team_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/course_team'
+    return course_mfe_url if mfe_base_url else None
 
 
 def get_updates_url(course_locator) -> str:
@@ -367,30 +340,22 @@ def get_updates_url(course_locator) -> str:
     return updates_url
 
 
-def get_import_url(course_locator) -> str:
+def get_import_url(course_locator) -> str | None:
     """
     Gets course authoring microfrontend URL for import page view.
     """
-    import_url = None
-    if use_new_import_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/import'
-        if mfe_base_url:
-            import_url = course_mfe_url
-    return import_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/import'
+    return course_mfe_url if mfe_base_url else None
 
 
-def get_export_url(course_locator) -> str:
+def get_export_url(course_locator) -> str | None:
     """
     Gets course authoring microfrontend URL for export page view.
     """
-    export_url = None
-    if use_new_export_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/export'
-        if mfe_base_url:
-            export_url = course_mfe_url
-    return export_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/export'
+    return course_mfe_url if mfe_base_url else None
 
 
 def get_optimizer_url(course_locator) -> str:
@@ -423,11 +388,10 @@ def get_video_uploads_url(course_locator) -> str:
     Gets course authoring microfrontend URL for files and uploads page view.
     """
     video_uploads_url = None
-    if use_new_video_uploads_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/videos/'
-        if mfe_base_url:
-            video_uploads_url = course_mfe_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/videos/'
+    if mfe_base_url:
+        video_uploads_url = course_mfe_url
     return video_uploads_url
 
 
@@ -474,13 +438,9 @@ def get_certificates_url(course_locator) -> str:
     """
     Gets course authoring microfrontend URL for certificates page view.
     """
-    certificates_url = None
-    if use_new_certificates_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/certificates'
-        if mfe_base_url:
-            certificates_url = course_mfe_url
-    return certificates_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/certificates'
+    return course_mfe_url if mfe_base_url else None
 
 
 def get_textbooks_url(course_locator) -> str:
@@ -499,13 +459,9 @@ def get_group_configurations_url(course_locator) -> str:
     """
     Gets course authoring microfrontend URL for group configurations page view.
     """
-    group_configurations_url = None
-    if use_new_group_configurations_page(course_locator):
-        mfe_base_url = get_course_authoring_url(course_locator)
-        course_mfe_url = f'{mfe_base_url}/course/{course_locator}/group_configurations'
-        if mfe_base_url:
-            group_configurations_url = course_mfe_url
-    return group_configurations_url
+    mfe_base_url = get_course_authoring_url(course_locator)
+    course_mfe_url = f'{mfe_base_url}/course/{course_locator}/group_configurations'
+    return course_mfe_url if mfe_base_url else None
 
 
 def get_custom_pages_url(course_locator) -> str:
@@ -545,6 +501,17 @@ def get_taxonomy_list_url() -> str | None:
         return None
 
     return f'{mfe_base_url}/taxonomies'
+
+
+def get_libraries_list_url() -> str | None:
+    """
+    Gets course authoring microfrontend URL for libraries list view.
+    """
+    mfe_base_url = settings.COURSE_AUTHORING_MICROFRONTEND_URL
+    if not mfe_base_url:
+        return None
+
+    return f'{mfe_base_url}/libraries'
 
 
 def get_taxonomy_tags_widget_url(course_locator=None) -> str | None:
@@ -592,7 +559,7 @@ def is_currently_visible_to_students(xblock):
         return False
 
     # Check start date
-    if 'detached' not in published._class_tags and published.start is not None:  # lint-amnesty, pylint: disable=protected-access
+    if 'detached' not in published._class_tags and published.start is not None:  # pylint: disable=protected-access
         return datetime.now(UTC) > published.start
 
     # No start date, so it's always visible
@@ -989,7 +956,7 @@ def get_sibling_urls(subsection, unit_location):    # pylint: disable=too-many-s
             section_subsections = section.get_children()
             return section_subsections
         except AttributeError:
-            log.error("URL Retrieval Error: subsection {subsection} included in section {section}".format(
+            log.error("URL Retrieval Error: subsection {subsection} included in section {section}".format(  # noqa: UP032  # pylint: disable=line-too-long
                 section=section.location,
                 subsection=subsection.location
             ))
@@ -1003,7 +970,7 @@ def get_sibling_urls(subsection, unit_location):    # pylint: disable=too-many-s
             section_subsections = section.get_parent().get_children()
             return section_subsections
         except AttributeError:
-            log.error("URL Retrieval Error: In section {section} in course".format(
+            log.error("URL Retrieval Error: In section {section} in course".format(  # noqa: UP032
                 section=section.location,
             ))
             return None
@@ -1214,7 +1181,7 @@ def duplicate_block(
         # .. event_implemented_name: XBLOCK_DUPLICATED
         # .. event_type: org.openedx.content_authoring.xblock.duplicated.v1
         XBLOCK_DUPLICATED.send_event(
-            time=datetime.now(timezone.utc),
+            time=datetime.now(timezone.utc),  # noqa: UP017
             xblock_info=DuplicatedXBlockData(
                 usage_key=dest_block.location,
                 block_type=dest_block.location.block_type,
@@ -1313,10 +1280,11 @@ def load_services_for_studio(runtime, user):
         "settings": SettingsService(),
         "lti-configuration": ConfigurationService(CourseAllowPIISharingInLTIFlag),
         "teams_configuration": TeamsConfigurationService(),
-        "library_tools": LegacyLibraryToolsService(modulestore(), user.id)
+        "library_tools": LegacyLibraryToolsService(modulestore(), user.id),
+        "video_config": VideoConfigService(),
     }
 
-    runtime._services.update(services)  # lint-amnesty, pylint: disable=protected-access
+    runtime._services.update(services)  # pylint: disable=protected-access
 
 
 def update_course_details(request, course_key, payload, course_block):
@@ -1406,7 +1374,7 @@ def get_course_settings(request, course_key, course_block):
     It is used for both DRF and django views.
     """
 
-    from .views.course import get_courses_accessible_to_user, _process_courses_list
+    from .views.course import _process_courses_list, get_courses_accessible_to_user
 
     credit_eligibility_enabled = settings.FEATURES.get('ENABLE_CREDIT_ELIGIBILITY', False)
     upload_asset_url = reverse_course_url('assets_handler', course_key)
@@ -1486,7 +1454,7 @@ def get_course_settings(request, course_key, course_block):
 
             # if 'minimum_grade_credit' of a course is not set or 0 then
             # show warning message to course author.
-            show_min_grade_warning = False if course_block.minimum_grade_credit > 0 else True  # lint-amnesty, pylint: disable=simplifiable-if-expression
+            show_min_grade_warning = False if course_block.minimum_grade_credit > 0 else True  # pylint: disable=simplifiable-if-expression
             settings_context.update(
                 {
                     'is_credit_course': True,
@@ -1572,39 +1540,38 @@ def request_response_format_is_json(request, response_format):
 
 def get_library_context(request, request_is_json=False):
     """
-    Utils is used to get context of course home library tab.
-    It is used for both DRF and django views.
+    Utils is used to get context of course home library tab. Returned in DRF view.
     """
     from cms.djangoapps.contentstore.views.course import (
         _accessible_libraries_iter,
-        _format_library_for_view,
         _get_course_creator_status,
+        format_library_for_view,
         get_allowed_organizations,
         get_allowed_organizations_for_libraries,
         user_can_create_organizations,
     )
-    from cms.djangoapps.contentstore.views.library import (
-        user_can_view_create_library_button,
-    )
-    from openedx.core.djangoapps.content_libraries.api import (
-        user_can_create_library,
-    )
+    from cms.djangoapps.contentstore.views.library import user_can_view_create_library_button
+    from openedx.core.djangoapps.content_libraries.api import user_can_create_library
 
+    is_migrated: bool | None  # None means: do not filter on is_migrated
+    if (is_migrated_param := request.GET.get('is_migrated')) is not None:
+        is_migrated = BooleanField().to_internal_value(is_migrated_param)
+    else:
+        is_migrated = None
     libraries = list(_accessible_libraries_iter(request.user) if libraries_v1_enabled() else [])
-    library_keys = [lib.location.library_key for lib in libraries]
-    migration_info = get_migration_info(library_keys)
-    is_migrated_filter = request.GET.get('is_migrated', None)
+    migration_info: dict[LibraryLocator, ModulestoreMigration | None] = {
+        lib.id: migrator_api.get_forwarding(lib.id)
+        for lib in libraries
+    }
     data = {
         'libraries': [
-            _format_library_for_view(
+            format_library_for_view(
                 lib,
                 request,
-                migrated_to=migration_info.get(lib.location.library_key)
+                migration=migration_info[lib.id],
             )
             for lib in libraries
-            if is_migrated_filter is None or (
-                BooleanField().to_internal_value(is_migrated_filter) == (lib.location.library_key in migration_info)
-            )
+            if is_migrated is None or is_migrated == bool(migration_info[lib.id])
         ]
     }
 
@@ -1639,10 +1606,7 @@ def get_course_context(request):
     It is used for both DRF and django views.
     """
 
-    from cms.djangoapps.contentstore.views.course import (
-        get_courses_accessible_to_user,
-        _process_courses_list,
-    )
+    from cms.djangoapps.contentstore.views.course import _process_courses_list, get_courses_accessible_to_user
 
     def format_in_process_course_view(uca):
         """
@@ -1678,9 +1642,7 @@ def get_course_context_v2(request):
     # Importing here to avoid circular imports:
     # ImportError: cannot import name 'reverse_course_url' from partially initialized module
     # 'cms.djangoapps.contentstore.utils' (most likely due to a circular import)
-    from cms.djangoapps.contentstore.views.course import (
-        get_courses_accessible_to_user,
-    )
+    from cms.djangoapps.contentstore.views.course import get_courses_accessible_to_user
 
     def format_in_process_course_view(uca):
         """
@@ -1713,22 +1675,17 @@ def get_course_context_v2(request):
 
 def get_home_context(request, no_course=False):
     """
-    Utils is used to get context of course home.
-    It is used for both DRF and django views.
+    Utils is used to get context of course home. Returned by DRF view.
     """
 
     from cms.djangoapps.contentstore.views.course import (
+        _get_course_creator_status,
         get_allowed_organizations,
         get_allowed_organizations_for_libraries,
         user_can_create_organizations,
-        _get_course_creator_status,
     )
-    from cms.djangoapps.contentstore.views.library import (
-        user_can_view_create_library_button,
-    )
-    from openedx.core.djangoapps.content_libraries.api import (
-        user_can_create_library,
-    )
+    from cms.djangoapps.contentstore.views.library import user_can_view_create_library_button
+    from openedx.core.djangoapps.content_libraries.api import user_can_create_library
 
     active_courses = []
     archived_courses = []
@@ -1803,15 +1760,14 @@ def get_course_videos_context(course_block, pagination_conf, course_key=None):
         get_transcript_credentials_state_for_org,
         get_transcript_preferences,
     )
+
     from openedx.core.djangoapps.video_config.models import VideoTranscriptEnabledFlag
     from openedx.core.djangoapps.video_config.toggles import use_xpert_translations_component
-    from openedx.core.djangoapps.video_config.transcripts_utils import Transcript  # lint-amnesty, pylint: disable=wrong-import-order
-
-    from .video_storage_handlers import (
-        get_all_transcript_languages,
-        _get_index_videos,
-        _get_default_video_image_url
+    from openedx.core.djangoapps.video_config.transcripts_utils import (
+        Transcript,  # pylint: disable=wrong-import-order
     )
+
+    from .video_storage_handlers import _get_default_video_image_url, _get_index_videos, get_all_transcript_languages
 
     VIDEO_SUPPORTED_FILE_FORMATS = {
         '.mp4': 'video/mp4',
@@ -1819,7 +1775,7 @@ def get_course_videos_context(course_block, pagination_conf, course_key=None):
     }
     VIDEO_UPLOAD_MAX_FILE_SIZE_GB = 5
     # Waffle switch for enabling/disabling video image upload feature
-    VIDEO_IMAGE_UPLOAD_ENABLED = WaffleSwitch(  # lint-amnesty, pylint: disable=toggle-missing-annotation
+    VIDEO_IMAGE_UPLOAD_ENABLED = WaffleSwitch(  # pylint: disable=toggle-missing-annotation
         'videos.video_image_upload_enabled', __name__
     )
 
@@ -1899,9 +1855,9 @@ def _get_course_index_context(request, course_key, course_block):
     """
 
     from cms.djangoapps.contentstore.views.course import (
-        course_outline_initial_state,
         _course_outline_json,
         _deprecated_blocks_info,
+        course_outline_initial_state,
     )
     from openedx.core.djangoapps.content_staging import api as content_staging_api
 
@@ -1954,7 +1910,7 @@ def _get_course_index_context(request, course_key, course_block):
         'lms_link': lms_link,
         'sections': sections,
         'course_structure': course_structure,
-        'initial_state': course_outline_initial_state(locator_to_show, course_structure) if locator_to_show else None,  # lint-amnesty, pylint: disable=line-too-long
+        'initial_state': course_outline_initial_state(locator_to_show, course_structure) if locator_to_show else None,  # pylint: disable=line-too-long
         'initial_user_clipboard': user_clipboard,
         'rerun_notification_id': current_action.id if current_action else None,
         'course_release_date': course_release_date,
@@ -1984,13 +1940,13 @@ def get_container_handler_context(request, usage_key, course, xblock):  # pylint
     It is used for both DRF and django views.
     """
 
+    from cms.djangoapps.contentstore.helpers import get_parent_xblock, is_unit
     from cms.djangoapps.contentstore.views.component import (
-        get_component_templates,
-        get_unit_tags,
         CONTAINER_TEMPLATES,
         LIBRARY_BLOCK_TYPES,
+        get_component_templates,
+        get_unit_tags,
     )
-    from cms.djangoapps.contentstore.helpers import get_parent_xblock, is_unit
     from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import (
         add_container_page_publishing_info,
         create_xblock_info,
@@ -2174,12 +2130,13 @@ def get_group_configurations_context(course, store):
     """
 
     from cms.djangoapps.contentstore.course_group_config import (
-        COHORT_SCHEME, ENROLLMENT_SCHEME, GroupConfiguration, RANDOM_SCHEME
+        COHORT_SCHEME,
+        ENROLLMENT_SCHEME,
+        RANDOM_SCHEME,
+        GroupConfiguration,
     )
-    from cms.djangoapps.contentstore.views.course import (
-        are_content_experiments_enabled
-    )
-    from xmodule.partitions.partitions import UserPartition  # lint-amnesty, pylint: disable=wrong-import-order
+    from cms.djangoapps.contentstore.views.course import are_content_experiments_enabled
+    from xmodule.partitions.partitions import UserPartition  # pylint: disable=wrong-import-order
 
     course_key = course.id
     group_configuration_url = reverse_course_url('group_configurations_list_handler', course_key)
@@ -2428,7 +2385,7 @@ def _create_or_update_container_link(created: datetime | None, xblock):
     """
     upstream_container_key = LibraryContainerLocator.from_string(xblock.upstream)
     try:
-        lib_component = get_container(upstream_container_key).container_pk
+        lib_component = get_container(upstream_container_key).container_id
     except ObjectDoesNotExist:
         log.error(f"Library component not found for {upstream_container_key}")
         lib_component = None

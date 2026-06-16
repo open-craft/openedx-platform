@@ -13,9 +13,14 @@ from xblock import plugin
 
 from common.djangoapps.student.tests.factories import RequestFactoryNoCsrf
 from xmodule import word_cloud_block
+
 # noinspection PyUnresolvedReferences
-from xmodule.tests.helpers import override_descriptor_system, mock_render_template  # pylint: disable=unused-import
+from xmodule.tests.helpers import (  # pylint: disable=unused-import  # noqa: F401
+    mock_render_template,
+    override_descriptor_system,
+)
 from xmodule.x_module import STUDENT_VIEW
+
 from .helpers import BaseTestXmodule
 
 
@@ -97,7 +102,7 @@ class _TestWordCloudBase(BaseTestXmodule):
             # We should compare top_words for manually,
             # because they are unsorted.
             keys_to_compare = set(content.keys()).difference({'top_words'})
-            self.assertDictEqual(
+            self.assertDictEqual(  # noqa: PT009
                 {k: content[k] for k in keys_to_compare},
                 {k: correct_jsons[username][k] for k in keys_to_compare})
 
@@ -110,10 +115,10 @@ class _TestWordCloudBase(BaseTestXmodule):
                 correct_jsons[username]['top_words'],
                 key=itemgetter('text')
             )
-            self.assertListEqual(top_words_content, top_words_correct)
+            self.assertListEqual(top_words_content, top_words_correct)  # noqa: PT009
 
     def test_initial_state(self):
-        """Inital state of word cloud is correct. Those state that
+        """Initial state of word cloud is correct. Those state that
         is sended from server to frontend, when students load word
         cloud page.
         """
@@ -135,7 +140,7 @@ class _TestWordCloudBase(BaseTestXmodule):
             assert response_content == correct_initial_data
 
     def test_post_words(self):
-        """Students can submit data succesfully.
+        """Students can submit data successfully.
         Word cloud data properly updates after students submit.
         """
         input_words = [
@@ -178,16 +183,16 @@ class _TestWordCloudBase(BaseTestXmodule):
     def test_collective_users_submits(self):
         """Test word cloud data flow per single and collective users submits.
 
-            Make sures that:
+            Makes sure that:
 
-            1. Inital state of word cloud is correct. Those state that
+            1. Initial state of word cloud is correct. Those state that
             is sended from server to frontend, when students load word
             cloud page.
 
-            2. Students can submit data succesfully.
+            2. Students can submit data successfully.
 
             3. Next submits produce "already voted" error. Next submits for user
-            are not allowed by user interface, but techically it possible, and
+            are not allowed by user interface, but technically it possible, and
             word_cloud should properly react.
 
             4. State of word cloud after #3 is still as after #2.
@@ -226,7 +231,7 @@ class _TestWordCloudBase(BaseTestXmodule):
         assert ''.join({content['status'] for (_, content) in users_state.items()}) == 'success'
 
         for user in self.users:
-            self.assertListEqual(
+            self.assertListEqual(  # noqa: PT009
                 list(users_state[user.username]['student_words'].keys()),
                 correct_words)
 
@@ -243,15 +248,15 @@ class _TestWordCloudBase(BaseTestXmodule):
             # The extracted Word Cloud XBlock uses @XBlock.json_handler to handle AJAX requests,
             # which automatically returns a 404 for unknown requests, so there's no need to test
             # the incorrect dispatch case in this scenario.
-            for username, response in responses.items():
-                self.assertEqual(response.status_code, 404)
+            for username, response in responses.items():  # noqa: B007
+                self.assertEqual(response.status_code, 404)  # noqa: PT009
             return
 
         status_codes = {response.status_code for response in responses.values()}
         assert status_codes.pop() == 200
 
         for user in self.users:
-            self.assertDictEqual(
+            self.assertDictEqual(  # noqa: PT009
                 json.loads(responses[user.username].content.decode('utf-8')),
                 {
                     'status': 'fail',

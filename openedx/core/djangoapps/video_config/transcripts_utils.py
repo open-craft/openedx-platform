@@ -19,16 +19,16 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.utils.translation import get_language_info
 from lxml import etree
 from opaque_keys.edx.keys import UsageKeyV2
+from opaque_keys.edx.locator import LibraryLocatorV2
 from pysrt import SubRipFile, SubRipItem, SubRipTime
 from pysrt.srtexc import Error
-from opaque_keys.edx.locator import LibraryLocatorV2
+from xblocks_contrib.video.bumper_utils import get_bumper_settings
+from xblocks_contrib.video.exceptions import TranscriptsGenerationException
 
 from openedx.core.djangoapps.xblock.api import get_component_from_usage_key
 from xmodule.contentstore.content import StaticContent
 from xmodule.contentstore.django import contentstore
 from xmodule.exceptions import NotFoundError
-
-from xmodule.video_block.bumper_utils import get_bumper_settings
 
 try:
     from edxval import api as edxval_api
@@ -42,10 +42,6 @@ NON_EXISTENT_TRANSCRIPT = 'non_existent_dummy_file_name'
 
 
 class TranscriptException(Exception):
-    pass
-
-
-class TranscriptsGenerationException(Exception):
     pass
 
 
@@ -73,7 +69,7 @@ def exception_decorator(func):
             return func(*args, **kwds)
         except (TranscriptsGenerationException, UnicodeDecodeError) as ex:
             log.exception(str(ex))
-            raise NotFoundError  # lint-amnesty, pylint: disable=raise-missing-from
+            raise NotFoundError  # pylint: disable=raise-missing-from  # noqa: B904
     return wrapper
 
 
@@ -200,7 +196,7 @@ def get_transcript_link_from_youtube(youtube_id):
         return None
 
 
-def get_transcript_links_from_youtube(youtube_id, settings, i18n, youtube_transcript_name=''):  # lint-amnesty, pylint: disable=redefined-outer-name
+def get_transcript_links_from_youtube(youtube_id, settings, i18n, youtube_transcript_name=''):  # pylint: disable=redefined-outer-name
     """
     Gets transcripts from youtube for youtube_id.
 
@@ -259,7 +255,7 @@ def get_transcript_from_youtube(link, youtube_id, i18n):
     return {'start': sub_starts, 'end': sub_ends, 'text': sub_texts}
 
 
-def download_youtube_subs(youtube_id, video_block, settings):  # lint-amnesty, pylint: disable=redefined-outer-name
+def download_youtube_subs(youtube_id, video_block, settings):  # pylint: disable=redefined-outer-name
     """
     Download transcripts from Youtube.
 
@@ -314,7 +310,7 @@ def generate_subs_from_source(speed_subs, subs_type, subs_filedata, block, langu
         msg = _("Something wrong with SubRip transcripts file during parsing. Inner message is {error_message}").format(
             error_message=str(ex)
         )
-        raise TranscriptsGenerationException(msg)  # lint-amnesty, pylint: disable=raise-missing-from
+        raise TranscriptsGenerationException(msg)  # pylint: disable=raise-missing-from  # noqa: B904
     if not srt_subs_obj:
         raise TranscriptsGenerationException(_("Something wrong with SubRip transcripts file during parsing."))
 
@@ -397,23 +393,6 @@ def generate_sjson_from_srt(srt_subs):
     return sjson_subs
 
 
-def copy_or_rename_transcript(new_name, old_name, item, delete_old=False, user=None):
-    """
-    Renames `old_name` transcript file in storage to `new_name`.
-
-    If `old_name` is not found in storage, raises `NotFoundError`.
-    If `delete_old` is True, removes `old_name` files from storage.
-    """
-    filename = f'subs_{old_name}.srt.sjson'
-    content_location = StaticContent.compute_location(item.location.course_key, filename)
-    transcripts = contentstore().find(content_location).data.decode('utf-8')
-    save_subs_to_store(json.loads(transcripts), new_name, item)
-    item.sub = new_name
-    item.save_with_metadata(user)
-    if delete_old:
-        remove_subs_from_store(old_name, item)
-
-
 def get_html5_ids(html5_sources):
     """
     Helper method to parse out an HTML5 source into the ideas
@@ -423,7 +402,7 @@ def get_html5_ids(html5_sources):
     return html5_ids
 
 
-def manage_video_subtitles_save(item, user, old_metadata=None, generate_translation=False):
+def manage_video_subtitles_save(item, user_id, old_metadata=None, generate_translation=False):
     """
     Does some specific things, that can be done only on save.
 
@@ -436,18 +415,10 @@ def manage_video_subtitles_save(item, user, old_metadata=None, generate_translat
 
     `old_metadata` contains old values of XFields.
 
-    # 1.
-    If value of `sub` field of `new_item` is different from values of video fields of `new_item`,
-    and `new_item.sub` file is present, then code in this function creates copies of
-    `new_item.sub` file with new names. That names are equal to values of video fields of `new_item`
-    After that `sub` field of `new_item` is changed to one of values of video fields.
-    This whole action ensures that after user changes video fields, proper `sub` files, corresponding
-    to new values of video fields, will be presented in system.
-
-    # 2. convert /static/filename.srt  to filename.srt in self.transcripts.
+    # 1. convert /static/filename.srt  to filename.srt in self.transcripts.
     (it is done to allow user to enter both /static/filename.srt and filename.srt)
 
-    # 3. Generate transcripts translation only  when user clicks `save` button, not while switching tabs.
+    # 2. Generate transcripts translation only  when user clicks `save` button, not while switching tabs.
     a) delete sjson translation for those languages, which were removed from `item.transcripts`.
         Note: we are not deleting old SRT files to give user more flexibility.
     b) For all SRT files in`item.transcripts` regenerate new SJSON files.
@@ -456,37 +427,12 @@ def manage_video_subtitles_save(item, user, old_metadata=None, generate_translat
     """
     _ = item.runtime.service(item, "i18n").gettext
 
-    # # 1.
-    # html5_ids = get_html5_ids(item.html5_sources)
-
-    # # Youtube transcript source should always have a higher priority than html5 sources. Appending
-    # # `youtube_id_1_0` at the end helps achieve this when we read transcripts list.
-    # possible_video_id_list = html5_ids + [item.youtube_id_1_0]
-    # sub_name = item.sub
-    # for video_id in possible_video_id_list:
-    #     if not video_id:
-    #         continue
-    #     if not sub_name:
-    #         remove_subs_from_store(video_id, item)
-    #         continue
-    #     # copy_or_rename_transcript changes item.sub of module
-    #     try:
-    #         # updates item.sub with `video_id`, if it is successful.
-    #         copy_or_rename_transcript(video_id, sub_name, item, user=user)
-    #     except NotFoundError:
-    #         # subtitles file `sub_name` is not presented in the system. Nothing to copy or rename.
-    #         log.debug(
-    #             "Copying %s file content to %s name is failed, "
-    #             "original file does not exist.",
-    #             sub_name, video_id
-    #         )
-
-    # 2.
+    # 1.
     if generate_translation:
         for lang, filename in item.transcripts.items():
             item.transcripts[lang] = os.path.split(filename)[-1]
 
-    # 3.
+    # 2.
     if generate_translation:
         old_langs = set(old_metadata.get('transcripts', {})) if old_metadata else set()
         new_langs = set(item.transcripts)
@@ -512,7 +458,7 @@ def manage_video_subtitles_save(item, user, old_metadata=None, generate_translat
                 except TranscriptException:
                     pass
         if reraised_message:
-            item.save_with_metadata(user)
+            item.save_with_metadata(user_id)
             raise TranscriptException(reraised_message)
 
 
@@ -522,7 +468,7 @@ def youtube_speed_dict(item):
     """
     yt_ids = [item.youtube_id_0_75, item.youtube_id_1_0, item.youtube_id_1_25, item.youtube_id_1_5]
     yt_speeds = [0.75, 1.00, 1.25, 1.50]
-    youtube_ids = {p[0]: p[1] for p in zip(yt_ids, yt_speeds) if p[0]}
+    youtube_ids = {p[0]: p[1] for p in zip(yt_ids, yt_speeds) if p[0]}  # noqa: B905
     return youtube_ids
 
 
@@ -545,7 +491,7 @@ def generate_sjson_for_all_speeds(block, user_filename, result_subs_dict, lang):
     try:
         srt_transcripts = contentstore().find(Transcript.asset_location(block.location, user_filename))
     except NotFoundError as ex:
-        raise TranscriptException(_("{exception_message}: Can't find uploaded transcripts: {user_filename}").format(  # lint-amnesty, pylint: disable=raise-missing-from
+        raise TranscriptException(_("{exception_message}: Can't find uploaded transcripts: {user_filename}").format(  # noqa: B904  # pylint: disable=raise-missing-from,line-too-long
             exception_message=str(ex),
             user_filename=user_filename
         ))
@@ -561,31 +507,6 @@ def generate_sjson_for_all_speeds(block, user_filename, result_subs_dict, lang):
         block,
         lang
     )
-
-
-def get_or_create_sjson(block, transcripts):
-    """
-    Get sjson if already exists, otherwise generate it.
-
-    Generate sjson with subs_id name, from user uploaded srt.
-    Subs_id is extracted from srt filename, which was set by user.
-
-    Args:
-        transcipts (dict): dictionary of (language: file) pairs.
-
-    Raises:
-        TranscriptException: when srt subtitles do not exist,
-        and exceptions from generate_subs_from_source.
-    """
-    user_filename = transcripts[block.transcript_language]
-    user_subs_id = os.path.splitext(user_filename)[0]
-    source_subs_id, result_subs_dict = user_subs_id, {1.0: user_subs_id}
-    try:
-        sjson_transcript = Transcript.asset(block.location, source_subs_id, block.transcript_language).data
-    except NotFoundError:  # generating sjson from srt
-        generate_sjson_for_all_speeds(block, user_filename, result_subs_dict, block.transcript_language)
-        sjson_transcript = Transcript.asset(block.location, source_subs_id, block.transcript_language).data
-    return sjson_transcript
 
 
 def get_video_ids_info(edx_video_id, youtube_id_1_0, html5_sources):
@@ -827,53 +748,6 @@ class VideoTranscriptsMixin:
     This is necessary for VideoBlock.
     """
 
-    def available_translations(self, transcripts, verify_assets=None, is_bumper=False):
-        """
-        Return a list of language codes for which we have transcripts.
-
-        Arguments:
-            verify_assets (boolean): If True, checks to ensure that the transcripts
-                really exist in the contentstore. If False, we just look at the
-                VideoBlock fields and do not query the contentstore. One reason
-                we might do this is to avoid slamming contentstore() with queries
-                when trying to make a listing of videos and their languages.
-
-                Defaults to `not FALLBACK_TO_ENGLISH_TRANSCRIPTS`.
-
-            transcripts (dict): A dict with all transcripts and a sub.
-            include_val_transcripts(boolean): If True, adds the edx-val transcript languages as well.
-        """
-        translations = []
-        if verify_assets is None:
-            verify_assets = not settings.FEATURES.get('FALLBACK_TO_ENGLISH_TRANSCRIPTS')
-
-        sub, other_langs = transcripts["sub"], transcripts["transcripts"]
-
-        if verify_assets:
-            all_langs = dict(**other_langs)
-            if sub:
-                all_langs.update({'en': sub})
-
-            for language, filename in all_langs.items():
-                try:
-                    # for bumper videos, transcripts are stored in content store only
-                    if is_bumper:
-                        get_transcript_for_video(self.location, filename, filename, language)
-                    else:
-                        get_transcript(self, language)
-                except NotFoundError:
-                    continue
-
-                translations.append(language)
-        else:
-            # If we're not verifying the assets, we just trust our field values
-            translations = list(other_langs)
-            if not translations or sub:
-                translations += ['en']
-
-        # to clean redundant language codes.
-        return list(set(translations))
-
     def get_default_transcript_language(self, transcripts, dest_lang=None):
         """
         Returns the default transcript language for this video block.
@@ -970,7 +844,7 @@ def get_transcript_for_video(video_location, subs_id, file_name, language):
     """
     Get video transcript from content store. This is a lower level function and is used by
     `get_transcript_from_contentstore`. Prefer that function instead where possible. If you
-    need to support getting transcripts from VAL or Learning Core as well, use the `get_transcript`
+    need to support getting transcripts from VAL or openedx_content as well, use the `get_transcript`
     function instead.
 
     NOTE: Transcripts can be searched from content store by two ways:
@@ -1038,7 +912,7 @@ def get_transcript_from_contentstore(video, language, output_format, transcripts
             continue
 
     if transcript_content is None:
-        raise NotFoundError('No transcript for `{lang}` language'.format(
+        raise NotFoundError('No transcript for `{lang}` language'.format(  # noqa: UP032
             lang=language
         ))
 
@@ -1065,13 +939,13 @@ def build_components_import_path(usage_key, file_path):
     return f"components/{usage_key.block_type}/{usage_key.block_id}/{file_path}"
 
 
-def get_transcript_from_learning_core(video_block, language, output_format, transcripts_info):
+def get_transcript_from_openedx_content(video_block, language, output_format, transcripts_info):
     """
-    Get video transcript from Learning Core (used for Content Libraries)
+    Get video transcript from the openedx_content API.
 
     Limitation: This is only going to grab from the Draft version.
 
-    Learning Core models a VideoBlock's data in a more generic thing it calls a
+    openedx_content models a VideoBlock's data in a more generic thing it calls a
     Component. Each Component has its own virtual space for file-like data. The
     OLX for the VideoBlock itself is stored at the root of that space, as
     ``block.xml``. Static assets that are meant to be user-downloadable are
@@ -1135,17 +1009,17 @@ def get_transcript_from_learning_core(video_block, language, output_format, tran
             f"transcript files, but we tried to look up {file_path} for {usage_key}"
         )
 
-    # TODO: There should be a Learning Core API call for this:
+    # TODO: There should be a openedx_content API call for this:
     try:
-        content = (
+        media = (
             component_version
-            .componentversioncontent_set
-            .filter(content__has_file=True)
-            .select_related('content')
-            .get(key=file_path)
-            .content
+            .componentversionmedia_set
+            .filter(media__has_file=True)
+            .select_related('media')
+            .get(path=file_path)
+            .media
         )
-        data = content.read_file().read()
+        data = media.read_file().read()
     except ObjectDoesNotExist as exc:
         raise NotFoundError(
             f"No file {file_path} found for {usage_key} "
@@ -1169,7 +1043,7 @@ def get_transcript_from_learning_core(video_block, language, output_format, tran
     return output_transcript, output_filename, Transcript.mime_types[output_format]
 
 
-def get_transcript(video, lang=None, output_format=Transcript.SRT, youtube_id=None):
+def get_transcript(video, lang=None, output_format=Transcript.SRT, youtube_id=None, is_bumper=False):
     """
     Get video transcript from edx-val or content store.
 
@@ -1182,13 +1056,20 @@ def get_transcript(video, lang=None, output_format=Transcript.SRT, youtube_id=No
     Returns:
         tuple containing content, filename, mimetype
     """
-    transcripts_info = video.get_transcripts_info()
+    transcripts_info = video.get_transcripts_info(is_bumper)
+    if is_bumper:
+        return get_transcript_from_contentstore(
+            video,
+            lang,
+            Transcript.SJSON,
+            transcripts_info
+        )
     if not lang:
         lang = video.get_default_transcript_language(transcripts_info)
 
     if isinstance(video.scope_ids.usage_id, UsageKeyV2):
-        # This block is in Learning Core.
-        return get_transcript_from_learning_core(video, lang, output_format, transcripts_info)
+        # This block is in openedx_content.
+        return get_transcript_from_openedx_content(video, lang, output_format, transcripts_info)
 
     try:
         edx_video_id = clean_video_id(video.edx_video_id)
@@ -1209,7 +1090,7 @@ def resolve_language_code_to_transcript_code(transcripts, dest_lang):
     """
     Attempts to match the requested dest lang with the existing transcript languages
     """
-    sub, other_lang = transcripts["sub"], transcripts["transcripts"]
+    sub, other_lang = transcripts["sub"], transcripts["transcripts"]  # noqa: F841
     # lang code exists in list of other transcript languages as-is
     if dest_lang in other_lang:
         return dest_lang

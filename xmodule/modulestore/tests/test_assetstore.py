@@ -6,10 +6,10 @@ too.
 
 import unittest
 from datetime import datetime, timedelta
-import pytest
-import ddt
-import pytz
+from zoneinfo import ZoneInfo
 
+import ddt
+import pytest
 from django.test import TestCase
 from opaque_keys.edx.keys import CourseKey
 from opaque_keys.edx.locator import CourseLocator
@@ -19,18 +19,14 @@ from xmodule.assetstore import AssetMetadata
 from xmodule.modulestore import IncorrectlySortedList, ModuleStoreEnum, SortedAssetList
 from xmodule.modulestore.exceptions import ItemNotFoundError
 from xmodule.modulestore.tests.factories import CourseFactory
-from xmodule.modulestore.tests.utils import (
-    SPLIT_MODULESTORE_SETUP,
-    MixedModulestoreBuilder,
-    XmlModulestoreBuilder
-)
+from xmodule.modulestore.tests.utils import SPLIT_MODULESTORE_SETUP, MixedModulestoreBuilder, XmlModulestoreBuilder
 
 
 class AssetStoreTestData:
     """
     Shared data for constructing test assets.
     """
-    now = datetime.now(pytz.utc)
+    now = datetime.now(ZoneInfo("UTC"))
     user_id = 144
     user_id_long = int(user_id)
 
@@ -70,7 +66,7 @@ class TestSortedAssetList(unittest.TestCase):
 
     def setUp(self):
         super().setUp()
-        asset_list = [dict(list(zip(AssetStoreTestData.asset_fields, asset))) for asset in AssetStoreTestData.all_asset_data]  # lint-amnesty, pylint: disable=line-too-long
+        asset_list = [dict(list(zip(AssetStoreTestData.asset_fields, asset))) for asset in AssetStoreTestData.all_asset_data]  # pylint: disable=line-too-long  # noqa: B905
         self.sorted_asset_list_by_filename = SortedAssetList(iterable=asset_list)
         self.sorted_asset_list_by_last_edit = SortedAssetList(iterable=asset_list, key=lambda x: x['edited_on'])
         self.course_key = CourseLocator('org', 'course', 'run')
@@ -113,7 +109,7 @@ class TestMongoAssetMetadataStorage(TestCase):
         """
         So we can use the below date comparison
         """
-        for attr in mdata1.ATTRS_ALLOWED_TO_UPDATE:  # lint-amnesty, pylint: disable=redefined-outer-name
+        for attr in mdata1.ATTRS_ALLOWED_TO_UPDATE:  # pylint: disable=redefined-outer-name  # noqa: F402
             if attr == "edited_on":
                 continue  # The edited_on gets updated during save, so comparing it makes tests flaky.
             if isinstance(getattr(mdata1, attr), datetime):
@@ -131,7 +127,7 @@ class TestMongoAssetMetadataStorage(TestCase):
         """
         Make a single test asset metadata.
         """
-        now = datetime.now(pytz.utc)
+        now = datetime.now(ZoneInfo("UTC"))
         return AssetMetadata(
             asset_loc, internal_name='EKMND332DDBK',
             pathname='pictures/historical', contenttype='image/jpeg',
@@ -153,7 +149,7 @@ class TestMongoAssetMetadataStorage(TestCase):
         Setup assets. Save in store if given
         """
         for i, asset in enumerate(AssetStoreTestData.all_asset_data):
-            asset_dict = dict(list(zip(AssetStoreTestData.asset_fields[1:], asset[1:])))
+            asset_dict = dict(list(zip(AssetStoreTestData.asset_fields[1:], asset[1:])))  # noqa: B905
             if i in (0, 1) and course1_key:
                 asset_key = course1_key.make_asset_key('asset', asset[0])
                 asset_md = AssetMetadata(asset_key, **asset_dict)
@@ -231,7 +227,7 @@ class TestMongoAssetMetadataStorage(TestCase):
         """
         with storebuilder.build() as (__, store):
             course = CourseFactory.create(modulestore=store)
-            fake_course_id = CourseKey.from_string("{}nothere/{}nothere/{}nothere".format(
+            fake_course_id = CourseKey.from_string("{}nothere/{}nothere/{}nothere".format(  # noqa: UP032
                 course.id.org, course.id.course, course.id.run
             ))
             new_asset_loc = fake_course_id.make_asset_key('asset', 'burnside.jpg')
@@ -322,13 +318,13 @@ class TestMongoAssetMetadataStorage(TestCase):
         ('curr_version', 'v1.01'),
         ('prev_version', 'v1.0'),
         ('edited_by', 'Mork'),
-        ('edited_on', datetime(1969, 1, 1, tzinfo=pytz.utc)),
+        ('edited_on', datetime(1969, 1, 1, tzinfo=ZoneInfo("UTC"))),
     )
 
     DISALLOWED_ATTRS = (
         ('asset_id', 'IAmBogus'),
         ('created_by', 'Smith'),
-        ('created_on', datetime.now(pytz.utc)),
+        ('created_on', datetime.now(ZoneInfo("UTC"))),
     )
 
     UNKNOWN_ATTRS = (
@@ -617,6 +613,6 @@ class TestMongoAssetMetadataStorage(TestCase):
             store.copy_all_asset_metadata(course1.id, course2.id, ModuleStoreEnum.UserID.test * 101)
             assert len(store.get_all_asset_metadata(course1.id, 'asset')) == 0
             assert len(store.get_all_asset_metadata(course2.id, 'asset')) == 0
-            all_assets = store.get_all_asset_metadata(
+            all_assets = store.get_all_asset_metadata(  # noqa: F841
                 course2.id, 'asset', sort=('displayname', ModuleStoreEnum.SortOrder.ascending)
             )
