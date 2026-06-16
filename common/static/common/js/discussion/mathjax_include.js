@@ -30,6 +30,6 @@ if (typeof MathJax === 'undefined') {
         }
     };
     var vendorScript = document.createElement('script');
-    vendorScript.src = 'https://cdn.jsdelivr.net/npm/mathjax@4.1.2/tex-mml-svg.js';
+    vendorScript.src = 'https://cdn.jsdelivr.net/npm/mathjax@4.1.2/tex-mml-chtml.js';
     document.body.appendChild(vendorScript);
 }

@@ -49,7 +49,7 @@ define(
         };
 
         $script(
-            'https://cdn.jsdelivr.net/npm/mathjax@4.1.2/tex-mml-svg.js',
+            'https://cdn.jsdelivr.net/npm/mathjax@4.1.2/tex-mml-chtml.js',
             'mathjax',
             function() {
                 window.addEventListener('resize', MJrenderer);

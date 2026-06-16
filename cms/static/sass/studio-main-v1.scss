@@ -22,10 +22,14 @@
 @import '_builtin-block-variables';
 
 
-.MathJax>svg {
+mjx-container {
     max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
-table>tbody>tr>td>.MathJax>svg {
-    max-width: inherit
+table>tbody>tr>td>mjx-container {
+    max-width: inherit;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
