@@ -901,7 +901,13 @@
     };
 
     Problem.prototype.refreshMath = function (event, element) {
-      var elid, eqn, jax, mathjaxPreprocessor, preprocessorTag, target;
+      var elid,
+          eqn,
+          jax,
+          mathjaxPreprocessor,
+          preprocessorTag,
+          target,
+          isTexDelimited;
       if (!element) {
         element = event.target; // eslint-disable-line no-param-reassign
       }
@@ -924,8 +930,26 @@
           eqn = mathjaxPreprocessor(eqn);
         }
         MathJax.typesetClear([math]);
-        // Surround eqn with backticks so MathJax processes it as AsciiMath
-        math.textContent = "`" + eqn + "`";
+        if (!eqn) {
+          math.textContent = "";
+          $("#" + element.id + "_dynamath").val("");
+          return;
+        }
+        // Determine rendering mode:
+        //   isTexDelimited  -> preserve user-written TeX delimiters as-is
+        //   else            -> calculator/AsciiMath syntax via backtick delimiters
+        isTexDelimited = (
+          (/^\s*\\\(/.test(eqn) && /\\\)\s*$/.test(eqn)) ||
+          (/^\s*\\\[/.test(eqn) && /\\\]\s*$/.test(eqn)) ||
+          (/^\s*\$\$/.test(eqn) && /\$\$\s*$/.test(eqn)) ||
+          (/^\s*\$[^$]/.test(eqn) && /[^$]\$\s*$/.test(eqn))
+        );
+        if (isTexDelimited) {
+          math.textContent = eqn;
+        } else {
+          // Calculator/AsciiMath syntax: backtick-delimited for AsciiMath input jax
+          math.textContent = "`" + eqn + "`";
+        }
         MathJax.typesetPromise([math]).then(function () {
           jax = MathJax.startup.document.getMathItemsWithin(math)[0];
           if (jax) {

@@ -105,6 +105,16 @@ data-url='/problem/quiz/'> \
     it("bind the math input", function () {
       expect($("input.math")).toHandleWith("keyup", this.problem.refreshMath);
     });
+
+    it("bind the formulaequationinput", function () {
+      this.problem.el.find(".problem").prepend(
+        '<div class="inputtype formulaequationinput">' +
+        '  <input type="text" id="input_fe_bind">' +
+        '</div>'
+      );
+      this.problem.bind();
+      expect($("#input_fe_bind")).toHandleWith("keyup", this.problem.refreshMath);
+    });
   });
 
   describe("bind_with_custom_input_id", function () {
@@ -1023,6 +1033,71 @@ data-url='/problem/quiz/'> \
       var math = document.querySelector("#display_example_1");
       expect(MathJax.typesetClear).toHaveBeenCalledWith([math]);
       expect(MathJax.typesetPromise).toHaveBeenCalledWith([math]);
+    });
+
+    it("wraps calculator input in backticks for input.math", function () {
+      var math = document.querySelector("#display_example_1");
+      expect(math.textContent).toBe("`E=mc^2`");
+    });
+  });
+
+  describe("refreshMath formula and delimiter handling", function () {
+    var formulaHTML = '' +
+      '<div id="formulaequationinput_test" class="inputtype formulaequationinput">' +
+      '  <input type="text" id="input_test_fe" data-input-id="test_fe" value="">' +
+      '  <div id="input_test_fe_preview" class="equation"></div>' +
+      '</div>';
+
+    beforeEach(function () {
+      this.problem = new Problem($(".xblock-student_view"));
+      MathJax.typesetClear.calls.reset();
+      MathJax.typesetPromise.calls.reset();
+      MathJax.startup.document.getMathItemsWithin.calls.reset();
+      MathJax.startup.document.getMathItemsWithin.and.returnValue([this.stubbedJax]);
+      this.problem.el.find(".problem").prepend(formulaHTML);
+    });
+
+    it("wraps calculator syntax in backticks for formulaequationinput", function () {
+      $("#input_test_fe").val("R_1*R_2/R_3");
+      this.problem.refreshMath({ target: $("#input_test_fe").get(0) });
+      var math = document.querySelector("#input_test_fe_preview");
+      expect(math.textContent).toBe("`R_1*R_2/R_3`");
+    });
+
+    it("preserves explicit TeX delimiters \\(...\\)", function () {
+      $("#input_test_fe").val("\\\(E=mc^2\\\)");
+      this.problem.refreshMath({ target: $("#input_test_fe").get(0) });
+      var math = document.querySelector("#input_test_fe_preview");
+      expect(math.textContent).toBe("\\\(E=mc^2\\\)");
+    });
+
+    it("preserves display math TeX delimiters \\[\\]", function () {
+      $("#input_test_fe").val("\\\[E=mc^2\\\]");
+      this.problem.refreshMath({ target: $("#input_test_fe").get(0) });
+      var math = document.querySelector("#input_test_fe_preview");
+      expect(math.textContent).toBe("\\\[E=mc^2\\\]");
+    });
+
+    it("preserves double-dollar delimiters", function () {
+      $("#input_test_fe").val("$$E=mc^2$$").trigger("keyup");
+      this.problem.refreshMath({ target: $("#input_test_fe").get(0) });
+      var math = document.querySelector("#input_test_fe_preview");
+      expect(math.textContent).toBe("$$E=mc^2$$");
+    });
+
+    it("preserves single-dollar delimiters", function () {
+      $("#input_test_fe").val("$E=mc^2$").trigger("keyup");
+      this.problem.refreshMath({ target: $("#input_test_fe").get(0) });
+      var math = document.querySelector("#input_test_fe_preview");
+      expect(math.textContent).toBe("$E=mc^2$");
+    });
+
+    it("clears preview and skips typesetPromise on empty input", function () {
+      $("#input_test_fe").val("");
+      this.problem.refreshMath({ target: $("#input_test_fe").get(0) });
+      var math = document.querySelector("#input_test_fe_preview");
+      expect(math.textContent).toBe("");
+      expect(MathJax.typesetPromise).not.toHaveBeenCalled();
     });
   });
 

@@ -57,6 +57,9 @@
         if (preprocessor != null) {
           text = preprocessor(text);
         }
+        if (typeof MathJax !== 'undefined' && MathJax !== null && typeof MathJax.typesetClear === 'function') {
+          MathJax.typesetClear([$(elem)[0]]);
+        }
         $(elem).html(text); // xss-lint: disable=javascript-jquery-html
         if (typeof MathJax !== 'undefined' && MathJax !== null && MathJax.startup &&
             MathJax.startup.promise && typeof MathJax.typesetPromise === "function") {
@@ -75,6 +78,9 @@
             prevTime = getTime();
             if (preprocessor != null) {
               text = preprocessor(text);
+            }
+            if (typeof MathJax !== 'undefined' && MathJax !== null && typeof MathJax.typesetClear === 'function') {
+              MathJax.typesetClear([_this.$buffer[0]]);
             }
             _this.$buffer.html(text); // xss-lint: disable=javascript-jquery-html
             curTime = getTime();
