@@ -20,6 +20,31 @@
       return -1;
     };
 
+  /**
+   * Check whether MathJax has been fully loaded and initialized (not just the config object).
+   * In v3/v4, startup.promise is only set after the MathJax component loader completes.
+   */
+  var isMathJaxTypesetReady = function () {
+    return typeof MathJax !== "undefined" && MathJax !== null &&
+      typeof MathJax.startup !== "undefined" && MathJax.startup !== null &&
+      typeof MathJax.startup.promise !== "undefined" &&
+      typeof MathJax.typesetPromise === "function";
+  };
+
+  var isMathJaxRefreshReady = function () {
+    return isMathJaxTypesetReady() &&
+      typeof MathJax.typesetClear === "function" &&
+      typeof MathJax.startup.document !== "undefined" && MathJax.startup.document !== null &&
+      typeof MathJax.startup.document.getMathItemsWithin === "function";
+  };
+
+  var isMathJaxMathMLReady = function () {
+    return typeof MathJax !== "undefined" && MathJax !== null &&
+      typeof MathJax.startup !== "undefined" && MathJax.startup !== null &&
+      typeof MathJax.startup.promise !== "undefined" &&
+      typeof MathJax.startup.toMML === "function";
+  };
+
   this.Problem = function () {
     function Problem(element) {
       var that = this;
@@ -164,7 +189,7 @@
     Problem.prototype.bind = function () {
       var problemPrefix,
         that = this;
-      if (typeof MathJax !== "undefined" && MathJax !== null) {
+      if (isMathJaxTypesetReady()) {
         this.el.find(".problem > div").each(function (index, element) {
           return MathJax.startup.promise.then(() => MathJax.typesetPromise([element]));
         });
@@ -215,9 +240,9 @@
         this.submitAnswersAndSubmitButton(true);
       }
       Collapsible.setCollapsibles(this.el);
-      this.$("input.math").keyup(this.refreshMath);
-      if (typeof MathJax !== "undefined" && MathJax !== null) {
-        this.$("input.math").each(function (index, element) {
+      this.$("input.math, .formulaequationinput input").keyup(this.refreshMath);
+      if (isMathJaxTypesetReady()) {
+        this.$("input.math, .formulaequationinput input").each(function (index, element) {
           return MathJax.startup.promise.then(() => that.refreshMath(null, element));
         });
       }
@@ -820,7 +845,7 @@
           }
           return results;
         });
-        if (typeof MathJax !== "undefined" && MathJax !== null) {
+        if (isMathJaxTypesetReady()) {
           that.el.find(".problem > div").each(function (index, element) {
             return MathJax.startup.promise.then(() => MathJax.typesetPromise([element]));
           });
@@ -886,8 +911,11 @@
       // MathJax preprocessor is loaded by 'setupInputTypes'
       preprocessorTag = "inputtype_" + elid;
       mathjaxPreprocessor = this.inputtypeDisplays[preprocessorTag];
-      if (typeof MathJax !== "undefined" && MathJax !== null) {
+      if (isMathJaxRefreshReady()) {
         var math = document.querySelector(target);
+        if (!math) {
+          math = document.getElementById(element.id + "_preview");
+        }
         if (!math) {
           return;
         }
@@ -908,7 +936,7 @@
     };
 
     Problem.prototype.updateMathML = function (jax, element) {
-      if (typeof MathJax !== "undefined" && MathJax !== null) {
+      if (isMathJaxMathMLReady()) {
         try {
           $("#" + element.id + "_dynamath").val(MathJax.startup.toMML(jax.root));
         } catch (exception) {
@@ -1405,7 +1433,7 @@
             hintMsgContainer = that.$(".problem-hint .notification-message");
             hintContainer.attr("hint_index", response.hint_index);
             edx.HtmlUtils.setHtml(hintMsgContainer, edx.HtmlUtils.HTML(response.msg));
-            if (typeof MathJax !== "undefined" && MathJax !== null) {
+            if (isMathJaxTypesetReady()) {
               MathJax.startup.promise
                 .then(() => MathJax.typesetPromise([hintContainer[0]]));
             }

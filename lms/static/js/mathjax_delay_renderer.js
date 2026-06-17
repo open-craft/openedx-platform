@@ -58,7 +58,8 @@
           text = preprocessor(text);
         }
         $(elem).html(text); // xss-lint: disable=javascript-jquery-html
-        if (typeof MathJax !== 'undefined' && MathJax !== null && MathJax.startup && MathJax.startup.promise) {
+        if (typeof MathJax !== 'undefined' && MathJax !== null && MathJax.startup &&
+            MathJax.startup.promise && typeof MathJax.typesetPromise === "function") {
           return MathJax.startup.promise
             .then(() => MathJax.typesetPromise([$(elem)[0]]));
         }
@@ -78,7 +79,8 @@
             _this.$buffer.html(text); // xss-lint: disable=javascript-jquery-html
             curTime = getTime();
             _this.elapsedTime = curTime - prevTime;
-            if (typeof MathJax !== "undefined" && MathJax !== null) {
+            if (typeof MathJax !== "undefined" && MathJax !== null && MathJax.startup &&
+                MathJax.startup.promise && typeof MathJax.typesetPromise === "function") {
               prevTime = getTime();
               return MathJax.startup.promise
                 .then(
@@ -93,7 +95,12 @@
                   })
                 );
             } else {
-              return _this.mathjaxDelay = 0;
+              _this.mathjaxDelay = 0;
+              if (previewSetter) {
+                return previewSetter($(_this.$buffer).html());
+              } else {
+                return $(elem).html($(_this.$buffer).html()); // xss-lint: disable=javascript-jquery-html
+              }
             }
           };
         })(this);

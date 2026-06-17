@@ -7,7 +7,8 @@
       this.el = $(this.element);
       JavascriptLoader.executeModuleScripts(this.el);
       Collapsible.setCollapsibles(this.el);
-      if (typeof MathJax !== "undefined" && MathJax !== null) {
+      if (typeof MathJax !== "undefined" && MathJax !== null && MathJax.startup &&
+          MathJax.startup.promise && typeof MathJax.typesetPromise === "function") {
         MathJax.startup.promise
           .then(() => MathJax.typesetPromise([this.el[0]]));
       }
