@@ -788,7 +788,9 @@ def associate_by_email_if_saml(auth_entry, backend, details, user, strategy, *ar
     same email address in the database.  It defers to the social library's associate_by_email
     implementation, which verifies that only a single database user is associated with the email.
 
-    This association is done ONLY if the user entered the pipeline belongs to SAML provider.
+    This association is done ONLY if the user entered the pipeline belongs to a SAML provider, and either:
+    * the learner is already linked to the enterprise customer associated with the same IdP, or
+    * the provider is allow-listed in the `THIRD_PARTY_AUTH_AUTO_LINK_EMAIL_PROVIDERS` setting.
     """
     from openedx.features.enterprise_support.api import enterprise_is_enabled
 
@@ -845,16 +847,61 @@ def associate_by_email_if_saml(auth_entry, backend, details, user, strategy, *ar
                              'Provider ID: %s, Exception: %s', current_user.id, current_user.email,
                              current_provider.provider_id, ex)
 
+    def is_auto_link_email_provider():
+        """
+        Whether the current SAML provider is configured for automatic email-based account linking.
+
+        TODO: This is a temporary mechanism that reads the allow-list from the Django setting. It should be
+        be replaced with a dedicated field on `ProviderConfig` (e.g. `enable_email_auto_linking`) so that
+        it can be configured per provider through the admin instead of via Django settings.
+        """
+        target_providers = getattr(settings, "THIRD_PARTY_AUTH_AUTO_LINK_EMAIL_PROVIDERS", [])
+        return bool(current_provider) and current_provider.provider_id in target_providers
+
     saml_provider, current_provider = is_saml_provider(strategy.request.backend.name, kwargs)
 
     if saml_provider:
         # get the user by matching email if the pipeline user is not available.
         current_user = user if user else get_user()
 
-        # Verify that the user linked to enterprise customer of current identity provider and an active user
-        associate_response = associate_by_email_if_enterprise_user() if current_user else None
-        if associate_response:
-            return associate_response
+        if current_user:
+            if not is_auto_link_email_provider():
+                # For providers that are not allow-listed, only link automatically when the learner is already
+                # linked to the enterprise customer associated with the current identity provider.
+                # `associate_by_email_if_enterprise_user` passes the pipeline `user` through, so it never overrides
+                # an existing association.
+                associate_response = associate_by_email_if_enterprise_user()
+
+            elif kwargs.get('social'):
+                # Allow-listed provider, but this SAML identity (uid) is ALREADY associated with an account, which
+                # `social_user` resolved into the pipeline `user`. Respect that existing association and never
+                # override it by email.
+                #
+                # This is critical for security: overriding an existing association by email would let someone who
+                # can change the email on the IdP redirect their login to a different account that happens to own
+                # the new email (account takeover). The established uid -> user link must always take precedence.
+                associate_response = None
+
+            else:
+                # Allow-listed provider and this SAML identity is NOT yet associated with any account: treat the
+                # IdP-verified email as authoritative and link to the existing active account that matches it.
+                #
+                # Passing `user=None` ensures that the account is resolved from the email.
+                # This guards against the social auth being silently attached to a different account that
+                # is currently logged in. `associate_by_email` still guards against multiple matches, 
+                # and we require the matched account to be active.
+                #
+                # Note: if a different user is already logged in (session/cookies) when this switches the pipeline
+                # to the email-matched account, the logged-in cookies are not refreshed (`set_logged_in_cookies`
+                # only resets them when none are present), leaving a stale JWT for the previous user. This logs the
+                # user out once. Refreshing cookies on an identity switch would require changes to the shared
+                # `set_logged_in_cookies` step.
+                association_response, user_is_active = get_associated_user_by_email_response(
+                    backend, details, None, *args, **kwargs)
+                associate_response = association_response if user_is_active else None
+
+            if associate_response:
+                return associate_response
 
 
 def user_details_force_sync(auth_entry, strategy, details, user=None, *args, **kwargs):  # lint-amnesty, pylint: disable=keyword-arg-before-vararg
