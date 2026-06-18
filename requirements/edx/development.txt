@@ -1077,6 +1077,7 @@ httpx[http2]==0.28.1
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   firebase-admin
+    #   typesense
 hyperframe==6.1.0
     # via
     #   -r requirements/edx/doc.txt
@@ -1411,8 +1412,9 @@ openedx-filters==2.1.0
     #   -r requirements/edx/testing.txt
     #   lti-consumer-xblock
     #   ora2
-openedx-forum==0.3.8
+openedx-forum==0.4.1
     # via
+    #   -c requirements/constraints.txt
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
 openedx-learning==0.30.2
@@ -2129,6 +2131,11 @@ types-pyyaml==6.0.12.20250915
     #   djangorestframework-stubs
 types-requests==2.32.4.20250913
     # via djangorestframework-stubs
+typesense==2.0.0
+    # via
+    #   -r requirements/edx/doc.txt
+    #   -r requirements/edx/testing.txt
+    #   openedx-forum
 typing-extensions==4.15.0
     # via
     #   -r requirements/edx/doc.txt
@@ -2155,6 +2162,7 @@ typing-extensions==4.15.0
     #   referencing
     #   snowflake-connector-python
     #   starlette
+    #   typesense
     #   typing-inspection
 typing-inspection==0.4.2
     # via
