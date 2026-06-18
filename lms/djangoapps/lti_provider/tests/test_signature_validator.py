@@ -11,6 +11,9 @@ from django.test.client import RequestFactory
 
 from lms.djangoapps.lti_provider.models import LtiConsumer
 from lms.djangoapps.lti_provider.signature_validator import SignatureValidator
+from openedx.core.djangolib.testing.utils import CacheIsolationMixin
+
+FIXED_TIMESTAMP = 1_000_000_000
 
 
 def get_lti_consumer():
@@ -118,3 +121,49 @@ class SignatureValidatorTest(TestCase):
         SignatureValidator(self.lti_consumer).verify(request)
         verify_mock.assert_called_once_with(
             request.build_absolute_uri(), 'POST', body.encode('utf-8'), headers)
+
+
+@patch('lms.djangoapps.lti_provider.signature_validator.time.time', return_value=FIXED_TIMESTAMP)
+class TimestampAndNonceValidatorTest(CacheIsolationMixin, TestCase):
+    ENABLED_CACHES = ['default']
+    """
+    Tests for validate_timestamp_and_nonce. The clock is frozen via a class-level
+    patch so every test method receives a consistent `time.time` return value.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.validator = SignatureValidator(get_lti_consumer())
+
+    def _call(self, timestamp, nonce, client_key='Consumer Key'):
+        return self.validator.validate_timestamp_and_nonce(
+            client_key, str(timestamp), nonce, request=None,
+        )
+
+    def test_valid_timestamp_and_new_nonce(self, _mock_time):
+        assert self._call(FIXED_TIMESTAMP, 'nonce-a')
+
+    def test_stale_timestamp_rejected(self, _mock_time):
+        assert not self._call(FIXED_TIMESTAMP - 301, 'nonce-b')
+
+    def test_future_timestamp_rejected(self, _mock_time):
+        assert not self._call(FIXED_TIMESTAMP + 301, 'nonce-c')
+
+    def test_malformed_timestamp_rejected(self, _mock_time):
+        assert not self.validator.validate_timestamp_and_nonce(
+            'Consumer Key', 'not-a-number', 'nonce-d', request=None,
+        )
+
+    def test_replay_rejected(self, _mock_time):
+        assert self._call(FIXED_TIMESTAMP, 'nonce-e')
+        assert not self._call(FIXED_TIMESTAMP, 'nonce-e')
+
+    def test_different_nonce_same_consumer_accepted(self, _mock_time):
+        assert self._call(FIXED_TIMESTAMP, 'nonce-f1')
+        assert self._call(FIXED_TIMESTAMP, 'nonce-f2')
+
+    def test_same_nonce_different_consumer_accepted(self, _mock_time):
+        # Nonces are scoped per client_key; the same nonce string from two
+        # different consumers must not block each other.
+        assert self._call(FIXED_TIMESTAMP, 'nonce-g', client_key='Consumer Key')
+        assert self._call(FIXED_TIMESTAMP, 'nonce-g', client_key='Other Key')
