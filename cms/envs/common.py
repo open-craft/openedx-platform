@@ -1604,6 +1604,16 @@ YOUTUBE = {
 
 YOUTUBE_API_KEY = 'PUT_YOUR_API_KEY_HERE'
 
+# .. setting_name: VIDEO_DOWNLOAD_RATE_LIMIT
+# .. setting_default: '12/hour'
+# .. setting_description: Per-user rate limit applied to the Studio
+#    video-download endpoint
+#    (``PUT /api/contentstore/v1/videos/{course_id}/download``). Bounds how
+#    often a single course author can initiate a multi-video zip download.
+# Rate format: DRF ``UserRateThrottle`` rate string. See
+# https://www.django-rest-framework.org/api-guide/throttling/#setting-the-throttling-policy
+VIDEO_DOWNLOAD_RATE_LIMIT = '12/hour'
+
 ############################# SETTINGS FOR VIDEO UPLOAD PIPELINE #############################
 
 VIDEO_UPLOAD_PIPELINE = {
