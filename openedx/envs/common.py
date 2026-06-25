@@ -2102,7 +2102,10 @@ USE_EXTRACTED_LTI_BLOCK = True
 # .. toggle_use_cases: temporary
 # .. toggle_creation_date: 2024-11-10
 # .. toggle_target_removal_date: 2026-04-10
-USE_EXTRACTED_HTML_BLOCK = True
+# ponytail: set False because xblocks-contrib 0.17.0 ships no MathJax-v4-compatible
+#          HtmlBlockDisplay.js, so dynamically-rendered HTML math never gets typeset.
+#          Switch back to True when xblocks-contrib supports MathJax v4.
+USE_EXTRACTED_HTML_BLOCK = False
 
 # .. toggle_name: USE_EXTRACTED_DISCUSSION_BLOCK
 # .. toggle_default: False
@@ -2122,7 +2125,10 @@ USE_EXTRACTED_DISCUSSION_BLOCK = True
 # .. toggle_warning: Not production-ready until relevant subtask https://github.com/openedx/edx-platform/issues/34827 is done.
 # .. toggle_creation_date: 2024-11-10
 # .. toggle_target_removal_date: 2026-04-10
-USE_EXTRACTED_PROBLEM_BLOCK = True
+# ponytail: set False because xblocks-contrib 0.17.0 ships MathJax-v2-only display JS
+#          (Hub.Queue, getAllJax, Callback) that crashes in MathJax v4.
+#          Switch back to True when xblocks-contrib supports MathJax v4.
+USE_EXTRACTED_PROBLEM_BLOCK = False
 
 # .. toggle_name: USE_EXTRACTED_VIDEO_BLOCK
 # .. toggle_default: True
