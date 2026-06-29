@@ -906,19 +906,16 @@
           jax,
           mathjaxPreprocessor,
           preprocessorTag,
-          target,
           isTexDelimited;
       if (!element) {
         element = event.target; // eslint-disable-line no-param-reassign
       }
       elid = element.id.replace(/^input_/, "");
-      target = "#display_" + elid;
-
       // MathJax preprocessor is loaded by 'setupInputTypes'
       preprocessorTag = "inputtype_" + elid;
       mathjaxPreprocessor = this.inputtypeDisplays[preprocessorTag];
       if (isMathJaxRefreshReady()) {
-        var math = document.querySelector(target);
+        var math = document.getElementById("display_" + elid);
         if (!math) {
           math = document.getElementById(element.id + "_preview");
         }
@@ -932,7 +929,8 @@
         MathJax.typesetClear([math]);
         if (!eqn) {
           math.textContent = "";
-          $("#" + element.id + "_dynamath").val("");
+          var dynInput = document.getElementById(element.id + "_dynamath");
+          if (dynInput) { dynInput.value = ""; }
           return;
         }
         // Determine rendering mode:
@@ -955,14 +953,18 @@
           if (jax) {
             this.updateMathML(jax, element);
           }
-        }.bind(this));
+        }.bind(this)).catch(function () {
+          var dynInput = document.getElementById(element.id + "_dynamath");
+          if (dynInput) { dynInput.value = ""; }
+        });
       }
     };
 
     Problem.prototype.updateMathML = function (jax, element) {
       if (isMathJaxMathMLReady()) {
         try {
-          $("#" + element.id + "_dynamath").val(MathJax.startup.toMML(jax.root));
+          var dynInput = document.getElementById(element.id + "_dynamath");
+          if (dynInput) { dynInput.value = MathJax.startup.toMML(jax.root); }
         } catch (exception) {
           if (!exception.restart) {
             throw exception;

@@ -88,8 +88,12 @@
       if (oldWidth !== document.documentElement.scrollWidth) {
         t = window.setTimeout(function() {
           oldWidth = document.documentElement.scrollWidth;
-          MathJax.typesetClear();
-          MathJax.typesetPromise();
+          if (typeof MathJax !== 'undefined' && MathJax !== null &&
+              typeof MathJax.typesetClear === 'function' &&
+              typeof MathJax.typesetPromise === 'function') {
+            MathJax.typesetClear();
+            MathJax.typesetPromise();
+          }
           t = -1;
         }, delay);
       }
