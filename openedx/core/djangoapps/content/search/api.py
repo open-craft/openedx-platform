@@ -557,6 +557,10 @@ def index_course(
 
     # Pre-fetch the course with all of its children:
     course = store.get_course(course_key, depth=None)
+    if not course:
+        # Might happen if the entry is a deleted course.
+        log.error("Course not found with key: %s", course_key)
+        return docs
 
     if course is None:
         status_cb(f"Error: course {course_key} does not seem to exist! It may have been incompletely deleted.")

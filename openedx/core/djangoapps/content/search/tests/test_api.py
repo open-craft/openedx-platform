@@ -12,7 +12,7 @@ import pytest
 from django.test import override_settings
 from freezegun import freeze_time
 from meilisearch.errors import MeilisearchApiError
-from opaque_keys.edx.keys import UsageKey
+from opaque_keys.edx.keys import CourseKey, UsageKey
 from opaque_keys.edx.locator import LibraryCollectionLocator, LibraryContainerLocator
 from openedx_content import api as content_api
 from openedx_content import models_api as content_models
@@ -1436,3 +1436,10 @@ class TestSearchApi(ModuleStoreTestCase):
                 "attributesToRetrieve": ["usage_key", "display_name"],
             }
         )
+
+        @override_settings(MEILISEARCH_ENABLED=True)
+        @patch('openeedx.core.djangoapps.content.search.api.log')
+        def test_graceful_handling_of_missing_course(self, mock_log, _mock_meilisearch) -> None:
+            key = CourseKey.from_string('course-v1:Bogus+CourseX+BogoCourse')
+            assert api.index_course(key) == []
+            mock_log.error.assert_called_with("Course not found with key: %s", key)
