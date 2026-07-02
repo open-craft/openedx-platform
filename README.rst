@@ -28,6 +28,7 @@ platform.  Functionally, the openedx-platform repository provides two services:
 * LMS (Learning Management Service), which delivers learning content.
 
 
+
 Documentation
 *************
 
