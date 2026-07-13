@@ -53,6 +53,7 @@ from common.djangoapps.student.roles import (
     GlobalStaff,
     UserBasedRole,
     OrgStaffRole,
+    eSHEInstructorRole,
     strict_role_checking,
 )
 from common.djangoapps.util.json_request import JsonResponse, JsonResponseBadRequest, expect_json
@@ -537,7 +538,10 @@ def _accessible_courses_list_from_groups(request):
     with strict_role_checking():
         staff_courses = UserBasedRole(request.user, CourseStaffRole.ROLE).courses_with_role()
 
-    all_courses = list(filter(filter_ccx, instructor_courses | staff_courses))
+    # Courses for eSHE instructors
+    eshe_courses = UserBasedRole(request.user, eSHEInstructorRole.ROLE).courses_with_role()
+
+    all_courses = list(filter(filter_ccx, instructor_courses | staff_courses | eshe_courses))
     courses_list = []
     course_keys = {}
 
