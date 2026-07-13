@@ -1,6 +1,7 @@
 """
 Base setup for Notification Apps and Types.
 """
+from django.utils.html import escape
 from django.utils.translation import gettext_lazy as _
 
 from .email_notifications import EmailCadence
@@ -10,6 +11,13 @@ from ..django_comment_common.models import FORUM_ROLE_ADMINISTRATOR, FORUM_ROLE_
 from .notification_content import get_notification_type_context_function
 
 FILTER_AUDIT_EXPIRED_USERS_WITH_NO_ROLE = 'filter_audit_expired_users_with_no_role'
+
+# Context keys whose values are used as HTML tag names by content_templates
+# (e.g. `<{p}>...<{strong}>{post_title}</{strong}></{p}>`). These must NOT be
+# HTML-escaped before `template.format(**context)`; every other context value
+# must be, since it typically comes from user input (thread title, username,
+# etc.). See get_notification_content below.
+_STRUCTURAL_CONTEXT_KEYS = frozenset({'p', 'strong'})
 
 COURSE_NOTIFICATION_TYPES = {
     'new_comment_on_response': {
@@ -524,8 +532,16 @@ def get_notification_content(notification_type, context):
         context = context_function(context)
 
         if template:
-            # Handle grouped templates differently by modifying the context using a different function.
-            return template.format(**context)
+            # HTML-escape every context value except the structural tag-name
+            # keys, so that user-controlled input (post_title, replier_name,
+            # etc.) cannot inject `<style>` / `<script>` / other HTML into
+            # notification.content — which is rendered with `|safe` in the
+            # digest and batched email templates.
+            safe_context = {
+                key: value if key in _STRUCTURAL_CONTEXT_KEYS else escape(value)
+                for key, value in context.items()
+            }
+            return template.format(**safe_context)
 
     return ''
 
