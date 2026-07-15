@@ -233,3 +233,51 @@ class UserModifyView(APIView):
             data={"user_id": user.id, "username": user.username},
             status=status.HTTP_201_CREATED,
         )
+
+    def patch(self, request):
+        """
+        Update user information by email or username.
+        """
+        try:
+            user = self._get_user_by_email_or_username(request)
+            if not user:
+                return Response(
+                    data={"error_message": "User not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            user = UserSerializer().update(user, request.data)
+        except (
+            AccountValidationError,
+            ValueError,
+            ValidationError,
+            DjangoValidationError,
+        ) as e:
+            if isinstance(e, ValidationError):
+                message = e.detail
+            else:
+                message = str(e)
+            return Response(
+                data={"error_message": message},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            data={"user_id": user.id, "username": user.username},
+            status=status.HTTP_200_OK,
+        )
+
+    @staticmethod
+    def _get_user_by_email_or_username(request):
+        """
+        Get a user by email and/or username.
+
+        Returns None if one doesn't exist.
+        """
+
+        email = request.data.get("email")
+        username = request.data.get("username")
+        query = {}
+        if email:
+            query["email"] = email
+        if username:
+            query["username"] = username
+        return User.objects.filter(**query).first()
