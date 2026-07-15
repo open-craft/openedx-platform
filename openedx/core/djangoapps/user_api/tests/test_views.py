@@ -740,18 +740,16 @@ class TestUserModifyAPI(ApiTestCase):
         self.assertIn("error_message", response.json())
         self.assertIn(error_message, str(response.json()["error_message"]))
 
-    @patch("openedx.core.djangoapps.user_api.views.UserSerializer.update")
-    def test_patch_user_success(self, serializer_update):
+    def test_patch_user_success(self):
         """Test updating a user with a valid lookup field"""
         user = UserFactory.create(
             username="patch-user",
             email="patch@example.com",
         )
-        serializer_update.return_value = user
 
         response = self.client.patch(
             self.PATH,
-            data=json.dumps({"email": user.email, "name": "Updated Name"}),
+            data=json.dumps({"email": user.email, "first_name": "Updated Name"}),
             content_type="application/json",
         )
 
@@ -760,13 +758,14 @@ class TestUserModifyAPI(ApiTestCase):
             response.json(),
             {"user_id": user.id, "username": user.username},
         )
-        self.assertEqual(serializer_update.call_count, 1)
+        user = User.objects.get(id=user.id)
+        self.assertEqual(user.first_name, "Updated Name")
 
     def test_patch_user_not_found(self):
         """Test patch returns 404 when no user matches the lookup fields"""
         response = self.client.patch(
             self.PATH,
-            data=json.dumps({"email": "missing@example.com", "name": "Updated Name"}),
+            data=json.dumps({"email": "missing@example.com", "first_name": "Updated Name"}),
             content_type="application/json",
         )
 
@@ -789,7 +788,7 @@ class TestUserModifyAPI(ApiTestCase):
 
         response = self.client.patch(
             self.PATH,
-            data=json.dumps({"email": user.email, "name": "Updated Name"}),
+            data=json.dumps({"email": user.email, "first_name": "Updated Name"}),
             content_type="application/json",
         )
 
