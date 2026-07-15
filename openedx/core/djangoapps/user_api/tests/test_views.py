@@ -12,6 +12,7 @@ from openedx.core.djangoapps.django_comment_common import models
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_unless_lms
 from openedx.core.lib.api.test_utils import TEST_API_KEY, ApiTestCase
 from openedx.core.lib.time_zone_utils import get_display_time_zone
+from rest_framework import status
 from xmodule.modulestore.tests.django_utils import (
     SharedModuleStoreTestCase,  # pylint: disable=wrong-import-order
 )
@@ -649,3 +650,69 @@ class CountryTimeZoneListViewTest(UserApiTestCase):
         assert len(results) == len(common_timezones)
         for time_zone_info in results:
             self._assert_time_zone_is_valid(time_zone_info)
+
+
+@ddt.ddt
+class TestUserModifyAPI(ApiTestCase):
+    """ Test cases covering the user modification API """
+
+    PATH = '/api/user/v1/modify'
+
+    DATA = {
+        'name': 'Test User',
+        'username': 'testuser',
+        'password': 'Password1234',
+        'email': 'e@mail.com',
+        'terms_of_service': 'true',
+        'honor_code': 'true',
+    }
+
+    def setUp(self):
+        """ Create a test user and log in with that user """
+        super().setUp()
+
+        self.test_user = UserFactory.create(
+            username="user",
+            email="user@example.com",
+            password="pass",
+            is_staff=True,
+            is_superuser=True
+        )
+        self.client.login(username="user", password="pass")
+
+    @override_settings(ENFORCE_SAFE_SESSIONS=False)
+    def test_create_new_user_success(self):
+        """ Test creating a user with valid information """
+        response = self.client.post(self.PATH, self.DATA)
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED
+        )
+
+    @ddt.data('username', 'password', 'email', 'terms_of_service', 'honor_code')
+    def test_create_new_user_error_missing_info(self, missing_field):
+        """ Test creating a user with missing required information """
+        data = self.DATA.copy()
+        data.pop(missing_field)
+        response = self.client.post(self.PATH, data)
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST
+        )
+
+    @ddt.data(
+        ('email', 'invalid-email'),
+        ('email', 'user@example.com'),
+        ('username', 'user'),
+    )
+    @ddt.unpack
+    def test_create_new_user_error_invalid_attribute(self, field, value):
+        """ Test creating a user with an invalid attribute """
+        data = self.DATA.copy()
+        data[field] = value
+        response = self.client.post(self.PATH, data)
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST
+        )
+
