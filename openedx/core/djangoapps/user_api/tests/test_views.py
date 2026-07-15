@@ -1,5 +1,9 @@
 """Tests for the user API at the HTTP request level. """
 
+import pytest
+import json
+from unittest.mock import patch
+
 import ddt
 import pytest
 from django.test.utils import override_settings
@@ -656,15 +660,15 @@ class CountryTimeZoneListViewTest(UserApiTestCase):
 class TestUserModifyAPI(ApiTestCase):
     """ Test cases covering the user modification API """
 
-    PATH = '/api/user/v1/modify'
+    PATH = "/api/user/v1/modify"
 
     DATA = {
-        'name': 'Test User',
-        'username': 'testuser',
-        'password': 'Password1234',
-        'email': 'e@mail.com',
-        'terms_of_service': 'true',
-        'honor_code': 'true',
+        "name": "Test User",
+        "username": "testuser",
+        "password": "Password1234",
+        "email": "e@mail.com",
+        "terms_of_service": "true",
+        "honor_code": "true",
     }
 
     def setUp(self):
@@ -688,8 +692,13 @@ class TestUserModifyAPI(ApiTestCase):
             response.status_code,
             status.HTTP_201_CREATED
         )
+        created_user = User.objects.get(username=self.DATA["username"])
+        self.assertEqual(
+            response.json(),
+            {"user_id": created_user.id, "username": created_user.username},
+        )
 
-    @ddt.data('username', 'password', 'email', 'terms_of_service', 'honor_code')
+    @ddt.data("username", "password", "email", "terms_of_service", "honor_code")
     def test_create_new_user_error_missing_info(self, missing_field):
         """ Test creating a user with missing required information """
         data = self.DATA.copy()
@@ -699,14 +708,27 @@ class TestUserModifyAPI(ApiTestCase):
             response.status_code,
             status.HTTP_400_BAD_REQUEST
         )
+        self.assertIn("error_message", response.json())
+        self.assertIn(missing_field, str(response.json()["error_message"]))
+
+    def test_create_new_user_error_invalid_attribute(self):
+        """ Test creating a user with an invalid attribute """
+        data = self.DATA.copy()
+        data["email"] = "invalid-email"
+        response = self.client.post(self.PATH, data)
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST
+        )
+        self.assertIn("error_message", response.json())
+        self.assertIn("email", str(response.json()["error_message"]))
 
     @ddt.data(
-        ('email', 'invalid-email'),
-        ('email', 'user@example.com'),
-        ('username', 'user'),
+        ("email", "user@example.com", "existing account"),
+        ("username", "user", "already exists"),
     )
     @ddt.unpack
-    def test_create_new_user_error_invalid_attribute(self, field, value):
+    def test_create_new_user_error_already_exists(self, field, value, error_message):
         """ Test creating a user with an invalid attribute """
         data = self.DATA.copy()
         data[field] = value
@@ -715,4 +737,64 @@ class TestUserModifyAPI(ApiTestCase):
             response.status_code,
             status.HTTP_400_BAD_REQUEST
         )
+        self.assertIn("error_message", response.json())
+        self.assertIn(error_message, str(response.json()["error_message"]))
 
+    @patch("openedx.core.djangoapps.user_api.views.UserSerializer.update")
+    def test_patch_user_success(self, serializer_update):
+        """Test updating a user with a valid lookup field"""
+        user = UserFactory.create(
+            username="patch-user",
+            email="patch@example.com",
+        )
+        serializer_update.return_value = user
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps({"email": user.email, "name": "Updated Name"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {"user_id": user.id, "username": user.username},
+        )
+        self.assertEqual(serializer_update.call_count, 1)
+
+    def test_patch_user_not_found(self):
+        """Test patch returns 404 when no user matches the lookup fields"""
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps({"email": "missing@example.com", "name": "Updated Name"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.json(),
+            {"error_message": "User not found."},
+        )
+
+    @patch("openedx.core.djangoapps.user_api.views.UserSerializer.update")
+    def test_patch_user_validation_error(self, serializer_update):
+        """Test serializer validation errors are returned with status 400"""
+        user = UserFactory.create(
+            username="test-user",
+            email="patch-error@example.com",
+        )
+        serializer_update.side_effect = ValidationError(
+            {"email": ["Invalid email address."]}
+        )
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps({"email": user.email, "name": "Updated Name"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"error_message": {"email": ["Invalid email address."]}},
+        )
