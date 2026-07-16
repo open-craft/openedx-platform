@@ -1,9 +1,8 @@
 """Tests for the user API at the HTTP request level. """
 
-import pytest
 import json
 from unittest.mock import patch
-
+from django.contrib.auth import get_user_model
 import ddt
 import pytest
 from django.test.utils import override_settings
@@ -17,6 +16,7 @@ from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_un
 from openedx.core.lib.api.test_utils import TEST_API_KEY, ApiTestCase
 from openedx.core.lib.time_zone_utils import get_display_time_zone
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from xmodule.modulestore.tests.django_utils import (
     SharedModuleStoreTestCase,  # pylint: disable=wrong-import-order
 )
@@ -34,6 +34,7 @@ USER_LIST_URI = "/api/user/v1/users/"
 USER_PREFERENCE_LIST_URI = "/api/user/v1/user_prefs/"
 ROLE_LIST_URI = "/api/user/v1/forum_roles/Moderator/users/"
 
+User = get_user_model()
 
 class UserAPITestCase(ApiTestCase):
     """
