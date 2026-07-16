@@ -18,18 +18,12 @@ from openedx.core.djangoapps.django_comment_common import models
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_unless_lms
 from openedx.core.lib.api.test_utils import TEST_API_KEY, ApiTestCase
 from openedx.core.lib.time_zone_utils import get_display_time_zone
-from xmodule.modulestore.tests.django_utils import (
-    SharedModuleStoreTestCase,
-)  # pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import (
-    CourseFactory,
-)  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 from ..accounts.tests.retirement_helpers import RetirementTestCase  # noqa: F401
 from ..accounts.tests.retirement_helpers import fake_requested_retirement  # noqa: F401
-from ..accounts.tests.retirement_helpers import (
-    setup_retirement_states,
-)  # pylint: disable=unused-import; noqa: F401
+from ..accounts.tests.retirement_helpers import setup_retirement_states  # pylint: disable=unused-import; noqa: F401
 from ..models import UserOrgTag
 from ..tests.factories import UserPreferenceFactory
 
@@ -660,6 +654,7 @@ class CountryTimeZoneListViewTest(UserApiTestCase):
             self._assert_time_zone_is_valid(time_zone_info)
 
 
+@override_settings(ENABLE_AUTHN_REGISTER_HIBP_POLICY=False)
 @ddt.ddt
 class TestUserModifyAPI(ApiTestCase):
     """Test cases covering the user modification API"""
