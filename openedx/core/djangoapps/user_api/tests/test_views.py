@@ -2,31 +2,34 @@
 
 import json
 from unittest.mock import patch
-from django.contrib.auth import get_user_model
+
 import ddt
 import pytest
+from django.contrib.auth import get_user_model
 from django.test.utils import override_settings
 from django.urls import reverse
 from opaque_keys.edx.keys import CourseKey
 from pytz import common_timezones, common_timezones_set, country_timezones
+from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from common.djangoapps.student.tests.factories import UserFactory
 from openedx.core.djangoapps.django_comment_common import models
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_unless_lms
 from openedx.core.lib.api.test_utils import TEST_API_KEY, ApiTestCase
 from openedx.core.lib.time_zone_utils import get_display_time_zone
-from rest_framework import status
-from rest_framework.exceptions import ValidationError
 from xmodule.modulestore.tests.django_utils import (
-    SharedModuleStoreTestCase,  # pylint: disable=wrong-import-order
-)
-from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
+    SharedModuleStoreTestCase,
+)  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.factories import (
+    CourseFactory,
+)  # pylint: disable=wrong-import-order
 
-from ..accounts.tests.retirement_helpers import (  # pylint: disable=unused-import
-    RetirementTestCase,  # noqa: F401
-    fake_requested_retirement,  # noqa: F401
-    setup_retirement_states,  # noqa: F401
-)
+from ..accounts.tests.retirement_helpers import RetirementTestCase  # noqa: F401
+from ..accounts.tests.retirement_helpers import fake_requested_retirement  # noqa: F401
+from ..accounts.tests.retirement_helpers import (
+    setup_retirement_states,
+)  # pylint: disable=unused-import; noqa: F401
 from ..models import UserOrgTag
 from ..tests.factories import UserPreferenceFactory
 
@@ -659,7 +662,7 @@ class CountryTimeZoneListViewTest(UserApiTestCase):
 
 @ddt.ddt
 class TestUserModifyAPI(ApiTestCase):
-    """ Test cases covering the user modification API """
+    """Test cases covering the user modification API"""
 
     PATH = "/api/user/v1/modify"
 
@@ -673,7 +676,7 @@ class TestUserModifyAPI(ApiTestCase):
     }
 
     def setUp(self):
-        """ Create a test user and log in with that user """
+        """Create a test user and log in with that user"""
         super().setUp()
 
         self.test_user = UserFactory.create(
@@ -681,48 +684,39 @@ class TestUserModifyAPI(ApiTestCase):
             email="user@example.com",
             password="pass",
             is_staff=True,
-            is_superuser=True
+            is_superuser=True,
         )
         self.client.login(username="user", password="pass")
 
     @override_settings(ENFORCE_SAFE_SESSIONS=False)
     def test_create_new_user_success(self):
-        """ Test creating a user with valid information """
+        """Test creating a user with valid information"""
         response = self.client.post(self.PATH, self.DATA)
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_201_CREATED
-        )
+        assert response.status_code == status.HTTP_201_CREATED
         created_user = User.objects.get(username=self.DATA["username"])
-        self.assertEqual(
-            response.json(),
-            {"user_id": created_user.id, "username": created_user.username},
-        )
+        assert response.json() == {
+            "user_id": created_user.id,
+            "username": created_user.username,
+        }
 
     @ddt.data("username", "password", "email", "terms_of_service", "honor_code")
     def test_create_new_user_error_missing_info(self, missing_field):
-        """ Test creating a user with missing required information """
+        """Test creating a user with missing required information"""
         data = self.DATA.copy()
         data.pop(missing_field)
         response = self.client.post(self.PATH, data)
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_400_BAD_REQUEST
-        )
-        self.assertIn("error_message", response.json())
-        self.assertIn(missing_field, str(response.json()["error_message"]))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error_message" in response.json()
+        assert missing_field in str(response.json()["error_message"])
 
     def test_create_new_user_error_invalid_attribute(self):
-        """ Test creating a user with an invalid attribute """
+        """Test creating a user with an invalid attribute"""
         data = self.DATA.copy()
         data["email"] = "invalid-email"
         response = self.client.post(self.PATH, data)
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_400_BAD_REQUEST
-        )
-        self.assertIn("error_message", response.json())
-        self.assertIn("email", str(response.json()["error_message"]))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error_message" in response.json()
+        assert "email" in str(response.json()["error_message"])
 
     @ddt.data(
         ("email", "user@example.com", "existing account"),
@@ -730,16 +724,13 @@ class TestUserModifyAPI(ApiTestCase):
     )
     @ddt.unpack
     def test_create_new_user_error_already_exists(self, field, value, error_message):
-        """ Test creating a user with an invalid attribute """
+        """Test creating a user with an invalid attribute"""
         data = self.DATA.copy()
         data[field] = value
         response = self.client.post(self.PATH, data)
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_400_BAD_REQUEST
-        )
-        self.assertIn("error_message", response.json())
-        self.assertIn(error_message, str(response.json()["error_message"]))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error_message" in response.json()
+        assert error_message in str(response.json()["error_message"])
 
     def test_patch_user_success(self):
         """Test updating a user with a valid lookup field"""
@@ -754,27 +745,23 @@ class TestUserModifyAPI(ApiTestCase):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {"user_id": user.id, "username": user.username},
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"user_id": user.id, "username": user.username}
         user = User.objects.get(id=user.id)
-        self.assertEqual(user.first_name, "Updated Name")
+        assert user.first_name == "Updated Name"
 
     def test_patch_user_not_found(self):
         """Test patch returns 404 when no user matches the lookup fields"""
         response = self.client.patch(
             self.PATH,
-            data=json.dumps({"email": "missing@example.com", "first_name": "Updated Name"}),
+            data=json.dumps(
+                {"email": "missing@example.com", "first_name": "Updated Name"}
+            ),
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(
-            response.json(),
-            {"error_message": "User not found."},
-        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {"error_message": "User not found."}
 
     @patch("openedx.core.djangoapps.user_api.views.UserSerializer.update")
     def test_patch_user_validation_error(self, serializer_update):
@@ -793,8 +780,7 @@ class TestUserModifyAPI(ApiTestCase):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {"error_message": {"email": ["Invalid email address."]}},
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "error_message": {"email": ["Invalid email address."]}
+        }
