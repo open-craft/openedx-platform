@@ -15,7 +15,8 @@ from opaque_keys.edx.keys import CourseKey
 from rest_framework import generics, status, viewsets
 from rest_framework.exceptions import ParseError, ValidationError
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
-from rest_framework.views import APIView, Response
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from common.djangoapps.student.helpers import AccountValidationError
 from openedx.core.djangoapps.django_comment_common.models import Role
@@ -182,10 +183,10 @@ class UserModifyView(APIView):
 
         PATCH /api/user/v1/modify/
 
-    **Example GET Response**
+    **Example POST Response**
 
-        If the request is successful, an HTTP 200 "OK" response is returned
-        along with the user id and username, e.g.:
+        If the request is successful, an HTTP 201 "Created" response is
+        returned along with the user id and username, e.g.:
 
         {
             "user_id": 5,
@@ -245,7 +246,16 @@ class UserModifyView(APIView):
                     data={"error_message": "User not found."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            user = UserSerializer().update(user, request.data)
+
+            data = request.data.copy()
+            # Remove email and username from the data to prevent changing them
+            data.pop("email", None)
+            data.pop("username", None)
+            # Remove password from the data and handle it separately
+            password = data.pop("password", None)
+            if password:
+                user.set_password(password)
+            user = UserSerializer().update(user, data)
         except (
             AccountValidationError,
             ValueError,
@@ -275,6 +285,8 @@ class UserModifyView(APIView):
 
         email = request.data.get("email")
         username = request.data.get("username")
+        if not email and not username:
+            raise ValidationError("email or username must be specified")
         query = {}
         if email:
             query["email"] = email
