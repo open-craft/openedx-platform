@@ -226,7 +226,7 @@ class UserModifyView(APIView):
             else:
                 message = str(e)
             return Response(
-                data={"error_message": message},
+                data={"error": message},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -243,7 +243,7 @@ class UserModifyView(APIView):
             user = self._get_user_by_email_or_username(request)
             if not user:
                 return Response(
-                    data={"error_message": "User not found."},
+                    data={"error": "User not found."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
@@ -267,7 +267,7 @@ class UserModifyView(APIView):
             else:
                 message = str(e)
             return Response(
-                data={"error_message": message},
+                data={"error": message},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(

@@ -701,8 +701,8 @@ class TestUserModifyAPI(ApiTestCase):
         data.pop(missing_field)
         response = self.client.post(self.PATH, data)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "error_message" in response.json()
-        assert missing_field in str(response.json()["error_message"])
+        assert "error" in response.json()
+        assert missing_field in str(response.json()["error"])
 
     def test_create_new_user_error_invalid_attribute(self):
         """Test creating a user with an invalid attribute"""
@@ -710,22 +710,22 @@ class TestUserModifyAPI(ApiTestCase):
         data["email"] = "invalid-email"
         response = self.client.post(self.PATH, data)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "error_message" in response.json()
-        assert "email" in str(response.json()["error_message"])
+        assert "error" in response.json()
+        assert "email" in str(response.json()["error"])
 
     @ddt.data(
         ("email", "user@example.com", "existing account"),
         ("username", "user", "already exists"),
     )
     @ddt.unpack
-    def test_create_new_user_error_already_exists(self, field, value, error_message):
+    def test_create_new_user_error_already_exists(self, field, value, error):
         """Test creating a user with an invalid attribute"""
         data = self.DATA.copy()
         data[field] = value
         response = self.client.post(self.PATH, data)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "error_message" in response.json()
-        assert error_message in str(response.json()["error_message"])
+        assert "error" in response.json()
+        assert error in str(response.json()["error"])
 
     def test_patch_user_success(self):
         """Test updating a user with a valid lookup field"""
@@ -756,7 +756,7 @@ class TestUserModifyAPI(ApiTestCase):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert response.json() == {"error_message": "User not found."}
+        assert response.json() == {"error": "User not found."}
 
     @patch("openedx.core.djangoapps.user_api.views.UserSerializer.update")
     def test_patch_user_validation_error(self, serializer_update):
@@ -777,5 +777,5 @@ class TestUserModifyAPI(ApiTestCase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {
-            "error_message": {"email": ["Invalid email address."]}
+            "error": {"email": ["Invalid email address."]}
         }
