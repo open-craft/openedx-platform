@@ -21,9 +21,9 @@ from openedx.core.lib.time_zone_utils import get_display_time_zone
 from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase  # pylint: disable=wrong-import-order
 from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
-from ..accounts.tests.retirement_helpers import RetirementTestCase  # noqa: F401
-from ..accounts.tests.retirement_helpers import fake_requested_retirement  # noqa: F401
-from ..accounts.tests.retirement_helpers import setup_retirement_states  # noqa: F401
+from ..accounts.tests.retirement_helpers import RetirementTestCase  # pylint: disable=unused-import; noqa: F401
+from ..accounts.tests.retirement_helpers import fake_requested_retirement  # pylint: disable=unused-import; noqa: F401
+from ..accounts.tests.retirement_helpers import setup_retirement_states  # pylint: disable=unused-import; noqa: F401
 from ..models import UserOrgTag
 from ..tests.factories import UserPreferenceFactory
 
