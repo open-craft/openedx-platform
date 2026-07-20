@@ -7,7 +7,7 @@ http://stackoverflow.com/questions/10060069/safely-extract-zip-or-tar-using-pyth
 """
 
 import logging
-from os.path import abspath, dirname
+from os.path import abspath, commonpath, dirname
 from os.path import join as joinpath
 from os.path import realpath
 from typing import List, Union
@@ -30,8 +30,18 @@ def resolved(rpath):
 def _is_bad_path(path, base):
     """
     Is (the canonical absolute path of) `path` outside `base`?
+
+    Uses ``os.path.commonpath`` for a segment-aware containment check so that
+    sibling directories whose names happen to extend ``base`` as a string
+    prefix (e.g. ``<base>evil/...``) are correctly classified as outside.
     """
-    return not resolved(joinpath(base, path)).startswith(base)
+    target = resolved(joinpath(base, path))
+    try:
+        return commonpath([target, base]) != base
+    except ValueError:
+        # commonpath raises when paths are incomparable (e.g. mixed absolute
+        # and relative, or different drives on Windows). Treat as bad.
+        return True
 
 
 def _is_bad_link(info, base):
