@@ -20,8 +20,7 @@ if (typeof MathJax === 'undefined') {
             processHtmlClass: 'tex2jax_process',
             menuOptions: {
                 settings: {
-                    collapsible: true,
-                    explorer: true
+                    collapsible: true
                 },
             },
         },
