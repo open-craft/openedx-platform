@@ -50,12 +50,10 @@
             window.MathJax = {
                 tex: {
                     inlineMath: [
-                        ['$', '$'],
                         ['\\(', '\\)'],
                         ['[mathjaxinline]', '[/mathjaxinline]']
                     ],
                     displayMath: [
-                        ['$$', '$$'],
                         ['\\[', '\\]'],
                         ['[mathjax]', '[/mathjax]']
                     ],

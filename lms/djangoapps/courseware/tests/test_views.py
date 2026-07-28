@@ -2811,8 +2811,6 @@ class ContentOptimizationTestCase(ModuleStoreTestCase):
                     display_name='Vertical with No Mathjax HTML',
                 )
                 MATHJAX_TAG_PAIRS = [
-                    ("$", "$"),
-                    ("$$", "$$"),
                     (r"\(", r"\)"),
                     (r"\[", r"\]"),
                     ("[mathjaxinline]", "[/mathjaxinline]"),
@@ -2833,12 +2831,6 @@ class ContentOptimizationTestCase(ModuleStoreTestCase):
                     display_name="HTML Without Mathjax",
                     data="<p>I talk about mathjax, but I have no actual Math!</p>",
                 )
-                self.html_with_lone_dollar = BlockFactory.create(
-                    category='html',
-                    parent_location=self.no_math_vertical.location,
-                    display_name="HTML With Lone Dollar",
-                    data="<p>Price: $5</p>",
-                )
 
         self.course_key = self.course.id
         self.user = UserFactory(username='staff_user', profile__country='AX', is_staff=True)
@@ -2857,20 +2849,10 @@ class ContentOptimizationTestCase(ModuleStoreTestCase):
             response = self.client.get(url)
             assert response.status_code == 200
             assert b"window.MathJax" in response.content
-            assert b"['$', '$']" in response.content
-            assert b"['$$', '$$']" in response.content
 
         # Check the one without Math...
         url = reverse("render_xblock", kwargs={
             'usage_key_string': str(self.html_without_mathjax.location)
-        })
-        response = self.client.get(url)
-        assert response.status_code == 200
-        assert b"window.MathJax" not in response.content
-
-        # Check lone dollar sign isn't mistaken for MathJax
-        url = reverse("render_xblock", kwargs={
-            'usage_key_string': str(self.html_with_lone_dollar.location)
         })
         response = self.client.get(url)
         assert response.status_code == 200

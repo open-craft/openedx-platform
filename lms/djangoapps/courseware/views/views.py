@@ -1802,8 +1802,6 @@ class XBlockContentInspector:
         # The following pairs are used to mark Mathjax syntax in XBlocks. There
         # are other options for the wiki, but we don't worry about those here.
         MATHJAX_TAG_PAIRS = [
-            ("$", "$"),
-            ("$$", "$$"),
             (r"\(", r"\)"),
             (r"\[", r"\]"),
             ("[mathjaxinline]", "[/mathjaxinline]"),
@@ -1812,8 +1810,7 @@ class XBlockContentInspector:
         content = self.fragment.body_html()
         for (start_tag, end_tag) in MATHJAX_TAG_PAIRS:
             if start_tag in content and end_tag in content:
-                if start_tag != end_tag or content.count(start_tag) >= 2:
-                    return True
+                return True
 
         return False
 
