@@ -583,6 +583,11 @@ RETIREMENT_STATES = [
     'COMPLETE',
 ]
 
+###################### drf-spectacular (LMS enrollment schema) ######################
+SPECTACULAR_SETTINGS['SERVERS'] = [  # noqa: F405
+    {'url': LMS_ROOT_URL, 'description': 'Local'},  # noqa: F405
+]
+
 ################# New settings must go ABOVE this line #################
 ########################################################################
 # See if the developer has any local overrides.

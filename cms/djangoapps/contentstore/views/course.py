@@ -477,19 +477,23 @@ def get_query_params_if_present(request):
     Arguments:
         request: the request object
 
+    ADR 0033 - ``ordering`` is the preferred parameter (DRF standard); ``order``
+    is kept as a deprecated alias. When both are present, ``ordering`` wins.
+
     Returns:
         search_query (str): any string used to filter Course Overviews based on visible fields.
-        order (str): any string used to order Course Overviews.
+        order (str): any string used to order Course Overviews. Sourced from
+            ``ordering`` (preferred) or ``order`` (deprecated alias).
         active_only (str): if not None, this value will limit the courses returned to active courses.
             The default value is None.
         archived_only (str): if not None, this value will limit the courses returned to archived courses.
             The default value is None.
     """
-    allowed_query_params = ['search', 'order', 'active_only', 'archived_only']
+    allowed_query_params = ['search', 'ordering', 'order', 'active_only', 'archived_only']
     if not any(param in request.GET for param in allowed_query_params):
         return None, None, None, None
     search_query = request.GET.get('search')
-    order = request.GET.get('order')
+    order = request.GET.get('ordering') or request.GET.get('order')
     active_only = get_bool_param(request, 'active_only', None)
     archived_only = get_bool_param(request, 'archived_only', None)
     return search_query, order, active_only, archived_only
