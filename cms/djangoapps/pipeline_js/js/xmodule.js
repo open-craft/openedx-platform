@@ -37,9 +37,7 @@ define(
                 processHtmlClass: 'tex2jax_process',
                 menuOptions: {
                     settings: {
-                        collapsible: true,
-                        explorer: true
-                        // autocollapse: false, // Not found in v3
+                        collapsible: true
                     },
                 },
             },
