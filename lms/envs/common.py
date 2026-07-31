@@ -1425,6 +1425,11 @@ CREDIT_NOTIFICATION_CACHE_TIMEOUT = 5 * 60 * 60
 
 MIDDLEWARE = [
     'openedx.core.lib.x_forwarded_for.middleware.XForwardedForMiddleware',
+
+    # Expires the stale cookies of the login page. Its response phase has to run
+    # after the ones setting cookies, so it must stay near the top of this list.
+    'openedx.core.djangoapps.user_authn.middleware.ClearCookiesOnLoginPageMiddleware',
+
     'edx_django_utils.security.csp.middleware.content_security_policy_middleware',
 
     'crum.CurrentRequestUserMiddleware',
