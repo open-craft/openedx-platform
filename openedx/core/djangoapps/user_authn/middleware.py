@@ -5,31 +5,33 @@ Middleware for the login / registration views.
 import logging
 from http.cookies import CookieError, Morsel
 
-from django.conf import settings
 from django.utils.http import http_date
 
 log = logging.getLogger(__name__)
 
-# Requests to these paths leave the browser with a clean cookie jar.
+# Requests to these paths clear the cookies of the parent domain.
 COOKIE_RESET_PATHS = ('/login', '/login/')
 
-# Cookies are never scoped to a bare public suffix (e.g. `.io`), so stop there
-# when walking up the parent domains.
+# Cookies are never scoped to a bare public suffix (e.g. `com`), so a parent
+# domain shorter than this is left alone.
 MIN_DOMAIN_LABELS = 2
 
 
 class ClearCookiesOnLoginPageMiddleware:
     """
-    Expire every cookie the browser sent to the login page, keeping only the
-    ones the login page itself sets.
+    Expire the cookies of the domain above the login page, keeping the ones
+    scoped to its own host.
 
-    Stale cookies left over on a parent domain (typically `sessionid`,
-    `csrftoken` or the JWT cookies) are sent alongside the freshly set ones and
-    shadow them, which breaks the login flow. The browser tells us the name and
-    the value of a cookie, but never the domain it was scoped to, so each name
-    is expired once per domain it could have been set on: the request host,
-    `SESSION_COOKIE_DOMAIN`, all of their parent domains, each with and without
-    the leading dot, plus the host-only variant.
+    Stale cookies left over on the parent domain (typically `sessionid`,
+    `csrftoken` or the JWT cookies) are sent alongside the ones of the login
+    page and shadow them, which breaks the login flow. The browser tells us the
+    name and the value of a cookie, but never the domain it was scoped to, so
+    each name is expired once on the parent domain. A login page served from
+    `my.lms.example.com` therefore clears `lms.example.com`, while keeping both
+    the cookies of `my.lms.example.com` and the host-only ones.
+
+    The cookies that the login page itself sets are kept, even on the parent
+    domain, which is where they land when `SESSION_COOKIE_DOMAIN` points there.
 
     This must be listed near the top of `MIDDLEWARE` so that its response phase
     runs after `SafeSessionMiddleware` and `CsrfViewMiddleware` have set their
@@ -43,63 +45,57 @@ class ClearCookiesOnLoginPageMiddleware:
         response = self.get_response(request)
 
         if request.path in COOKIE_RESET_PATHS and request.COOKIES:
-            _expire_stale_cookies(request, response)
+            _expire_parent_domain_cookies(request, response)
 
         return response
 
 
-def _domain_variants(domain):
+def _parent_domain(request):
     """
-    Yield `domain`, its parent domains, and the leading-dot form of each.
-    """
-    labels = domain.split('.')
-    for index in range(len(labels) - MIN_DOMAIN_LABELS + 1):
-        parent = '.'.join(labels[index:])
-        yield parent
-        yield f'.{parent}'
+    Return the domain one level above the host of `request`.
 
-
-def _cookie_domains(request):
+    `None` is returned for a host with nothing to clear above it, such as
+    `example.com`, whose parent is the `com` public suffix.
     """
-    Return every domain a cookie sent with `request` could have been scoped to.
-    """
-    domains = {None}  # Host-only cookies, i.e. those set without a `Domain` attribute.
-
     host = request.get_host().partition(':')[0].strip('.')
-    if host:
-        domains.update(_domain_variants(host))
+    _, _, parent = host.partition('.')
 
-    session_cookie_domain = (settings.SESSION_COOKIE_DOMAIN or '').strip('.')
-    if session_cookie_domain:
-        domains.update(_domain_variants(session_cookie_domain))
+    if not parent or parent.count('.') + 1 < MIN_DOMAIN_LABELS:
+        return None
 
-    return domains
+    return parent
 
 
-def _expire_stale_cookies(request, response):
+def _expire_parent_domain_cookies(request, response):
     """
-    Add a `Set-Cookie` header expiring each cookie of the request, except for
-    the ones the response already sets.
+    Add a `Set-Cookie` header expiring each cookie of the request on the parent
+    domain, except for the ones that the response already sets there.
     """
+    domain = _parent_domain(request)
+    if not domain:
+        return
+
+    # The dot of a `.example.com` domain is stripped before the comparison, as
+    # the browser stores such a cookie under `example.com`. Skipping that would
+    # expire the cookies that the login page has just set.
     cookies_set_by_response = {
-        (morsel.key, morsel['domain'] or None, morsel['path'] or '/')
+        (morsel.key, morsel['domain'].strip('.'), morsel['path'] or '/')
         for morsel in response.cookies.values()
     }
 
     for name in request.COOKIES:
-        for domain in _cookie_domains(request):
-            if (name, domain, '/') not in cookies_set_by_response:
-                _expire_cookie(response, name, domain, secure=request.is_secure())
+        if (name, domain, '/') not in cookies_set_by_response:
+            _expire_cookie(response, name, domain, secure=request.is_secure())
 
 
 def _expire_cookie(response, name, domain, secure):
     """
     Expire the `name` cookie of `domain` on the root path.
 
-    `response.cookies` is keyed by cookie name, so `response.delete_cookie` can
-    only expire a name on a single domain. The morsel is inserted under a key of
-    its own instead, bypassing that limitation; only `Morsel.key` is written to
-    the header.
+    `response.cookies` is keyed by cookie name, so `response.delete_cookie`
+    would expire the name of a cookie that the login page sets itself. The
+    morsel is inserted under a key of its own instead, bypassing that
+    limitation; only `Morsel.key` is written to the header.
     """
     morsel = Morsel()
     try:
@@ -109,11 +105,10 @@ def _expire_cookie(response, name, domain, secure):
         return
 
     morsel['path'] = '/'
-    if domain:
-        morsel['domain'] = domain
+    morsel['domain'] = domain
     morsel['expires'] = http_date(0)
     morsel['max-age'] = 0
     if secure:
         morsel['secure'] = True
 
-    dict.__setitem__(response.cookies, f'{name}@{domain or ""}', morsel)
+    dict.__setitem__(response.cookies, f'{name}@{domain}', morsel)
