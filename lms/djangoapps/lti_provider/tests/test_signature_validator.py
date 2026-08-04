@@ -125,11 +125,12 @@ class SignatureValidatorTest(TestCase):
 
 @patch('lms.djangoapps.lti_provider.signature_validator.time.time', return_value=FIXED_TIMESTAMP)
 class TimestampAndNonceValidatorTest(CacheIsolationMixin, TestCase):
-    ENABLED_CACHES = ['default']
     """
     Tests for validate_timestamp_and_nonce. The clock is frozen via a class-level
     patch so every test method receives a consistent `time.time` return value.
     """
+
+    ENABLED_CACHES = ['default']
 
     def setUp(self):
         super().setUp()
