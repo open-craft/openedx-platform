@@ -339,10 +339,10 @@ def course_search_index_handler(request, course_key_string):
         html: return status of indexing task
         json: return status of indexing task
     """
-    # Only global staff (PMs) are able to index courses
-    if not GlobalStaff().has_user(request.user):
-        raise PermissionDenied()
+    # Only global staff (PMs) and eSHE Instructors are able to index courses
     course_key = CourseKey.from_string(course_key_string)
+    if not (GlobalStaff().has_user(request.user) or eSHEInstructorRole(course_key).has_user(request.user)):
+        raise PermissionDenied()
     content_type = request.META.get('CONTENT_TYPE', None)
     if content_type is None:
         content_type = "application/json; charset=utf-8"
