@@ -689,3 +689,7 @@ TOKEN_SIGNING = {
         ]
     }''',
 }
+
+
+### Settings for offline content
+OFFLINE_CONTENT_PATH_TEMPLATE = "offline_content/{course_id}/"
