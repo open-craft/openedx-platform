@@ -894,7 +894,7 @@ class StudentsUpdateEnrollmentView(APIView):
                 })
             else:
                 ManualEnrollmentAudit.create_manual_enrollment_audit(
-                    identified_user, email, state_transition, reason, enrollment_obj
+                    user, email, state_transition, reason, enrollment_obj
                 )
                 results.append({
                     'identifier': identifier,
