@@ -23,7 +23,7 @@ from django.test.utils import override_settings
 from edx_django_utils.cache import RequestCache
 from freezegun import freeze_time
 from pytz import UTC
-from xblocks_contrib.problem.capa.tests.response_xml_factory import (
+from xblocks_contrib.problem.capa.testing.response_xml_factory import (
     MultipleChoiceResponseXMLFactory,  # pylint: disable=wrong-import-order
 )
 
@@ -1922,7 +1922,7 @@ class TestGradeReport(TestReportMixin, InstructorTaskModuleTestCase):
         )
         self.define_option_problem('Unreleased', parent=self.unreleased_section)
 
-    @patch.dict(settings.FEATURES, {'DISABLE_START_DATES': False})
+    @override_settings(DISABLE_START_DATES=False)
     def test_grade_report(self):
         self.submit_student_answer(self.student.username, 'Problem1', ['Option 1'])
 

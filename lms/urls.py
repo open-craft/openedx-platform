@@ -864,7 +864,7 @@ if settings.ENABLE_INSTRUCTOR_BACKGROUND_TASKS:
         ),
     ]
 
-if settings.FEATURES.get('ENABLE_DEBUG_RUN_PYTHON'):
+if settings.ENABLE_DEBUG_RUN_PYTHON:
     urlpatterns += [
         path('debug/run_python', debug_views.run_python),
     ]
@@ -949,7 +949,7 @@ if 'debug_toolbar' in settings.INSTALLED_APPS:
         path('__debug__/', include(debug_toolbar.urls)),
     ]
 
-if settings.FEATURES.get('ENABLE_FINANCIAL_ASSISTANCE_FORM'):
+if settings.ENABLE_FINANCIAL_ASSISTANCE_FORM:
     urlpatterns += [
         path(
             'financial-assistance/',

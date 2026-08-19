@@ -35,7 +35,7 @@ from web_fragments.fragment import Fragment
 from xblock.core import XBlock
 from xblock.fields import Scope, String
 from xblock.scorable import ShowCorrectness
-from xblocks_contrib.problem.capa.tests.response_xml_factory import MultipleChoiceResponseXMLFactory
+from xblocks_contrib.problem.capa.testing.response_xml_factory import MultipleChoiceResponseXMLFactory
 
 import lms.djangoapps.courseware.views.views as views
 from common.djangoapps.course_modes.models import CourseMode
@@ -2696,7 +2696,8 @@ class AccessUtilsTestCase(ModuleStoreTestCase):
         },
     )
     @ddt.unpack
-    @patch.dict('django.conf.settings.FEATURES', {'DISABLE_START_DATES': False, 'ENABLE_ENTERPRISE_INTEGRATION': True})
+    @override_settings(DISABLE_START_DATES=False)
+    @patch.dict('django.conf.settings.FEATURES', {'ENABLE_ENTERPRISE_INTEGRATION': True})
     def test_is_course_open_for_learner(
         self,
         start_date_modifier,
