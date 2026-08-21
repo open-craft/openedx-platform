@@ -895,6 +895,19 @@ class DatesTabTestCase(TabListTestCase):
                 num_dates_tabs += 1
         assert num_dates_tabs == 1
 
+    def test_dates_tab_is_enabled_by_default(self):
+        """Test dates tab is enabled by default."""
+        tab = DatesTab({'type': DatesTab.type, 'name': 'dates'})
+        user = self.create_mock_user()
+        assert self.is_tab_enabled(tab, self.course, user)
+
+    @patch.dict("django.conf.settings.FEATURES", {"DISABLE_DATES_TAB": True})
+    def test_dates_tab_disabled_by_feature_flag(self):
+        """Test dates tab is disabled by the feature flag."""
+        tab = DatesTab({'type': DatesTab.type, 'name': 'dates'})
+        user = self.create_mock_user()
+        assert not self.is_tab_enabled(tab, self.course, user)
+
     @patch('common.djangoapps.student.models.course_enrollment.CourseEnrollment.is_enrolled')
     def test_dates_tab_respects_hide_flag(self, is_enrolled):
         """Test that the dates tab respects the hide flag."""

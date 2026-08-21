@@ -318,6 +318,8 @@ class DatesTab(EnrolledTab):
 
     @classmethod
     def is_enabled(cls, course, user=None):
+        if settings.FEATURES.get('DISABLE_DATES_TAB'):
+            return False
         if not super().is_enabled(course, user=user):
             return False
         dates_tab = CourseTabList.get_tab_by_id(course.tabs, 'dates')
