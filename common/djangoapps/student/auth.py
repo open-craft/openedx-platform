@@ -24,6 +24,8 @@ from common.djangoapps.student.roles import (
     OrgInstructorRole,
     OrgLibraryUserRole,
     OrgStaffRole,
+    eSHEInstructorRole,
+    TeachingAssistantRole,
     strict_role_checking,
 )
 
@@ -100,6 +102,14 @@ def get_user_permissions(user, course_key, org=None, service_variant=None):
         return all_perms
     if course_key and user_has_role(user, CourseInstructorRole(course_key)):
         return all_perms
+    
+    # Allow custom eSHE roles to access course detail in studio
+    # We have offered all permissions equivalent to Staff user
+    # This is to demonstrate how the custom roles can be elevated, NOT PRODUCTION READY
+    if course_key:
+        if eSHEInstructorRole(course_key).has_user(user) or TeachingAssistantRole(course_key).has_user(user):
+            return STUDIO_EDIT_ROLES | STUDIO_VIEW_USERS | STUDIO_EDIT_CONTENT | STUDIO_VIEW_CONTENT
+
     # HACK: Limited Staff should not have studio read access. However, since many LMS views depend on the
     #  `has_course_author_access` check and `course_author_access_required` decorator, we have to allow write access
     #  by returning STUDIO_EDIT_CONTENT, if the request is made from LMS, until the permissions become more granular.
