@@ -33,6 +33,8 @@ from lms.djangoapps.discussion.rest_api.utils import (
     get_course_staff_users_list,
     get_moderator_users_list,
     get_course_ta_users_list,
+    get_course_eshe_instructors,
+    get_course_teaching_assistants,
 )
 from openedx.core.djangoapps.discussions.models import DiscussionTopicLink
 from openedx.core.djangoapps.discussions.utils import get_group_names_by_id
@@ -67,6 +69,11 @@ def get_context(course, request, thread=None):
     course_staff_user_ids = get_course_staff_users_list(course.id)
     moderator_user_ids = get_moderator_users_list(course.id)
     ta_user_ids = get_course_ta_users_list(course.id)
+
+    custom_staff_role_user_ids = set(
+        get_course_eshe_instructors(course.id) + get_course_teaching_assistants(course.id)
+        )
+
     requester = request.user
     cc_requester = CommentClientUser.from_django_user(requester).retrieve(course_id=course.id)
     cc_requester["course_id"] = course.id
@@ -82,6 +89,7 @@ def get_context(course, request, thread=None):
         "moderator_user_ids": moderator_user_ids,
         "course_staff_user_ids": course_staff_user_ids,
         "ta_user_ids": ta_user_ids,
+        "custom_staff_role_user_ids": custom_staff_role_user_ids,
         "cc_requester": cc_requester,
         "has_moderation_privilege": has_moderation_privilege,
         "is_global_staff": is_global_staff,
@@ -207,11 +215,12 @@ class _ContentSerializer(serializers.Serializer):
         with the given id.
         """
         is_staff = user_id in self.context["course_staff_user_ids"]
+        is_custom_staff_role = user_id in self.context["custom_staff_role_user_ids"]
         is_moderator = user_id in self.context["moderator_user_ids"]
         is_ta = user_id in self.context["ta_user_ids"]
 
         return (
-            "Staff" if is_staff else
+            "Staff" if is_staff or is_custom_staff_role else
             "Moderator" if is_moderator else
             "Community TA" if is_ta else
             None
