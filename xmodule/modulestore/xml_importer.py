@@ -948,24 +948,41 @@ def _update_and_import_block(  # pylint: disable=too-many-statements
             if lib_content_block_already_published:
                 return block
 
+            synced_from_library = False
             try:
                 # Update library content block's children on draft branch
                 with store.branch_setting(branch_setting=ModuleStoreEnum.Branch.draft_preferred):
-                    try:
-                        block.sync_from_library()
-                    except ObjectDoesNotExist:
-                        # If the source library does not exist, that's OK, the library content will still kinda work.
-                        # Unfortunately, any setting defaults that are set in the library will be missing.
-                        # TODO save library default settings to course's OLX and then load them here if available:
-                        # https://github.com/openedx/edx-platform/issues/33742
-                        pass
+                    block.sync_from_library()
+            except ObjectDoesNotExist:
+                # The library, or the specific source_library_version this block is pinned to, is
+                # not present in this modulestore. That's OK: the children named in the course OLX
+                # are left as-is and are imported by the depth-first walk in
+                # ImportManager.recursive_build() after this function returns.
+                # TODO save library default settings to course's OLX and then load them here if available:
+                # https://github.com/openedx/edx-platform/issues/33742
+                log.warning(
+                    "Course import %s: could not sync %s from library %s (version %s); "
+                    "keeping the children defined in the course OLX.",
+                    dest_course_id,
+                    block.location,
+                    block.source_library_id,
+                    block.source_library_version,
+                )
             except ValueError as err:
                 # The specified library version does not exist.
                 log.error(err)
             else:
-                # Publish it if importing the course for branch setting published_only.
-                if store.get_branch_setting() == ModuleStoreEnum.Branch.published_only:
-                    store.publish(block.location, user_id)
+                synced_from_library = True
+
+            # Only publish when the sync actually ran. sync_from_library() rewrites this block's
+            # children and materializes those child blocks in the draft branch; publishing here is
+            # what copies them into the published branch. When the sync did not run, the children
+            # are still the ones named by the course OLX and none of them have been imported yet,
+            # so publishing makes _copy_subdag() walk children that are absent from the structure,
+            # raising KeyError(BlockKey(...)) which surfaces as BlockFailedToImport and aborts the
+            # whole course import.
+            if synced_from_library and store.get_branch_setting() == ModuleStoreEnum.Branch.published_only:
+                store.publish(block.location, user_id)
 
     return block
 
