@@ -978,6 +978,10 @@ class _BuiltInProblemBlock(
         progress = self.get_progress()
         score, total = (progress.frac() if progress else (0, 0))
 
+        # When the weight does not divide evenly between the questions, the score is a repeating
+        # fraction (e.g. 0.3333333333333333). This rounds it the same way `Progress.__str__` does.
+        score = round(score, 2)
+
         # Withhold the score if hiding correctness
         if not self.correctness_available():
             score = None
