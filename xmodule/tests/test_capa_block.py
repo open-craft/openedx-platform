@@ -2752,6 +2752,24 @@ class ProblemBlockTest(unittest.TestCase):  # lint-amnesty, pylint: disable=miss
         assert score == expected_score
         assert total == 1
 
+    @ddt.data(
+        (1, 3, 0.33),
+        (2, 3, 0.67),
+        (1, 2, 0.5),
+        (3, 3, 1),
+    )
+    @ddt.unpack
+    def test_get_display_progress_rounds_the_score(self, raw_earned, raw_possible, expected_score):
+        """
+        Check that the displayed score is rounded to at most two decimal places.
+        """
+        block = CapaFactory.create(attempts=1)
+        block.weight = 1
+        block.score = Score(raw_earned=raw_earned, raw_possible=raw_possible)
+        score, total = block.get_display_progress()
+        assert score == expected_score
+        assert total == 1
+
     def test_get_html(self):
         """
         Check that get_html() calls get_progress() with no arguments.
