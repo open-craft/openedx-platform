@@ -7,20 +7,22 @@ from __future__ import annotations
 import abc
 import json
 from io import BytesIO
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 import ddt
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.urls import reverse
 from edx_django_utils.cache import RequestCache
 from opaque_keys.edx.locator import BlockUsageLocator, CourseLocator, LibraryCollectionLocator, LibraryContainerLocator
-from openedx_tagging.core.tagging.models import Tag, Taxonomy
-from openedx_tagging.core.tagging.models.system_defined import SystemDefinedTaxonomy
-from openedx_tagging.core.tagging.rest_api.v1.serializers import TaxonomySerializer
+from openedx_authz.constants import permissions as authz_permissions
+from openedx_authz.constants.roles import COURSE_AUDITOR, COURSE_EDITOR, COURSE_STAFF
+from openedx_tagging.models import Tag, Taxonomy
+from openedx_tagging.rest_api.v1.serializers import TaxonomySerializer
 from organizations.models import Organization
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from common.djangoapps.student.auth import add_users, update_org_role
 from common.djangoapps.student.roles import (
@@ -29,13 +31,17 @@ from common.djangoapps.student.roles import (
     OrgContentCreatorRole,
     OrgInstructorRole,
     OrgLibraryUserRole,
-    OrgStaffRole
+    OrgStaffRole,
 )
-from common.djangoapps.student.tests.factories import UserFactory
+from common.djangoapps.student.tests.factories import StaffFactory, UserFactory
+from openedx.core.djangoapps.authz.tests.mixins import CourseAuthzTestMixin
 from openedx.core.djangoapps.content_libraries.api import AccessLevel, create_library, set_library_user_permissions
 from openedx.core.djangoapps.content_tagging import api as tagging_api
+from openedx.core.djangoapps.content_tagging.api import set_taxonomy_orgs
 from openedx.core.djangoapps.content_tagging.models import TaxonomyOrg
 from openedx.core.djangolib.testing.utils import skip_unless_cms
+from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase
+from xmodule.modulestore.tests.factories import CourseFactory
 
 from ....tests.test_objecttag_export_helpers import TaggedCourseMixin
 
@@ -61,7 +67,7 @@ def check_taxonomy(
     enabled=True,
     allow_multiple=True,
     allow_free_text=False,
-    system_defined=False,
+    read_only=False,
     visible_to_authors=True,
     export_id=None,
     **_
@@ -75,7 +81,7 @@ def check_taxonomy(
     assert data["enabled"] == enabled
     assert data["allow_multiple"] == allow_multiple
     assert data["allow_free_text"] == allow_free_text
-    assert data["system_defined"] == system_defined
+    assert data["read_only"] == read_only
     assert data["visible_to_authors"] == visible_to_authors
     assert data["export_id"] == export_id
 
@@ -196,20 +202,22 @@ class TestTaxonomyObjectsMixin:
         self.ot1 = tagging_api.create_taxonomy(name="ot1", enabled=True)
         self.ot2 = tagging_api.create_taxonomy(name="ot2", enabled=False)
 
-        # System defined taxonomy
-        self.st1 = tagging_api.create_taxonomy(name="st1", enabled=True)
-        self.st1.taxonomy_class = SystemDefinedTaxonomy
-        self.st1.save()
+        # Read-only taxonomy
+        self.ro1 = tagging_api.create_taxonomy(name="ro1", enabled=True)
+        self.ro1.add_tag("read only tag")
+        self.ro1.read_only = True
+        self.ro1.save()
         TaxonomyOrg.objects.create(
-            taxonomy=self.st1,
+            taxonomy=self.ro1,
             rel_type=TaxonomyOrg.RelType.OWNER,
             org=None,
         )
-        self.st2 = tagging_api.create_taxonomy(name="st2", enabled=False)
-        self.st2.taxonomy_class = SystemDefinedTaxonomy
-        self.st2.save()
+        self.ro2 = tagging_api.create_taxonomy(name="ro2", enabled=False)
+        self.ro2.add_tag("read only tag in ro2")
+        self.ro2.read_only = True
+        self.ro2.save()
         TaxonomyOrg.objects.create(
-            taxonomy=self.st2,
+            taxonomy=self.ro2,
             rel_type=TaxonomyOrg.RelType.OWNER,
         )
 
@@ -332,14 +340,14 @@ class TestTaxonomyListCreateViewSet(TestTaxonomyObjectsMixin, APITestCase):
         response = self.client.get(url, query_params, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        self.assertEqual(set(t["name"] for t in response.data["results"]), set(expected_taxonomies))
+        self.assertEqual(set(t["name"] for t in response.data["results"]), set(expected_taxonomies))  # noqa: PT009
 
     def test_list_taxonomy_staff(self) -> None:
         """
         Tests that staff users see all taxonomies
         """
         # page_size=10, and so "tBA1" and "tBA2" appear on the second page
-        expected_taxonomies = ["ot1", "ot2", "st1", "st2", "t1", "t2", "tA1", "tA2", "tB1", "tB2"]
+        expected_taxonomies = ["ot1", "ot2", "ro1", "ro2", "t1", "t2", "tA1", "tA2", "tB1", "tB2"]
         self._test_list_taxonomy(
             user_attr="staff",
             expected_taxonomies=expected_taxonomies,
@@ -358,7 +366,7 @@ class TestTaxonomyListCreateViewSet(TestTaxonomyObjectsMixin, APITestCase):
         """
         Tests that non staff users from orgA can see only enabled taxonomies from orgA and global taxonomies
         """
-        expected_taxonomies = ["st1", "t1", "tA1", "tBA1"]
+        expected_taxonomies = ["ro1", "t1", "tA1", "tBA1"]
         self._test_list_taxonomy(
             user_attr=user_attr,
             enabled_parameter=True,
@@ -366,8 +374,8 @@ class TestTaxonomyListCreateViewSet(TestTaxonomyObjectsMixin, APITestCase):
         )
 
     @ddt.data(
-        (True, ["ot1", "st1", "t1", "tA1", "tB1", "tBA1"]),
-        (False, ["ot2", "st2", "t2", "tA2", "tB2", "tBA2"]),
+        (True, ["ot1", "ro1", "t1", "tA1", "tB1", "tBA1"]),
+        (False, ["ot2", "ro2", "t2", "tA2", "tB2", "tBA2"]),
     )
     @ddt.unpack
     def test_list_taxonomy_enabled_filter(self, enabled_parameter: bool, expected_taxonomies: list[str]) -> None:
@@ -381,11 +389,11 @@ class TestTaxonomyListCreateViewSet(TestTaxonomyObjectsMixin, APITestCase):
         )
 
     @ddt.data(
-        ("orgA", ["st1", "st2", "t1", "t2", "tA1", "tA2", "tBA1", "tBA2"]),
-        ("orgB", ["st1", "st2", "t1", "t2", "tB1", "tB2", "tBA1", "tBA2"]),
-        ("orgX", ["st1", "st2", "t1", "t2"]),
+        ("orgA", ["ro1", "ro2", "t1", "t2", "tA1", "tA2", "tBA1", "tBA2"]),
+        ("orgB", ["ro1", "ro2", "t1", "t2", "tB1", "tB2", "tBA1", "tBA2"]),
+        ("orgX", ["ro1", "ro2", "t1", "t2"]),
         # Non-existent orgs are ignored
-        ("invalidOrg", ["st1", "st2", "t1", "t2"]),
+        ("invalidOrg", ["ro1", "ro2", "t1", "t2"]),
     )
     @ddt.unpack
     def test_list_taxonomy_org_filter(self, org_parameter: str, expected_taxonomies: list[str]) -> None:
@@ -426,7 +434,7 @@ class TestTaxonomyListCreateViewSet(TestTaxonomyObjectsMixin, APITestCase):
     @ddt.data(
         ("user", (), None),
         ("staffA", ["tA2", "tBA1", "tBA2"], None),
-        ("staff", ["st2", "t1", "t2"], "3"),
+        ("staff", ["ro2", "t1", "t2"], "3"),
     )
     @ddt.unpack
     def test_list_taxonomy_pagination(
@@ -446,7 +454,7 @@ class TestTaxonomyListCreateViewSet(TestTaxonomyObjectsMixin, APITestCase):
 
         assert response.status_code == status.HTTP_200_OK if len(expected_taxonomies) > 0 else status.HTTP_404_NOT_FOUND
         if status.is_success(response.status_code):
-            self.assertEqual(set(t["name"] for t in response.data["results"]), set(expected_taxonomies))
+            self.assertEqual(set(t["name"] for t in response.data["results"]), set(expected_taxonomies))  # noqa: PT009
             parsed_url = urlparse(response.data["next"])
 
             next_page = parse_qs(parsed_url.query).get("page", [None])[0]
@@ -513,7 +521,7 @@ class TestTaxonomyListCreateViewSet(TestTaxonomyObjectsMixin, APITestCase):
                 assert response.data["orgs"] == [self.orgA.short_name]
 
     @ddt.data(
-        ('staff', 11),
+        ('staff', 10),
         ("content_creatorA", 22),
         ("library_staffA", 22),
         ("library_userA", 22),
@@ -536,14 +544,9 @@ class TestTaxonomyListCreateViewSet(TestTaxonomyObjectsMixin, APITestCase):
         assert response.data["can_add_taxonomy"] == user.is_staff
         assert len(response.data["results"]) == 4
         for taxonomy in response.data["results"]:
-            if taxonomy["system_defined"]:
-                assert not taxonomy["can_change_taxonomy"]
-                assert not taxonomy["can_delete_taxonomy"]
-                assert taxonomy["can_tag_object"]
-            else:
-                assert taxonomy["can_change_taxonomy"] == user.is_staff
-                assert taxonomy["can_delete_taxonomy"] == user.is_staff
-                assert taxonomy["can_tag_object"]
+            assert taxonomy["can_change_taxonomy"] == user.is_staff  # Note: taxonomy.read_only only affects its tags,
+            assert taxonomy["can_delete_taxonomy"] == user.is_staff  # not the metadata about the taxonomy.
+            assert taxonomy["can_tag_object"]
 
 
 @ddt.ddt
@@ -663,7 +666,7 @@ class TestTaxonomyDetailExportMixin(TestTaxonomyObjectsMixin):
         )
 
     @ddt.data(
-        "st2",
+        "ro2",
         "t2",
     )
     def test_detail_taxonomy_org_admin_dont_see_disabled_global(self, taxonomy_attr: str) -> None:
@@ -803,8 +806,8 @@ class TestTaxonomyDetailExportMixin(TestTaxonomyObjectsMixin):
     @ddt.data(
         "ot1",
         "ot2",
-        "st1",
-        "st2",
+        "ro1",
+        "ro2",
         "t1",
         "t2",
         "tA1",
@@ -862,7 +865,7 @@ class TestTaxonomyDetailViewSet(TestTaxonomyDetailExportMixin, APITestCase):
             check_taxonomy(
                 response.data,
                 taxonomy.pk,
-                **(TaxonomySerializer(taxonomy.cast(), context=context)).data,
+                **(TaxonomySerializer(taxonomy, context=context)).data,
             )
 
 
@@ -912,8 +915,8 @@ class TestTaxonomyChangeMixin(TestTaxonomyObjectsMixin):
     @ddt.data(
         "ot1",
         "ot2",
-        "st1",
-        "st2",
+        "ro1",
+        "ro2",
         "t1",
         "t2",
         "tA1",
@@ -997,34 +1000,19 @@ class TestTaxonomyChangeMixin(TestTaxonomyObjectsMixin):
         "tB2",
         "tBA1",
         "tBA2",
-
+        "ro1",  # Even read-only taxonomies can be edited; just not their tags
+        "ro2",
     )
     def test_staff_can_edit_almost_all_taxonomies(self, taxonomy_attr: str) -> None:
         """
-        Tests that staff can edit all but system defined taxonomies
+        Tests that staff can edit all taxonomies
         """
         self._test_api_call(
             user_attr="staff",
             taxonomy_attr=taxonomy_attr,
             # Check both status: 200 for update and 204 for delete
             expected_status=[status.HTTP_200_OK, status.HTTP_204_NO_CONTENT],
-            reason="Staff should be able to edit all but system defined taxonomies",
-        )
-
-    @ddt.data(
-        "st1",
-        "st2",
-    )
-    def test_staff_cant_edit_system_defined_taxonomies(self, taxonomy_attr: str) -> None:
-        """
-        Tests that staff can't edit system defined taxonomies
-        """
-        self._test_api_call(
-            user_attr="staff",
-            taxonomy_attr=taxonomy_attr,
-            # Check both status: 200 for update and 204 for delete
-            expected_status=[status.HTTP_403_FORBIDDEN],
-            reason="Staff shouldn't be able to edit system defined ",
+            reason="Staff should be able to edit all taxonomies",
         )
 
 
@@ -1065,6 +1053,7 @@ class TestTaxonomyUpdateViewSet(TestTaxonomyChangeMixin, APITestCase):
                     "description": taxonomy.description,
                     "enabled": taxonomy.enabled,
                     "export_id": taxonomy.export_id,
+                    "read_only": taxonomy.read_only,
                 },
             )
 
@@ -1106,6 +1095,7 @@ class TestTaxonomyPatchViewSet(TestTaxonomyChangeMixin, APITestCase):
                     "description": taxonomy.description,
                     "enabled": taxonomy.enabled,
                     "export_id": taxonomy.export_id,
+                    "read_only": taxonomy.read_only,
                 },
             )
 
@@ -1221,22 +1211,6 @@ class TestTaxonomyUpdateOrg(TestTaxonomyObjectsMixin, APITestCase):
         url = TAXONOMY_ORG_DETAIL_URL.format(pk=self.tA1.pk)
         response = self.client.get(url)
         assert response.data["orgs"] == [self.orgA.short_name]
-
-    def test_update_org_system_defined(self) -> None:
-        """
-        Tests that is not possible to change the orgs associated with a system defined taxonomy
-        """
-        url = TAXONOMY_ORG_UPDATE_ORG_URL.format(pk=self.st1.pk)
-        self.client.force_authenticate(user=self.staff)
-
-        response = self.client.put(url, {"orgs": [self.orgA.short_name]}, format="json")
-        assert response.status_code in [status.HTTP_403_FORBIDDEN, status.HTTP_400_BAD_REQUEST]
-
-        # Check that the orgs didn't change
-        url = TAXONOMY_ORG_DETAIL_URL.format(pk=self.st1.pk)
-        response = self.client.get(url)
-        assert response.data["orgs"] == []
-        assert response.data["all_orgs"]
 
     @ddt.data(
         "staffA",
@@ -1624,6 +1598,35 @@ class TestObjectTagViewSet(TestObjectTagMixin, APITestCase):
             assert status.is_success(new_response.status_code)
             assert new_response.data == response.data
 
+    @ddt.data("libraryA", "collection_key", "container_key")
+    @patch("openedx_authz.api.is_user_allowed")
+    @patch("openedx.core.djangoapps.content_tagging.rules.has_studio_write_access")
+    def test_tag_library_objects_with_manage_library_tags_permission(
+        self,
+        object_attr,
+        mock_has_studio_write_access,
+        mock_is_user_allowed,
+    ):
+        """
+        Users with MANAGE_LIBRARY_TAGS permission should be able to tag:
+        - the library itself
+        - collections in the library
+        - containers in the library
+        """
+        mock_is_user_allowed.return_value = True
+        object_id = getattr(self, object_attr)
+
+        self.client.force_authenticate(user=self.library_userA)
+        response = self._call_put_request(object_id, self.tA1.pk, ["Tag 1"])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        mock_is_user_allowed.assert_called_with(
+            self.library_userA.username,
+            authz_permissions.MANAGE_LIBRARY_TAGS.identifier,
+            self.libraryA,
+        )
+        mock_has_studio_write_access.assert_not_called()
+
     @ddt.data(
         "staffA",
         "staff",
@@ -1787,7 +1790,7 @@ class TestObjectTagViewSet(TestObjectTagMixin, APITestCase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @ddt.data(
-        ("superuser", status.HTTP_200_OK),
+        ("superuser", status.HTTP_400_BAD_REQUEST),
         ("staff", status.HTTP_403_FORBIDDEN),
         ("staffA", status.HTTP_403_FORBIDDEN),
         ("staffB", status.HTTP_403_FORBIDDEN),
@@ -1795,7 +1798,8 @@ class TestObjectTagViewSet(TestObjectTagMixin, APITestCase):
     @ddt.unpack
     def test_tag_cross_org(self, user_attr, expected_status):
         """
-        Tests that only superusers may add a taxonomy from orgA to an object from orgB
+        Tests that even superusers may not add a taxonomy from orgA to an object
+        from orgB
         """
         user = getattr(self, user_attr)
         self.client.force_authenticate(user=user)
@@ -1805,7 +1809,7 @@ class TestObjectTagViewSet(TestObjectTagMixin, APITestCase):
         assert response.status_code == expected_status
 
     @ddt.data(
-        ("superuser", status.HTTP_200_OK),
+        ("superuser", status.HTTP_400_BAD_REQUEST),
         ("staff", status.HTTP_403_FORBIDDEN),
         ("staffA", status.HTTP_403_FORBIDDEN),
         ("staffB", status.HTTP_403_FORBIDDEN),
@@ -1813,7 +1817,7 @@ class TestObjectTagViewSet(TestObjectTagMixin, APITestCase):
     @ddt.unpack
     def test_tag_no_org(self, user_attr, expected_status):
         """
-        Tests that only superusers may add a no-org taxonomy to an object
+        Tests that event superusers cannot add a no-org taxonomy to an object
         """
         user = getattr(self, user_attr)
         self.client.force_authenticate(user=user)
@@ -1944,19 +1948,19 @@ class TestObjectTagViewSet(TestObjectTagMixin, APITestCase):
         assert response.data[str(object_id_2)]["taxonomies"] == expected_tags
 
     @ddt.data(
-        ('staff', 'courseA', 8),
-        ('staff', 'libraryA', 8),
-        ('staff', 'collection_key', 8),
-        ("content_creatorA", 'courseA', 17, False),
+        ('staff', 'courseA', 10),
+        ('staff', 'libraryA', 13),
+        ('staff', 'collection_key', 13),
+        ("content_creatorA", 'courseA', 14, False),
         ("content_creatorA", 'libraryA', 17, False),
         ("content_creatorA", 'collection_key', 17, False),
         ("library_staffA", 'libraryA', 17, False),  # Library users can only view objecttags, not change them?
         ("library_staffA", 'collection_key', 17, False),
         ("library_userA", 'libraryA', 17, False),
         ("library_userA", 'collection_key', 17, False),
-        ("instructorA", 'courseA', 17),
-        ("course_instructorA", 'courseA', 17),
-        ("course_staffA", 'courseA', 17),
+        ("instructorA", 'courseA', 14),
+        ("course_instructorA", 'courseA', 14),
+        ("course_staffA", 'courseA', 14),
     )
     @ddt.unpack
     def test_object_tags_query_count(
@@ -1964,7 +1968,7 @@ class TestObjectTagViewSet(TestObjectTagMixin, APITestCase):
             user_attr: str,
             object_attr: str,
             expected_queries: int,
-            expected_perm: bool = True):
+            expected_perm: bool = True):  # noqa: PT028
         """
         Test how many queries are used when retrieving object tags and permissions
         """
@@ -1988,6 +1992,11 @@ class TestObjectTagViewSet(TestObjectTagMixin, APITestCase):
         url = OBJECT_TAGS_URL.format(object_id=object_id)
         user = getattr(self, user_attr)
         self.client.force_authenticate(user=user)
+        # Pre-GET the endpoint to populate the in-memory caches of the current site and waffle flags.
+        # Without this, the number of queries can sometimes be different depending on the order in which these tests get
+        # run by the test runner, causing the test to occasionally be flaky.
+        self.client.get(url)
+        # Now run the test and count the queries:
         with self.assertNumQueries(expected_queries):
             response = self.client.get(url)
 
@@ -2050,6 +2059,277 @@ class TestContentObjectChildrenExportView(TaggedCourseMixin, APITestCase):  # ty
         self.client.force_authenticate(user=self.staff)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+@skip_unless_cms
+class TestContentObjectChildrenExportViewWithAuthz(CourseAuthzTestMixin, SharedModuleStoreTestCase, APITestCase):
+    """
+    Tests Tags Export in Course authorization using openedx-authz.
+    """
+
+    authz_roles_to_assign = [COURSE_STAFF.external_key]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.password = 'test'
+        cls.course = CourseFactory.create()
+        cls.course_key = cls.course.id
+        cls.staff = StaffFactory(course_key=cls.course_key, password=cls.password)
+
+    def get_url(self, course_key):
+        return reverse('content_tagging:taxonomy-object-tag-export', kwargs={'context_id': course_key})
+
+    def test_authorized_user_can_access(self):
+        """User with COURSE_STAFF role can access."""
+        resp = self.authorized_client.get(self.get_url(self.course_key))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)  # noqa: PT009
+
+    def test_unauthorized_user_cannot_access(self):
+        """User without role cannot access."""
+        resp = self.unauthorized_client.get(self.get_url(self.course_key))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)  # noqa: PT009
+
+    def test_role_scoped_to_course(self):
+        """Authorization should only apply to the assigned course."""
+        other_course = self.store.create_course("OtherOrg", "OtherCourse", "Run", self.staff.id)
+
+        resp = self.authorized_client.get(self.get_url(other_course.id))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)  # noqa: PT009
+
+    def test_staff_user_allowed_via_legacy(self):
+        """Staff users should still pass through legacy fallback."""
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.get(self.get_url(self.course_key))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)  # noqa: PT009
+
+    def test_superuser_allowed(self):
+        """Superusers should always be allowed."""
+        superuser = UserFactory(is_superuser=True)
+        client = APIClient()
+        client.force_authenticate(user=superuser)
+        resp = client.get(self.get_url(self.course_key))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)  # noqa: PT009
+
+
+@skip_unless_cms
+class TestObjectTagOrgViewWithAuthz(CourseAuthzTestMixin, SharedModuleStoreTestCase, APITestCase):
+    """
+    Test ObjectTagOrgView with authz permissions.
+    """
+
+    authz_roles_to_assign = [COURSE_STAFF.external_key]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.course = CourseFactory.create()
+        cls.course_key = cls.course.id
+
+    def setUp(self):
+        super().setUp()
+
+        # Create another course for cross-course scoping tests
+        self.other_course = self.store.create_course("OtherOrg", "OtherCourse", "Run", self.authorized_user.id)
+        self.other_course_key = self.other_course.id
+
+        # Create taxonomy
+        self.taxonomy = tagging_api.create_taxonomy(
+            name="Test Taxonomy",
+            description="Test taxonomy for authz",
+        )
+        set_taxonomy_orgs(self.taxonomy, all_orgs=True)
+
+        # Create tags
+        self.tag1 = self.taxonomy.add_tag("Tag 1")
+        self.tag2 = self.taxonomy.add_tag("Tag 2")
+
+        # Create auditor user with view-only permissions
+        self.auditor_user = UserFactory(password=self.password)
+        self.auditor_client = APIClient()
+        self.auditor_client.force_authenticate(user=self.auditor_user)
+
+        # Assign auditor role to auditor_user
+        self.add_user_to_role_in_course(
+            self.auditor_user,
+            COURSE_AUDITOR.external_key,
+            self.course_key
+        )
+
+    def _update_tags_request(self, object_id, tags_data=None):
+        """Helper method to make PUT request to update tags."""
+        if tags_data is None:
+            tags_data = [
+                {
+                    "taxonomy": self.taxonomy.pk,
+                    "tags": ["Tag 1", "Tag 2"]
+                }
+            ]
+
+        url = OBJECT_TAG_UPDATE_URL.format(object_id=object_id)
+        return url, {"tagsData": tags_data}
+
+    def _get_tags_request(self, object_id):
+        """Helper method to make GET request to retrieve tags."""
+        url = OBJECT_TAGS_URL.format(object_id=object_id)
+        return url
+
+    def test_course_staff_can_update_tags(self):
+        """course_staff can update tags → 200"""
+        url, data = self._update_tags_request(str(self.course_key))
+        response = self.authorized_client.put(url, data, format='json')
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_course_auditor_denied_update(self):
+        """course_auditor denied → 403"""
+        url, data = self._update_tags_request(str(self.course_key))
+        response = self.auditor_client.put(url, data, format='json')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_no_role_user_denied_update(self):
+        """No-role user denied → 403"""
+        url, data = self._update_tags_request(str(self.course_key))
+        response = self.unauthorized_client.put(url, data, format='json')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_superuser_allowed_update(self):
+        """Superuser allowed → 200"""
+        url, data = self._update_tags_request(str(self.course_key))
+        response = self.super_client.put(url, data, format='json')
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_django_staff_allowed_update(self):
+        """Django is_staff allowed → 200"""
+        url, data = self._update_tags_request(str(self.course_key))
+        response = self.staff_client.put(url, data, format='json')
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_cross_course_scoping_denied(self):
+        """course_staff for course A tags course B → 403"""
+        url, data = self._update_tags_request(str(self.other_course_key))
+        response = self.authorized_client.put(url, data, format='json')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_course_staff_sees_manage_permissions(self):
+        """course_staff sees can_tag_object=True, can_delete_objecttag=True"""
+        # First add some tags to the course
+        url, data = self._update_tags_request(str(self.course_key))
+        response = self.authorized_client.put(url, data, format='json')
+        assert response.status_code == status.HTTP_200_OK
+
+        # Now check permissions in GET response
+        url = self._get_tags_request(str(self.course_key))
+        response = self.authorized_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+        # Check serializer permissions in response data
+        taxonomies = response.data[str(self.course_key)]["taxonomies"]
+        assert len(taxonomies) == 1
+        for taxonomy_data in taxonomies:
+            assert taxonomy_data.get('can_tag_object') is True
+            tags = taxonomy_data.get('tags', [])
+            assert len(tags) == 2
+            for tag_data in tags:
+                assert tag_data.get('can_delete_objecttag') is True
+
+    def test_course_auditor_sees_view_only_permissions(self):
+        """course_auditor sees can_tag_object=False, can_delete_objecttag=False"""
+        # First add some tags using authorized user
+        url, data = self._update_tags_request(str(self.course_key))
+        response = self.authorized_client.put(url, data, format='json')
+        assert response.status_code == status.HTTP_200_OK
+
+        # Now check permissions as auditor in GET response
+        url = self._get_tags_request(str(self.course_key))
+        response = self.auditor_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+        # Check serializer permissions in response data
+        taxonomies = response.data[str(self.course_key)]["taxonomies"]
+        assert len(taxonomies) == 1
+        for taxonomy_data in taxonomies:
+            assert taxonomy_data.get('can_tag_object') is False
+            tags = taxonomy_data.get('tags', [])
+            assert len(tags) == 2
+            for tag_data in tags:
+                assert tag_data.get('can_delete_objecttag') is False
+
+    def test_no_role_user_denied_view(self):
+        """No-role user denied on view → 403 (checks view_course)"""
+        url = self._get_tags_request(str(self.course_key))
+        response = self.unauthorized_client.get(url)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_course_editor_sees_org_scoped_taxonomy_tags(self):
+        """
+        A course editor (authz-only, no legacy org roles) can see tags from
+        an org-scoped taxonomy applied to their course.
+
+        Reproduces the scenario from review: admin tags a course with an
+        org-scoped taxonomy, course editor should see those tags.
+        """
+        # Create an Organization matching the course's org
+        course_org, _ = Organization.objects.get_or_create(
+            short_name=self.course_key.org
+        )
+
+        # Create an org-scoped taxonomy (not global)
+        org_taxonomy = tagging_api.create_taxonomy(
+            name="Org Taxonomy",
+            description="Taxonomy scoped to course org",
+        )
+        set_taxonomy_orgs(org_taxonomy, orgs=[course_org])
+        org_taxonomy.add_tag("OrgTag")
+
+        # Admin tags the course with the org-scoped taxonomy
+        tagging_api.tag_object(
+            object_id=str(self.course_key),
+            taxonomy=org_taxonomy,
+            tags=["OrgTag"],
+        )
+
+        # Create a course editor with authz only (no legacy roles)
+        editor_user = UserFactory(password=self.password)
+        editor_client = APIClient()
+        editor_client.force_authenticate(user=editor_user)
+        self.add_user_to_role_in_course(
+            editor_user, COURSE_EDITOR.external_key, self.course_key
+        )
+
+        # Course editor should see the org-scoped taxonomy tags
+        url = self._get_tags_request(str(self.course_key))
+        response = editor_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+        taxonomies = response.data[str(self.course_key)]["taxonomies"]
+        org_tax_names = [t["name"] for t in taxonomies]
+        assert "Org Taxonomy" in org_tax_names
+
+    def test_library_fallthrough_to_legacy(self):
+        """Library object_id falls through to legacy permissions"""
+        # Create organization for library
+        org, _ = Organization.objects.get_or_create(short_name="TestOrg")
+
+        # Create library
+        library = create_library(
+            org=org,
+            slug="test-lib",
+            title="Test Library",
+            description="Test library for authz fallthrough",
+        )
+        library_key = library.key
+
+        # Grant library access to authorized_user
+        set_library_user_permissions(
+            library_key,
+            self.authorized_user,
+            AccessLevel.ADMIN_LEVEL
+        )
+
+        # Test that library requests fall through to legacy permissions
+        url = self._get_tags_request(str(library_key))
+        response = self.authorized_client.get(url)
+        # Should succeed via legacy permissions, not authz
+        assert response.status_code == status.HTTP_200_OK
 
 
 @skip_unless_cms
@@ -2520,7 +2800,7 @@ class TestImportTagsView(ImportTaxonomyMixin, APITestCase):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == f"Invalid taxonomy ({self.taxonomy.id}): You cannot import a free-form taxonomy."
+        assert response.data == f"Invalid taxonomy ({self.taxonomy.id}): You cannot import to a free-text taxonomy."
 
         # Check if the taxonomy has no tags, since it is free text
         url = TAXONOMY_TAGS_URL.format(pk=self.taxonomy.id)
@@ -2572,12 +2852,12 @@ class TestTaxonomyTagsViewSet(TestTaxonomyObjectsMixin, APITestCase):
     """
     @ddt.data(
         ('staff', 11),
-        ("content_creatorA", 13),
-        ("library_staffA", 13),
-        ("library_userA", 13),
-        ("instructorA", 13),
-        ("course_instructorA", 13),
-        ("course_staffA", 13),
+        ("content_creatorA", 11),
+        ("library_staffA", 11),
+        ("library_userA", 11),
+        ("instructorA", 11),
+        ("course_instructorA", 11),
+        ("course_staffA", 11),
     )
     @ddt.unpack
     def test_taxonomy_tags_query_count(self, user_attr: str, expected_queries: int):
@@ -2588,6 +2868,12 @@ class TestTaxonomyTagsViewSet(TestTaxonomyObjectsMixin, APITestCase):
 
         user = getattr(self, user_attr)
         self.client.force_authenticate(user=user)
+
+        # Pre-GET the endpoint to populate the in-memory caches of the current site and waffle flags.
+        # Without this, the number of queries can sometimes be different depending on the order in which these tests get
+        # run by the test runner, causing the test to occasionally be flaky.
+        self.client.get(url)
+        # Now test the number of queries:
         with self.assertNumQueries(expected_queries):
             response = self.client.get(url)
 
@@ -2597,3 +2883,26 @@ class TestTaxonomyTagsViewSet(TestTaxonomyObjectsMixin, APITestCase):
         for taxonomy in response.data["results"]:
             assert taxonomy["can_change_tag"] == user.is_staff
             assert taxonomy["can_delete_tag"] == user.is_staff
+
+    @ddt.data(
+        ('staff', ),
+        ("content_creatorA", ),
+        ("library_staffA", ),
+    )
+    @ddt.unpack
+    def test_taxonomy_tags_read_only(self, user_attr: str):
+        """
+        Check taxonomy tag editing permissions with a read-only taxonomy
+        """
+        url = f"{TAXONOMY_TAGS_URL}".format(pk=self.ro1.id)
+
+        user = getattr(self, user_attr)
+        self.client.force_authenticate(user=user)
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.data["can_add_tag"]
+        assert len(response.data["results"]) == 1
+        for taxonomy in response.data["results"]:
+            assert not taxonomy["can_change_tag"]
+            assert not taxonomy["can_delete_tag"]

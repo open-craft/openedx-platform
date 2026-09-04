@@ -3,10 +3,10 @@ from urllib.parse import urlparse
 
 from crum import get_current_request
 from django import template
+from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from openedx.core.djangoapps.ace_common.tracking import CampaignTrackingInfo, GoogleAnalyticsTrackingPixel
-from openedx.core.djangolib.markup import HTML
 
 register = template.Library()  # pylint: disable=invalid-name
 
@@ -56,7 +56,7 @@ def _get_variables_from_context(context, tag_name):
 
     if request is None:
         raise template.VariableDoesNotExist(
-            'The {} template tag requires a "request" to be present in the template context. Consider using '
+            'The {} template tag requires a "request" to be present in the template context. Consider using '  # noqa: UP032  # pylint: disable=line-too-long
             '"emulate_http_request" if you are rendering the template in a celery task.'.format(tag_name)
         )
 
@@ -86,9 +86,7 @@ def google_analytics_tracking_pixel(context):
     """
     image_url = _get_google_analytics_tracking_url(context)
     if image_url is not None:
-        return mark_safe(
-            HTML('<img src="{0}" alt="" role="presentation" aria-hidden="true" />').format(HTML(image_url))
-        )
+        return format_html('<img src="{}" alt="" role="presentation" aria-hidden="true" />', image_url)
     else:
         return ''
 
@@ -96,13 +94,15 @@ def google_analytics_tracking_pixel(context):
 def _get_google_analytics_tracking_url(context):
     site, user, message = _get_variables_from_context(context, 'google_analytics_tracking_pixel')
 
+    user_id = user.id if user else None
+
     pixel = GoogleAnalyticsTrackingPixel(
         site=site,
-        user_id=user.id,
+        user_id=user_id,
         campaign_source=message.app_label,
         campaign_name=message.name,
         campaign_content=message.uuid,
-        document_path='/email/{}/{}/{}/{}'.format(
+        document_path='/email/{}/{}/{}/{}'.format(  # noqa: UP032
             message.app_label,
             message.name,
             message.send_uuid,

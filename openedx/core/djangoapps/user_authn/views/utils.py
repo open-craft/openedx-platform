@@ -2,29 +2,30 @@
 User Auth Views Utils
 """
 import logging
+import random
 import re
-from typing import Dict
+import string
+from datetime import datetime
+from typing import Dict  # noqa: UP035
 
 from django.conf import settings
 from django.contrib import messages
+from django.http import HttpRequest
 from django.utils.translation import gettext as _
 from ipware.ip import get_client_ip
+from openedx_filters.authentication.filters import AuthnMFEContextGenerated
+from openedx_filters.authentication.types import RunningPipeline
 from text_unidecode import unidecode
 
 from common.djangoapps import third_party_auth
 from common.djangoapps.third_party_auth import pipeline
-from common.djangoapps.third_party_auth.models import clean_username
+from common.djangoapps.third_party_auth.models import ProviderConfig, clean_username
 from openedx.core.djangoapps.embargo.models import GlobalRestrictedCountry
-from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from openedx.core.djangoapps.geoinfo.api import country_code_from_ip
-import random
-import string
-from datetime import datetime
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
 log = logging.getLogger(__name__)
 API_V1 = 'v1'
-UUID4_REGEX = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
-ENTERPRISE_ENROLLMENT_URL_REGEX = fr'/enterprise/{UUID4_REGEX}/course/{settings.COURSE_KEY_REGEX}/enroll'
 
 
 def third_party_auth_context(request, redirect_to, tpa_hint=None):
@@ -52,7 +53,8 @@ def third_party_auth_context(request, redirect_to, tpa_hint=None):
         "errorMessage": None,
         "registerFormSubmitButtonText": _("Create Account"),
         "syncLearnerProfileData": False,
-        "pipeline_user_details": {}
+        "pipeline_user_details": {},
+        "skipRegistrationOptionalCheckboxes": False
     }
 
     if third_party_auth.is_enabled():
@@ -92,9 +94,20 @@ def third_party_auth_context(request, redirect_to, tpa_hint=None):
                 context["finishAuthUrl"] = pipeline.get_complete_url(current_provider.backend_name)
                 context["syncLearnerProfileData"] = current_provider.sync_learner_profile_data
 
-                if current_provider.skip_registration_form:
-                    # As a reliable way of "skipping" the registration form, we just submit it automatically
+                if current_provider.skip_registration_form and (user_details or {}).get('email'):
+                    # As a reliable way of "skipping" the registration form, we just submit it automatically.
+                    # Only do this when the provider actually gave us an email: some providers (e.g. Facebook,
+                    # Microsoft Entra ID) can complete authentication without returning an email claim, and
+                    # auto-submitting in that case silently fails client-side validation, leaving the learner
+                    # stuck on a partially-filled form with no explanation. Falling back to the regular
+                    # registration form lets them fill in what's missing themselves.
                     context["autoSubmitRegForm"] = True
+
+                # Check if SAML provider wants to skip optional checkboxes
+                if hasattr(current_provider, 'skip_registration_optional_checkboxes'):
+                    context["skipRegistrationOptionalCheckboxes"] = (
+                        current_provider.skip_registration_optional_checkboxes
+                    )
 
         # Check for any error messages we may want to display:
         for msg in messages.get_messages(request):
@@ -106,17 +119,52 @@ def third_party_auth_context(request, redirect_to, tpa_hint=None):
     return context
 
 
-def get_mfe_context(request, redirect_to, tpa_hint=None):
+def get_running_third_party_auth_state(
+    request: HttpRequest,
+) -> tuple[RunningPipeline | None, ProviderConfig | None]:
     """
-    Returns Authn MFE context.
-    """
+    Return the third-party auth pipeline running for the request, and its provider.
 
+    Arguments:
+        request (HttpRequest): The request to inspect for a running pipeline.
+
+    Returns:
+        tuple[RunningPipeline, ProviderConfig]: the running pipeline and its provider.
+
+        Both are None when third party auth is disabled or when no pipeline is running for
+        the request. When a pipeline *is* running but its provider could not be determined,
+        the pipeline is returned alongside a None provider. The invariant is therefore
+        one-directional: a non-None provider implies a non-None pipeline, but not the
+        reverse.
+    """
+    if not third_party_auth.is_enabled():
+        return None, None
+
+    running_pipeline = pipeline.get(request)
+    if not running_pipeline:
+        return None, None
+
+    return running_pipeline, third_party_auth.provider.Registry.get_from_pipeline(running_pipeline)
+
+
+def get_mfe_context(request, redirect_to, tpa_hint=None):
+    """Return Authn MFE context including country code and any plugin-provided data."""
     ip_address = get_client_ip(request)[0]
     country_code = country_code_from_ip(ip_address)
     context = third_party_auth_context(request, redirect_to, tpa_hint)
+
     context.update({
         'countryCode': country_code,
     })
+
+    # .. filter_implemented_name: AuthnMFEContextGenerated
+    # .. filter_type: org.openedx.authentication.mfe.context.generated.v1
+    context, extra_context = AuthnMFEContextGenerated.run_filter(context=context, extra_context={})
+
+    # Entries the pipeline contributed that ContextDataSerializer does not declare fields for.
+    # The serializer merges them into the response alongside the declared fields.
+    context['extra_context'] = extra_context
+
     return context
 
 
@@ -182,7 +230,7 @@ def get_auto_generated_username(data):
     return f"{username_prefix}_{username_suffix}" if username_prefix else username_suffix
 
 
-def remove_disabled_country_from_list(countries: Dict) -> Dict:
+def remove_disabled_country_from_list(countries: Dict) -> Dict:  # noqa: UP006
     """
     Remove disabled countries from the list of countries.
 
@@ -192,7 +240,7 @@ def remove_disabled_country_from_list(countries: Dict) -> Dict:
     Returns:
     - dict: Dict of countries with disabled countries removed.
     """
-    if not settings.FEATURES.get("EMBARGO", False):
+    if not settings.EMBARGO:
         return countries
 
     for country_code in GlobalRestrictedCountry.get_countries():

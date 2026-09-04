@@ -6,7 +6,7 @@ Test the student dashboard view.
 import itertools
 import json
 import unittest
-from datetime import datetime, timedelta  # lint-amnesty, pylint: disable=unused-import
+from datetime import datetime, timedelta  # pylint: disable=unused-import
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -32,11 +32,11 @@ from common.djangoapps.student.views.dashboard import check_for_unacknowledged_n
 from common.djangoapps.util.milestones_helpers import (
     get_course_milestones,
     remove_prerequisite_course,
-    set_prerequisite_courses
+    set_prerequisite_courses,
 )
-from common.djangoapps.util.testing import UrlResetMixin  # lint-amnesty, pylint: disable=unused-import
-from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
+from common.djangoapps.util.testing import UrlResetMixin  # pylint: disable=unused-import  # noqa: F401
 from lms.djangoapps.certificates.data import CertificateStatuses
+from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
 from lms.djangoapps.commerce.utils import EcommerceService
 from openedx.core.djangoapps.catalog.tests.factories import ProgramFactory
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -45,9 +45,14 @@ from openedx.core.djangoapps.site_configuration.tests.test_util import with_site
 from openedx.core.djangolib.testing.utils import skip_unless_lms
 from openedx.features.course_duration_limits.models import CourseDurationLimitConfig
 from openedx.features.course_experience.tests.views.helpers import add_course_mode
-from xmodule.data import CertificatesDisplayBehaviors  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory, BlockFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.data import CertificatesDisplayBehaviors  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    SharedModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import (  # pylint: disable=wrong-import-order
+    BlockFactory,
+    CourseFactory,
+)
 
 TOMORROW = now() + timedelta(days=1)
 ONE_WEEK_AGO = now() - timedelta(weeks=1)
@@ -187,9 +192,8 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
     EMAIL_SETTINGS_ELEMENT_ID = "#actions-item-email-settings-0"
     ENABLED_SIGNALS = ['course_published']
     MOCK_SETTINGS = {
+        'DISABLE_START_DATES': False,
         'FEATURES': {
-            'DISABLE_START_DATES': False,
-            'ENABLE_MKTG_SITE': True,
             'DISABLE_SET_JWT_COOKIES_FOR_TESTS': True,
         },
         'SOCIAL_SHARING_SETTINGS': {
@@ -200,7 +204,6 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
     }
     MOCK_SETTINGS_HIDE_COURSES = {
         'FEATURES': {
-            'HIDE_DASHBOARD_COURSES_UNTIL_ACTIVATED': True,
             'DISABLE_SET_JWT_COOKIES_FOR_TESTS': True,
         }
     }
@@ -305,8 +308,8 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
         Verify that the course sharing icons show up if course is starting in future and
         any of marketing or social sharing urls are set.
         """
-        self.course = CourseFactory.create(start=TOMORROW, emit_signals=True)  # lint-amnesty, pylint: disable=attribute-defined-outside-init
-        self.course_enrollment = CourseEnrollmentFactory(course_id=self.course.id, user=self.user)  # lint-amnesty, pylint: disable=attribute-defined-outside-init
+        self.course = CourseFactory.create(start=TOMORROW, emit_signals=True)  # pylint: disable=attribute-defined-outside-init
+        self.course_enrollment = CourseEnrollmentFactory(course_id=self.course.id, user=self.user)  # pylint: disable=attribute-defined-outside-init
         self.set_course_sharing_urls(set_marketing, set_social_sharing)
 
         # Assert course sharing icons
@@ -314,21 +317,21 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
         assert ('Share on Twitter' in response.content.decode('utf-8')) == (set_marketing or set_social_sharing)
         assert ('Share on Facebook' in response.content.decode('utf-8')) == (set_marketing or set_social_sharing)
 
-    @patch.dict("django.conf.settings.FEATURES", {'ENABLE_PREREQUISITE_COURSES': True})
+    @override_settings(ENABLE_PREREQUISITE_COURSES=True)
     def test_pre_requisites_appear_on_dashboard(self):
         """
         When a course has a prerequisite, the dashboard should display the prerequisite.
         If we remove the prerequisite and access the dashboard again, the prerequisite
         should not appear.
         """
-        self.pre_requisite_course = CourseFactory.create(org='edx', number='999', display_name='Pre requisite Course')  # lint-amnesty, pylint: disable=attribute-defined-outside-init
-        self.course = CourseFactory.create(  # lint-amnesty, pylint: disable=attribute-defined-outside-init
+        self.pre_requisite_course = CourseFactory.create(org='edx', number='999', display_name='Pre requisite Course')  # pylint: disable=attribute-defined-outside-init
+        self.course = CourseFactory.create(  # pylint: disable=attribute-defined-outside-init
             org='edx',
             number='998',
             display_name='Test Course',
             pre_requisite_courses=[str(self.pre_requisite_course.id)]
         )
-        self.course_enrollment = CourseEnrollmentFactory(course_id=self.course.id, user=self.user)  # lint-amnesty, pylint: disable=attribute-defined-outside-init
+        self.course_enrollment = CourseEnrollmentFactory(course_id=self.course.id, user=self.user)  # pylint: disable=attribute-defined-outside-init
 
         set_prerequisite_courses(self.course.id, [str(self.pre_requisite_course.id)])
         response = self.client.get(reverse('dashboard'))
@@ -542,7 +545,7 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
             start=TOMORROW, self_paced=True, enrollment_end=TOMORROW
         )
         mock_course_overview.return_value = mocked_course_overview
-        course_enrollment = CourseEnrollmentFactory(user=self.user, course_id=str(mocked_course_overview.id), created=THREE_YEARS_AGO)  # lint-amnesty, pylint: disable=line-too-long
+        course_enrollment = CourseEnrollmentFactory(user=self.user, course_id=str(mocked_course_overview.id), created=THREE_YEARS_AGO)  # pylint: disable=line-too-long
         mock_course_runs.return_value = [
             {
                 'key': str(mocked_course_overview.id),
@@ -552,7 +555,7 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
                 'status': 'published'
             }
         ]
-        entitlement = CourseEntitlementFactory(user=self.user, enrollment_course_run=course_enrollment, created=THREE_YEARS_AGO)  # lint-amnesty, pylint: disable=line-too-long
+        entitlement = CourseEntitlementFactory(user=self.user, enrollment_course_run=course_enrollment, created=THREE_YEARS_AGO)  # pylint: disable=line-too-long
         program = ProgramFactory()
         program['courses'][0]['course_runs'] = [{'key': str(mocked_course_overview.id)}]
         program['courses'][0]['uuid'] = entitlement.course_uuid
@@ -595,6 +598,7 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
         response = self.client.get(self.path)
         assert pq(response.content)(self.EMAIL_SETTINGS_ELEMENT_ID).length == 0
 
+    @override_settings(HIDE_DASHBOARD_COURSES_UNTIL_ACTIVATED=True)
     @patch.multiple('django.conf.settings', **MOCK_SETTINGS_HIDE_COURSES)
     def test_hide_dashboard_courses_until_activated(self):
         """
@@ -655,7 +659,7 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
         return ''.join(response.content.decode('utf-8').split())
 
     @staticmethod
-    def _pull_course_run_from_course_key(course_key: CourseKey):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def _pull_course_run_from_course_key(course_key: CourseKey):  # pylint: disable=missing-function-docstring
         return course_key.run.replace('_', ' ')
 
     @staticmethod
@@ -669,7 +673,7 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
                 &nbsp;{course_run}
               </span>
             </a>
-        '''.format(course_key=course_key_string, course_run=course_run_string)
+        '''.format(course_key=course_key_string, course_run=course_run_string)  # noqa: UP032
 
     @staticmethod
     def _get_html_for_resume_course_button(course_key_string, resume_block_key_string, course_run_string):
@@ -682,7 +686,7 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
                 &nbsp;{course_run}
               </span>
             </a>
-        '''.format(
+        '''.format(  # noqa: UP032
             course_key=course_key_string,
             url_to_block=resume_block_key_string,
             course_run=course_run_string
@@ -698,7 +702,7 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
             <button class="change-session btn-link ">Change or Leave Session</button>
             </span>
             </div>
-        '''.format(
+        '''.format(  # noqa: UP032
             org=course_key.org,
             course=course_key.course,
         )
@@ -1009,7 +1013,11 @@ class StudentDashboardTests(SharedModuleStoreTestCase, MilestonesTestCaseMixin, 
 
 
 @skip_unless_lms
-@unittest.skipUnless(settings.FEATURES.get("ENABLE_NOTICES"), 'Notices plugin is not enabled')
+# TODO: It seems like ENABLE_NOTICES does not exist on the backend at all. There's a
+# frontend config flag called ENABLE_NOTICES, but it's unaffected by anything on the
+# backend. We should remove this skipUnless and the override_settings calls, and get
+# then get these tests to pass as-is.
+@unittest.skipUnless(getattr(settings, "ENABLE_NOTICES", False), 'Notices plugin is not enabled')
 class TestCourseDashboardNoticesRedirects(SharedModuleStoreTestCase):
     """
     Tests for the Dashboard redirect functionality introduced via the Notices plugin.
@@ -1082,13 +1090,13 @@ class TestCourseDashboardNoticesRedirects(SharedModuleStoreTestCase):
         Verifies that we will redirect the learner to the URL returned from the `check_for_unacknowledged_notices`
         function.
         """
-        mock_notices.return_value = reverse("about")
+        mock_notices.return_value = reverse("root")
 
-        with override_settings(FEATURES={**settings.FEATURES, 'ENABLE_NOTICES': True}):
+        with override_settings(ENABLE_NOTICES=True):
             response = self.client.get(self.path)
 
         assert response.status_code == 302
-        assert response.url == "/about"
+        assert response.url == "/"
         mock_notices.assert_called_once()
 
     @patch('common.djangoapps.student.views.dashboard.check_for_unacknowledged_notices')
@@ -1099,7 +1107,7 @@ class TestCourseDashboardNoticesRedirects(SharedModuleStoreTestCase):
         """
         mock_notices.return_value = None
 
-        with override_settings(FEATURES={**settings.FEATURES, 'ENABLE_NOTICES': True}):
+        with override_settings(ENABLE_NOTICES=True):
             response = self.client.get(self.path)
 
         assert response.status_code == 200
@@ -1112,7 +1120,7 @@ class TestCourseDashboardNoticesRedirects(SharedModuleStoreTestCase):
         """
         mock_notices.return_value = None
 
-        with override_settings(FEATURES={**settings.FEATURES, 'ENABLE_NOTICES': False}):
+        with override_settings(ENABLE_NOTICES=False):
             response = self.client.get(self.path)
 
         assert response.status_code == 200

@@ -2,12 +2,12 @@
 
 
 import logging
+from datetime import date, datetime
 from textwrap import dedent
 from time import time
-from datetime import date, datetime
 
-from django.core.management import BaseCommand, CommandError
 from django.conf import settings
+from django.core.management import BaseCommand, CommandError
 from elasticsearch import exceptions
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
@@ -15,7 +15,7 @@ from opaque_keys.edx.locator import CourseLocator
 from search.search_engine_base import SearchEngine
 
 from cms.djangoapps.contentstore.courseware_index import CourseAboutSearchIndexer, CoursewareSearchIndexer
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 from .prompt import query_yes_no
 
@@ -29,6 +29,8 @@ class Command(BaseCommand):
         ./manage.py reindex_course <course_id_1> <course_id_2> ... - reindexes courses with provided keys
         ./manage.py reindex_course --all --warning - reindexes all available courses with quieter logging
         ./manage.py reindex_course --setup - reindexes all courses for devstack setup
+        ./manage.py reindex_course --from_inclusion_date - reindexes courses that start on or after
+            settings.COURSEWARE_SEARCH_INCLUSION_DATE (defaults to 2020-01-01 if that setting is unset)
     """
     help = dedent(__doc__)
     CONFIRMATION_PROMPT = "Re-indexing all courses might be a time consuming operation. Do you want to continue?"
@@ -45,7 +47,9 @@ class Command(BaseCommand):
                             help='Reindex active courses only')
         parser.add_argument('--from_inclusion_date',
                             action='store_true',
-                            help='Reindex courses with a start date greater than COURSEWARE_SEARCH_INCLUSION_DATE'
+                            help='Reindex courses with a start date on or after '
+                                 'settings.COURSEWARE_SEARCH_INCLUSION_DATE (defaults to 2020-01-01 '
+                                 'if that setting is unset)'
                             )
         parser.add_argument('--setup',
                             action='store_true',
@@ -60,7 +64,7 @@ class Command(BaseCommand):
         try:
             result = CourseKey.from_string(raw_value)
         except InvalidKeyError:
-            raise CommandError("Invalid course_key: '%s'." % raw_value)  # lint-amnesty, pylint: disable=raise-missing-from
+            raise CommandError("Invalid course_key: '%s'." % raw_value)  # pylint: disable=raise-missing-from  # noqa: B904, UP031
 
         if not isinstance(result, CourseLocator):
             raise CommandError(f"Argument {raw_value} is not a course key")
@@ -83,7 +87,7 @@ class Command(BaseCommand):
         course_option_flag_option = index_all_courses_option or active_option or inclusion_date_option
 
         if (not course_ids and not course_option_flag_option) or (course_ids and course_option_flag_option):
-            raise CommandError((
+            raise CommandError((  # noqa: UP034
                 "reindex_course requires one or more <course_id>s"
                 " OR the --all, --active, --setup, or --from_inclusion_date flags."
             ))
@@ -142,10 +146,15 @@ class Command(BaseCommand):
             # the settings defined COURSEWARE_SEARCH_INCLUSION_DATE
             all_courses = modulestore().get_courses()
 
-            inclusion_date = datetime.strptime(
-                settings.FEATURES.get('COURSEWARE_SEARCH_INCLUSION_DATE', '2020-01-01'),
-                '%Y-%m-%d'
-            )
+            configured_inclusion_date = settings.COURSEWARE_SEARCH_INCLUSION_DATE
+            if not configured_inclusion_date:
+                configured_inclusion_date = '2020-01-01'
+                logging.warning(
+                    'COURSEWARE_SEARCH_INCLUSION_DATE is not set; defaulting to %s for '
+                    '--from_inclusion_date filtering.',
+                    configured_inclusion_date,
+                )
+            inclusion_date = datetime.strptime(configured_inclusion_date, '%Y-%m-%d')
 
             # We keep the courses that has a start date and the start date is greater than the inclusion date
             active_courses = filter(lambda course: course.start and (course.start >= inclusion_date), all_courses)
@@ -172,7 +181,7 @@ class Command(BaseCommand):
                     t = time() - start
                     remaining = total - success - len(errors)
                     logging.warning(f'{success} courses reindexed in {t:.1f} seconds. {remaining} remaining...')
-            except Exception as exc:  # lint-amnesty, pylint: disable=broad-except
+            except Exception as exc:  # pylint: disable=broad-except
                 errors.append(course_key)
                 logging.exception('Error indexing course %s due to the error: %s.', course_key, exc)
 

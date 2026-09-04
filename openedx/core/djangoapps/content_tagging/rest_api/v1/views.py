@@ -3,41 +3,49 @@ Tagging Org API Views
 """
 from __future__ import annotations
 
+import functools
+from typing import TYPE_CHECKING
+
 from django.db.models import Count
 from django.http import StreamingHttpResponse
-from openedx_tagging.core.tagging import rules as oel_tagging_rules
-from openedx_tagging.core.tagging.rest_api.v1.views import ObjectTagView, TaxonomyView
+from openedx_authz import api as authz_api
+from openedx_authz.constants.permissions import COURSES_MANAGE_TAGS, COURSES_VIEW_COURSE
+from openedx_tagging import rules as oel_tagging_rules
+from openedx_tagging.api import TagDoesNotExist
+from openedx_tagging.rest_api.v1.views import ObjectTagView, TaxonomyView
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from openedx_events.content_authoring.data import ContentObjectData, ContentObjectChangedData
-from openedx_events.content_authoring.signals import (
-    CONTENT_OBJECT_ASSOCIATIONS_CHANGED,
-    CONTENT_OBJECT_TAGS_CHANGED,
-)
 
 from openedx.core.types.http import RestRequest
 
-from ...auth import has_view_object_tags_access
 from ...api import (
+    InvalidOrgException,
     create_taxonomy,
     generate_csv_rows,
     get_taxonomies,
     get_taxonomies_for_org,
     get_taxonomy,
     get_unassigned_taxonomies,
-    set_taxonomy_orgs
+    set_taxonomy_orgs,
+    tag_object,
 )
+from ...auth import has_view_object_tags_access, should_use_course_authz_for_object
 from ...rules import get_admin_orgs
 from .filters import ObjectTagTaxonomyOrgFilterBackend, UserOrgFilterBackend
 from .serializers import (
     ObjectTagCopiedMinimalSerializer,
+    ObjectTagOrgByTaxonomySerializer,
     TaxonomyOrgListQueryParamsSerializer,
     TaxonomyOrgSerializer,
     TaxonomyUpdateOrgBodySerializer,
 )
+
+if TYPE_CHECKING:
+    from opaque_keys.edx.keys import CourseKey
 
 
 class TaxonomyOrgView(TaxonomyView):
@@ -154,34 +162,89 @@ class ObjectTagOrgView(ObjectTagView):
 
     Refer to ObjectTagView docstring for usage details.
     """
+    # Serializer overrides
     minimal_serializer_class = ObjectTagCopiedMinimalSerializer
+    object_tags_serializer_class = ObjectTagOrgByTaxonomySerializer
+
     filter_backends = [ObjectTagTaxonomyOrgFilterBackend]
 
-    def update(self, request, *args, **kwargs) -> Response:
+    @functools.cached_property
+    def _authz_check(self) -> tuple[bool, CourseKey | None]:
         """
-        Extend the update method to fire CONTENT_OBJECT_ASSOCIATIONS_CHANGED event
+        Cache the authz toggle + key-parsing result for the current object_id.
+
+        Safe to cache per-instance because DRF creates a new view instance per request.
         """
-        response = super().update(request, *args, **kwargs)
-        if response.status_code == 200:
-            object_id = kwargs.get('object_id')
+        object_id = self.kwargs.get('object_id')
+        if object_id:
+            return should_use_course_authz_for_object(object_id)
+        return False, None
 
-            # .. event_implemented_name: CONTENT_OBJECT_ASSOCIATIONS_CHANGED
-            # .. event_type: org.openedx.content_authoring.content.object.associations.changed.v1
-            CONTENT_OBJECT_ASSOCIATIONS_CHANGED.send_event(
-                content_object=ContentObjectChangedData(
-                    object_id=object_id,
-                    changes=["tags"],
-                )
-            )
+    def get_permissions(self):
+        """
+        Override get_permissions when using openedx-authz.
 
-            # Emit a (deprecated) CONTENT_OBJECT_TAGS_CHANGED event too
-            # .. event_implemented_name: CONTENT_OBJECT_TAGS_CHANGED
-            # .. event_type: org.openedx.content_authoring.content.object.tags.changed.v1
-            CONTENT_OBJECT_TAGS_CHANGED.send_event(
-                content_object=ContentObjectData(object_id=object_id)
-            )
+        When the toggle is enabled for course objects, we need to change the default
+        permission classes set by the parent ObjectTagView so that only openedx-authz
+        permissions are used.
+        """
+        if self._authz_check[0]:
+            return [IsAuthenticated()]
 
-        return response
+        return super().get_permissions()
+
+    def ensure_has_view_object_tag_permission(self, user, taxonomy, object_id):
+        """
+        Check if user has permission to view object tags.
+
+        This method is overridden to conditionally use openedx-authz when the toggle is enabled.
+        """
+        should_use_authz, course_key = self._authz_check
+        if should_use_authz and not authz_api.is_user_allowed(
+            user.username, COURSES_VIEW_COURSE.identifier, str(course_key)
+        ):
+            raise PermissionDenied("You do not have permission to view object tags.")
+        if not should_use_authz:
+            # Fall back to parent implementation
+            super().ensure_has_view_object_tag_permission(user, taxonomy, object_id)
+
+    def ensure_user_has_can_tag_object_permissions(self, user, tags_data, object_id):
+        """
+        Check if user has permission to tag object for each taxonomy in tags_data.
+
+        This method is overridden to conditionally use openedx-authz when the toggle is enabled.
+
+        When using openedx-authz, if the user has manage tags permission for the course,
+        they can tag the object regardless of the taxonomy.
+        """
+        should_use_authz, course_key = self._authz_check
+        if should_use_authz and not authz_api.is_user_allowed(
+            user.username, COURSES_MANAGE_TAGS.identifier, str(course_key)
+        ):
+            raise PermissionDenied("You do not have permission to manage object tags.")
+        if not should_use_authz:
+            # Fall back to parent implementation
+            super().ensure_user_has_can_tag_object_permissions(user, tags_data, object_id)
+
+    def _apply_updated_tags(self, data: dict, object_id: str):
+        """
+        This overrides the helper method used by ObjectTagView.update() so that the tags are applied using this
+        platform's ``tag_object`` API, which only allows tagging with taxonomies that are enabled for the object's
+        organization, and which fires the CONTENT_OBJECT_ASSOCIATIONS_CHANGED / CONTENT_OBJECT_TAGS_CHANGED events.
+        """
+        # Tag object_id per taxonomy
+        for tag_data in data:
+            taxonomy = tag_data.get("taxonomy")
+            tags = tag_data.get("tags", [])
+            try:
+                # Call our `tag_object`, not oel_tagging's `tag_object`
+                tag_object(object_id, taxonomy, tags)
+            except InvalidOrgException as e:
+                raise ValidationError(e.messages) from e
+            except TagDoesNotExist as e:
+                raise ValidationError from e
+            except ValueError as e:
+                raise ValidationError from e
 
 
 class ObjectTagExportView(APIView):
@@ -193,7 +256,7 @@ class ObjectTagExportView(APIView):
         Export a CSV with all children and tags for a given course/context.
         """
 
-        class Echo(object):
+        class Echo(object):  # noqa: UP004
             """
             Class that implements just the write method of the file-like interface,
             used for the streaming response.

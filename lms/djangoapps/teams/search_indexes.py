@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import translation
-from elasticsearch.exceptions import ConnectionError  # lint-amnesty, pylint: disable=redefined-builtin
+from elasticsearch.exceptions import ConnectionError  # pylint: disable=redefined-builtin
 from search.search_engine_base import SearchEngine
 
 from lms.djangoapps.teams.models import CourseTeam
@@ -79,7 +79,7 @@ class CourseTeamIndexer:
         """
         # Always use the English version of any localizable strings (see TNL-3239)
         with translation.override('en'):
-            return "{name}\n{description}\n{country}\n{language}".format(
+            return "{name}\n{description}\n{country}\n{language}".format(  # noqa: UP032
                 name=self.course_team.name,
                 description=self.course_team.description,
                 country=self.course_team.country.name.format(),
@@ -124,14 +124,14 @@ class CourseTeamIndexer:
             return SearchEngine.get_search_engine(index=cls.INDEX_NAME)
         except ConnectionError as err:
             logging.error('Error connecting to elasticsearch: %s', err)
-            raise ElasticSearchConnectionError  # lint-amnesty, pylint: disable=raise-missing-from
+            raise ElasticSearchConnectionError  # pylint: disable=raise-missing-from  # noqa: B904
 
     @classmethod
     def search_is_enabled(cls):
         """
         Return boolean of whether course team indexing is enabled.
         """
-        return settings.FEATURES.get(cls.ENABLE_SEARCH_KEY, False)
+        return getattr(settings, cls.ENABLE_SEARCH_KEY, False)
 
 
 @receiver(post_save, sender=CourseTeam, dispatch_uid='teams.signals.course_team_post_save_callback')

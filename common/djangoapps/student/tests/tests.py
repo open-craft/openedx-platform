@@ -9,9 +9,10 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import ddt
+import pytest
 from config_models.models import cache
 from django.conf import settings
-from django.contrib.auth.models import AnonymousUser, User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import AnonymousUser, User  # pylint: disable=imported-auth-user
 from django.test import TestCase, override_settings
 from django.test.client import Client
 from django.urls import reverse
@@ -28,10 +29,11 @@ from common.djangoapps.student.models import (
     AnonymousUserId,
     CourseEnrollment,
     LinkedInAddToProfileConfiguration,
+    NonExistentCourseError,
     UserAttribute,
     anonymous_id_for_user,
     unique_id_for_user,
-    user_by_anonymous_id
+    user_by_anonymous_id,
 )
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
 from common.djangoapps.student.toggles import REDIRECT_TO_COURSEWARE_AFTER_ENROLLMENT
@@ -46,12 +48,18 @@ from openedx.core.djangoapps.catalog.tests.factories import CourseRunFactory, Pr
 from openedx.core.djangoapps.content.course_overviews.tests.factories import CourseOverviewFactory
 from openedx.core.djangoapps.programs.tests.mixins import ProgramsApiConfigMixin
 from openedx.core.djangoapps.site_configuration.tests.mixins import SiteMixin
+from openedx.core.djangoapps.site_configuration.tests.test_util import with_site_configuration_context
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_unless_lms
 from openedx.features.course_experience.url_helpers import make_learning_mfe_courseware_url
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase, SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory, check_mongo_calls  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.data import CertificatesDisplayBehaviors  # lint-amnesty, pylint: disable=wrong-import-order
-from openedx.core.djangoapps.site_configuration.tests.test_util import with_site_configuration_context
+from xmodule.data import CertificatesDisplayBehaviors  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (  # pylint: disable=wrong-import-order
+    ModuleStoreTestCase,
+    SharedModuleStoreTestCase,
+)
+from xmodule.modulestore.tests.factories import (  # pylint: disable=wrong-import-order
+    CourseFactory,
+    check_mongo_calls,
+)
 
 log = logging.getLogger(__name__)
 
@@ -74,7 +82,7 @@ class CourseEndingTest(ModuleStoreTestCase):
         link2_expected = f"http://www.mysurvey.com?unique={user_id}"
         assert process_survey_link(link2, user) == link2_expected
 
-    @patch.dict('django.conf.settings.FEATURES', {'CERTIFICATES_HTML_VIEW': False})
+    @override_settings(CERTIFICATES_HTML_VIEW=False)
     def test_cert_info(self):
         user = UserFactory.create()
         survey_url = "http://a_survey.com"
@@ -359,7 +367,7 @@ class DashboardTest(ModuleStoreTestCase, TestVerificationBase):
             self.assertContains(response, f'class="course {mode}"')
         self.assertContains(response, value)
 
-    @patch.dict("django.conf.settings.FEATURES", {'ENABLE_VERIFIED_CERTIFICATES': True})
+    @override_settings(ENABLE_VERIFIED_CERTIFICATES=True)
     def test_verification_status_visible(self):
         """
         Test that the certificate verification status for courses is visible on the dashboard.
@@ -396,7 +404,7 @@ class DashboardTest(ModuleStoreTestCase, TestVerificationBase):
             self.assertNotContains(response, f"class=\"course {mode}\"")
             self.assertNotContains(response, value)
 
-    @patch.dict("django.conf.settings.FEATURES", {'ENABLE_VERIFIED_CERTIFICATES': False})
+    @override_settings(ENABLE_VERIFIED_CERTIFICATES=False)
     def test_verification_status_invisible(self):
         """
         Test that the certificate verification status for courses is not visible on the dashboard
@@ -471,7 +479,7 @@ class DashboardTest(ModuleStoreTestCase, TestVerificationBase):
         self.assertNotContains(response, escape(response_url))
 
     @skip_unless_lms
-    @patch.dict('django.conf.settings.FEATURES', {'CERTIFICATES_HTML_VIEW': False})
+    @override_settings(CERTIFICATES_HTML_VIEW=False)
     def test_linked_in_add_to_profile_btn_with_certificate(self):
         # If user has a certificate with valid linked-in config then Add Certificate to LinkedIn button
         # should be visible. and it has URL value with valid parameters.
@@ -615,7 +623,7 @@ class DashboardTestsWithSiteOverrides(SiteMixin, ModuleStoreTestCase):
         cache.clear()
 
     @skip_unless_lms
-    @patch.dict("django.conf.settings.FEATURES", {'ENABLE_VERIFIED_CERTIFICATES': False})
+    @override_settings(ENABLE_VERIFIED_CERTIFICATES=False)
     @ddt.data(
         ('testserver1.com', {'ENABLE_VERIFIED_CERTIFICATES': True}),
         ('testserver2.com', {'ENABLE_VERIFIED_CERTIFICATES': True, 'DISPLAY_COURSE_MODES_ON_DASHBOARD': True}),
@@ -636,7 +644,7 @@ class DashboardTestsWithSiteOverrides(SiteMixin, ModuleStoreTestCase):
         self.assertContains(response, 'class="course professional"')
 
     @skip_unless_lms
-    @patch.dict("django.conf.settings.FEATURES", {'ENABLE_VERIFIED_CERTIFICATES': False})
+    @override_settings(ENABLE_VERIFIED_CERTIFICATES=False)
     @ddt.data(
         ('testserver3.com', {'ENABLE_VERIFIED_CERTIFICATES': False}),
         ('testserver4.com', {'DISPLAY_COURSE_MODES_ON_DASHBOARD': False}),
@@ -661,7 +669,7 @@ class UserSettingsEventTestMixin(EventTestMixin):
     """
     Mixin for verifying that user setting events were emitted during a test.
     """
-    def setUp(self):  # lint-amnesty, pylint: disable=arguments-differ
+    def setUp(self):  # pylint: disable=arguments-differ
         super().setUp('common.djangoapps.util.model_utils.tracker')
 
     def assert_user_setting_event_emitted(self, **kwargs):
@@ -688,7 +696,7 @@ class UserSettingsEventTestMixin(EventTestMixin):
 
 class EnrollmentEventTestMixin(EventTestMixin):
     """ Mixin with assertions for validating enrollment events. """
-    def setUp(self):  # lint-amnesty, pylint: disable=arguments-differ
+    def setUp(self):  # pylint: disable=arguments-differ
         super().setUp('common.djangoapps.student.models.course_enrollment.tracker')
         segment_patcher = patch('common.djangoapps.student.models.course_enrollment.segment')
         self.mock_segment_tracker = segment_patcher.start()
@@ -853,7 +861,7 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         assert CourseEnrollment.enroll_by_email('not_jack@fake.edx.org', course_id) is None
         self.assert_no_events_were_emitted()
 
-        self.assertRaises(
+        self.assertRaises(  # noqa: PT027
             User.DoesNotExist,
             CourseEnrollment.enroll_by_email,
             "not_jack@fake.edx.org",
@@ -875,6 +883,47 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         # Unenroll on non-existent user shouldn't throw an error
         CourseEnrollment.unenroll_by_email("not_jack@fake.edx.org", course_id)
         self.assert_no_events_were_emitted()
+
+    @skip_unless_lms
+    @patch('common.djangoapps.student.models.course_enrollment.log')
+    def test_enroll_non_existent_course_squelch_logs(self, mock_log):
+        user = UserFactory.create(username="squelchy", email="squelchy@example.com")
+        course_id = CourseLocator("edX", "NoExist", "2013")
+
+        def test_and_assert_case(squelch_pii, expected_user_identifier):
+            mock_log.reset_mock()
+            with self.settings(SQUELCH_PII_IN_LOGS=squelch_pii):
+                with pytest.raises(NonExistentCourseError):
+                    CourseEnrollment.enroll(user, course_id, check_access=True)
+                mock_log.warning.assert_any_call(
+                    "User %s failed to enroll in non-existent course %s",
+                    expected_user_identifier,
+                    str(course_id)
+                )
+
+        test_and_assert_case(True, user.id)
+        test_and_assert_case(False, user.username)
+
+    @skip_unless_lms
+    @patch('common.djangoapps.student.models.course_enrollment.log')
+    def test_enroll_by_email_non_existent_user_squelch_logs(self, mock_log):
+        course_id = CourseLocator("edX", "Test101", "2013")
+        CourseOverviewFactory.create(id=course_id)
+        email = "non_existent_user@example.com"
+
+        def test_and_assert_case(squelch_pii, expected_email_for_log):
+            mock_log.reset_mock()
+            with self.settings(SQUELCH_PII_IN_LOGS=squelch_pii):
+                with pytest.raises(User.DoesNotExist):
+                    CourseEnrollment.enroll_by_email(email, course_id, ignore_errors=False)
+                mock_log.error.assert_any_call(
+                    "Tried to enroll email %s into course %s, but user not found",
+                    expected_email_for_log,
+                    course_id
+                )
+
+        test_and_assert_case(True, "[REDACTED]")
+        test_and_assert_case(False, email)
 
     @skip_unless_lms
     def test_enrollment_multiple_classes(self):

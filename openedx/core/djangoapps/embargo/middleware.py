@@ -16,7 +16,7 @@ Embargo can restrict by states and whitelist/blacklist (IP Addresses
 
 Usage:
 
-1) Enable embargo by setting `settings.FEATURES['EMBARGO']` to True.
+1) Enable embargo by setting `settings.EMBARGO` to True.
 
 2) In Django admin, create a new `IPFilter` model to block or whitelist
     an IP address from accessing the site.
@@ -32,9 +32,9 @@ from typing import Optional
 
 from django.conf import settings
 from django.core.exceptions import MiddlewareNotUsed
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.deprecation import MiddlewareMixin
-from django.shortcuts import redirect
 from edx_django_utils import ip
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -63,11 +63,11 @@ class EmbargoMiddleware(MiddlewareMixin):
 
     def __init__(self, *args, **kwargs):
         # If embargoing is turned off, make this middleware do nothing
-        if not settings.FEATURES.get('EMBARGO'):
+        if not settings.EMBARGO:
             raise MiddlewareNotUsed()
         super().__init__(*args, **kwargs)
 
-    def process_request(self, request: Request) -> Optional[Response]:
+    def process_request(self, request: Request) -> Optional[Response]:  # noqa: UP045
         """Block requests based on embargo rules.
 
         This will perform the following checks:
@@ -133,7 +133,7 @@ class EmbargoMiddleware(MiddlewareMixin):
             # This applies only to courseware URLs.
             return self.country_access_rules(request)
 
-    def country_access_rules(self, request: Request) -> Optional[Response]:
+    def country_access_rules(self, request: Request) -> Optional[Response]:  # noqa: UP045
         """
         Check the country access rules for a given course.
         Applies only to courseware URLs.

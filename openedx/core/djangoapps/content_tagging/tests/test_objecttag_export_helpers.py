@@ -2,9 +2,8 @@
 Test the objecttag_export_helpers module
 """
 import time
-from unittest.mock import patch
 
-from openedx_tagging.core.tagging.models import ObjectTag
+from openedx_tagging.models import ObjectTag
 from organizations.models import Organization
 
 from openedx.core.djangoapps.content_libraries import api as library_api
@@ -204,11 +203,6 @@ class TaggedCourseMixin(TestGetAllObjectTagsMixin, ModuleStoreTestCase):  # type
     def setUp(self):
         super().setUp()
 
-        # Patch modulestore
-        self.patcher = patch("openedx.core.djangoapps.content_tagging.tasks.modulestore", return_value=self.store)
-        self.addCleanup(self.patcher.stop)
-        self.patcher.start()
-
         # Create course
         self.course = CourseFactory.create(
             org=self.orgA.short_name,
@@ -279,7 +273,7 @@ class TaggedCourseMixin(TestGetAllObjectTagsMixin, ModuleStoreTestCase):  # type
         untagged_sequential.children.append(untagged_vertical)
         # /Untagged blocks
 
-        vertical = BlockFactory.create(
+        vertical = BlockFactory.create(  # noqa: F841
             parent=self.sequential,
             category="vertical",
             display_name="test vertical1",
@@ -442,7 +436,7 @@ class TestContentTagChildrenExport(TaggedCourseMixin):  # type: ignore[misc]
         """
         Test if we can export a library
         """
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(10):
             tagged_library = build_object_tree_with_objecttags(self.library.key, self.all_library_object_tags)
 
         assert tagged_library == self.expected_library_tagged_xblock
