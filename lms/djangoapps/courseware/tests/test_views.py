@@ -1296,7 +1296,7 @@ class ProgressPageTests(ProgressPageBaseTests):
             ), check_mongo_calls(2):
                 self._get_progress_page()
 
-    @patch.dict(settings.FEATURES, {'ENABLE_CERTIFICATES_IDV_REQUIREMENT': True})
+    @override_settings(ENABLE_CERTIFICATES_IDV_REQUIREMENT=True)
     @ddt.data(
         *itertools.product(
             (
@@ -1581,7 +1581,7 @@ class ProgressPageTests(ProgressPageBaseTests):
         """
         certs_api.set_certificate_generation_config(enabled=True)
         certs_api.set_cert_generation_enabled(self.course.id, True)
-        with patch.dict(settings.FEATURES, ENABLE_CERTIFICATES_IDV_REQUIREMENT=enable_cert_idv_requirement):
+        with override_settings(ENABLE_CERTIFICATES_IDV_REQUIREMENT=enable_cert_idv_requirement):
             with patch(
                 'lms.djangoapps.certificates.api.certificate_downloadable_status',
                 return_value=self.mock_certificate_downloadable_status()
@@ -2696,8 +2696,7 @@ class AccessUtilsTestCase(ModuleStoreTestCase):
         },
     )
     @ddt.unpack
-    @override_settings(DISABLE_START_DATES=False)
-    @patch.dict('django.conf.settings.FEATURES', {'ENABLE_ENTERPRISE_INTEGRATION': True})
+    @override_settings(DISABLE_START_DATES=False, ENABLE_ENTERPRISE_INTEGRATION=True)
     def test_is_course_open_for_learner(
         self,
         start_date_modifier,
@@ -3225,7 +3224,7 @@ class TestCoursewareMFESearchAPI(SharedModuleStoreTestCase):
         self.assertEqual(response.status_code, 200)  # noqa: PT009
         self.assertEqual(body, {'enabled': False})  # noqa: PT009
 
-    @patch.dict('django.conf.settings.FEATURES', {'COURSEWARE_SEARCH_INCLUSION_DATE': '2020'})
+    @override_settings(COURSEWARE_SEARCH_INCLUSION_DATE='2020')
     @override_waffle_flag(COURSEWARE_MICROFRONTEND_SEARCH_ENABLED, active=False)
     @ddt.data(
         (datetime(2013, 9, 18, 11, 30, 00), False),

@@ -111,9 +111,7 @@ class LoginTest(OpenEdxEventsTestMixin, SiteMixin, CacheIsolationTestCase):
             mock_audit_log, 'warning', ['Login failed - Account not active for user.id: 1, resending activation']
         )
 
-    @patch.dict(settings.FEATURES, {
-        "ENABLE_THIRD_PARTY_AUTH": True
-    })
+    @override_settings(ENABLE_THIRD_PARTY_AUTH=True)
     @patch(
         'openedx.core.djangoapps.user_authn.views.login.is_require_third_party_auth_enabled',
         Mock(return_value=True)
@@ -203,7 +201,7 @@ class LoginTest(OpenEdxEventsTestMixin, SiteMixin, CacheIsolationTestCase):
         self._assert_response(response, success=True)
         self._assert_redirect_url(response, expected_redirect)
 
-    @patch.dict("django.conf.settings.FEATURES", {'SQUELCH_PII_IN_LOGS': True})
+    @override_settings(SQUELCH_PII_IN_LOGS=True)
     def test_login_success_no_pii(self):
         response, mock_audit_log = self._login_response(
             self.user_email, self.password, patched_audit_log='common.djangoapps.student.models.user.AUDIT_LOG'
@@ -235,7 +233,7 @@ class LoginTest(OpenEdxEventsTestMixin, SiteMixin, CacheIsolationTestCase):
         )
         self._assert_audit_log(mock_audit_log, 'warning', ['Login failed', 'Unknown user email', email_hash])
 
-    @patch.dict("django.conf.settings.FEATURES", {'SQUELCH_PII_IN_LOGS': True})
+    @override_settings(SQUELCH_PII_IN_LOGS=True)
     def test_login_fail_no_user_exists_no_pii(self):
         nonexistent_email = 'not_a_user@edx.org'
         response, mock_audit_log = self._login_response(
@@ -255,7 +253,7 @@ class LoginTest(OpenEdxEventsTestMixin, SiteMixin, CacheIsolationTestCase):
         self._assert_audit_log(mock_audit_log, 'warning',
                                ['Login failed', 'password for', str(self.user.id), 'invalid'])
 
-    @patch.dict("django.conf.settings.FEATURES", {'SQUELCH_PII_IN_LOGS': True})
+    @override_settings(SQUELCH_PII_IN_LOGS=True)
     def test_login_fail_wrong_password_no_pii(self):
         response, mock_audit_log = self._login_response(self.user_email, 'wrong_password')
         self._assert_response(response, success=False, value=self.LOGIN_FAILED_WARNING)
@@ -425,7 +423,7 @@ class LoginTest(OpenEdxEventsTestMixin, SiteMixin, CacheIsolationTestCase):
         }
         assert_dict_contains_subset(self, expected, response.context_data)
 
-    @patch.dict("django.conf.settings.FEATURES", {'SQUELCH_PII_IN_LOGS': True})
+    @override_settings(SQUELCH_PII_IN_LOGS=True)
     def test_logout_logging_no_pii(self):
         response, _ = self._login_response(self.user_email, self.password)
         self._assert_response(response, success=True)
@@ -686,7 +684,7 @@ class LoginTest(OpenEdxEventsTestMixin, SiteMixin, CacheIsolationTestCase):
             response_content = json.loads(response.content.decode('utf-8'))
         assert response_content.get('success')
 
-    @patch.dict(settings.FEATURES, {"ENABLE_MAX_FAILED_LOGIN_ATTEMPTS": True})
+    @override_settings(ENABLE_MAX_FAILED_LOGIN_ATTEMPTS=True)
     @override_settings(PASSWORD_POLICY_COMPLIANCE_ROLLOUT_CONFIG={'ENFORCE_COMPLIANCE_ON_LOGIN': True})
     def test_check_password_policy_compliance_exception(self):
         """
