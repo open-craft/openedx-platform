@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import mimetypes
+import time
 import zipfile
 from contextlib import closing
 from datetime import datetime, timedelta
@@ -18,10 +19,13 @@ import boto3
 import requests
 from django.conf import settings
 from django.contrib.staticfiles.storage import staticfiles_storage
-from django.http import FileResponse, HttpResponseNotFound, StreamingHttpResponse
+from django.http import FileResponse, HttpResponse, HttpResponseNotFound, StreamingHttpResponse
 from django.shortcuts import redirect
+from django.urls import reverse
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_noop
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from edx_toggles.toggles import WaffleSwitch
 from edxval.api import (
     SortDirection,
@@ -33,6 +37,7 @@ from edxval.api import (
     get_transcript_preferences,
     get_video_transcript_url,
     get_videos_for_course,
+    is_video_available,
     remove_transcript_preferences,
     remove_video_for_course,
     update_video_image,
@@ -200,7 +205,7 @@ def handle_videos(request, course_key_string, edx_video_id=None):
     """
     course = _get_and_validate_course(course_key_string, request.user)
 
-    if (not course and not use_mock_video_uploads()):
+    if not course:
         return HttpResponseNotFound()
 
     if request.method == "GET":
@@ -643,10 +648,13 @@ def _get_and_validate_course(course_key_string, user):
     course = get_course_and_check_access(course_key, user)
 
     if (
-        settings.ENABLE_VIDEO_UPLOAD_PIPELINE and
-        getattr(settings, "VIDEO_UPLOAD_PIPELINE", None) and
-        course and
-        course.video_pipeline_configured
+        course and (
+            use_mock_video_uploads() or (
+                settings.ENABLE_VIDEO_UPLOAD_PIPELINE and
+                getattr(settings, "VIDEO_UPLOAD_PIPELINE", None) and
+                course.video_pipeline_configured
+            )
+        )
     ):
         return course
     else:
@@ -847,10 +855,9 @@ def videos_post(course, request):
     The returned array corresponds exactly to the input array.
     """
 
-    if use_mock_video_uploads():
-        return {'files': [{
-            'file_name': 'video.mp4', 'upload_url': 'http://example.com/put_video', 'edx_video_id': '1234'
-        }]}, 200
+    mock_uploads = use_mock_video_uploads()
+    if mock_uploads and not course:
+        return {'error': 'Course Not Found'}, 404
 
     error = None
     data = request.json
@@ -870,7 +877,8 @@ def videos_post(course, request):
     if error:
         return {'error': error}, 400
 
-    bucket = storage_service_bucket()
+    if not mock_uploads:
+        bucket = storage_service_bucket()
     req_files = data['files']
     resp_files = []
 
@@ -884,41 +892,46 @@ def videos_post(course, request):
             return {'error': error_msg}, 400
 
         edx_video_id = str(uuid4())
-        key_name = storage_service_key(bucket, file_name=edx_video_id)
+        if mock_uploads:
+            upload_url = request.build_absolute_uri(reverse(
+                'mock_video_upload', kwargs={'edx_video_id': edx_video_id}
+            ))
+        else:
+            key_name = storage_service_key(bucket, file_name=edx_video_id)
 
-        metadata_list = [
-            ('client_video_id', file_name),
-            ('course_key', str(course.id)),
-        ]
+            metadata_list = [
+                ('client_video_id', file_name),
+                ('course_key', str(course.id)),
+            ]
 
-        course_video_upload_token = course.video_upload_pipeline.get('course_video_upload_token')
+            course_video_upload_token = course.video_upload_pipeline.get('course_video_upload_token')
 
-        # Only include `course_video_upload_token` if youtube has not been deprecated
-        # for this course.
-        if not DEPRECATE_YOUTUBE.is_enabled(course.id) and course_video_upload_token:
-            metadata_list.append(('course_video_upload_token', course_video_upload_token))
+            # Only include `course_video_upload_token` if youtube has not been deprecated
+            # for this course.
+            if not DEPRECATE_YOUTUBE.is_enabled(course.id) and course_video_upload_token:
+                metadata_list.append(('course_video_upload_token', course_video_upload_token))
 
-        is_video_transcript_enabled = VideoTranscriptEnabledFlag.feature_enabled(course.id)
-        if is_video_transcript_enabled:
-            transcript_preferences = get_transcript_preferences(str(course.id))
-            if transcript_preferences is not None:
-                metadata_list.append(('transcript_preferences', json.dumps(transcript_preferences)))
+            is_video_transcript_enabled = VideoTranscriptEnabledFlag.feature_enabled(course.id)
+            if is_video_transcript_enabled:
+                transcript_preferences = get_transcript_preferences(str(course.id))
+                if transcript_preferences is not None:
+                    metadata_list.append(('transcript_preferences', json.dumps(transcript_preferences)))
 
-        # Prepare metadata for presigned URL
-        metadata = dict(metadata_list)
+            # Prepare metadata for presigned URL
+            metadata = dict(metadata_list)
 
-        # Generate presigned URL using boto3
-        s3_client = bucket.meta.client
-        upload_url = s3_client.generate_presigned_url(
-            'put_object',
-            Params={
-                'Bucket': bucket.name,
-                'Key': key_name,
-                'ContentType': req_file['content_type'],
-                'Metadata': metadata
-            },
-            ExpiresIn=KEY_EXPIRATION_IN_SECONDS
-        )
+            # Generate presigned URL using boto3
+            s3_client = bucket.meta.client
+            upload_url = s3_client.generate_presigned_url(
+                'put_object',
+                Params={
+                    'Bucket': bucket.name,
+                    'Key': key_name,
+                    'ContentType': req_file['content_type'],
+                    'Metadata': metadata
+                },
+                ExpiresIn=KEY_EXPIRATION_IN_SECONDS
+            )
 
         # persist edx_video_id in VAL
         create_video({
@@ -933,6 +946,19 @@ def videos_post(course, request):
         resp_files.append({'file_name': file_name, 'upload_url': upload_url, 'edx_video_id': edx_video_id})
 
     return {'files': resp_files}, 200
+
+
+@csrf_exempt
+@require_http_methods(('PUT',))
+def mock_video_upload(request, edx_video_id):
+    """Accept and discard video bytes for the development-only mock upload flow."""
+    if not use_mock_video_uploads() or not is_video_available(edx_video_id):
+        return HttpResponseNotFound()
+    # ponytail: fixed delay only exposes cancellation locally; use throttled transport for deterministic timing.
+    time.sleep(0.25)
+    while request.read(64 * 1024):
+        pass
+    return HttpResponse(status=200)
 
 
 def storage_service_bucket():
@@ -972,11 +998,14 @@ def send_video_status_update(updates):
     Update video status in edx-val.
     """
     for update in updates:
-        update_video_status(update.get('edxVideoId'), update.get('status'))
+        video_status = update.get('status')
+        if use_mock_video_uploads() and video_status == 'upload_completed':
+            video_status = 'file_complete'
+        update_video_status(update.get('edxVideoId'), video_status)
         LOGGER.info(
             'VIDEOS: Video status update with id [%s], status [%s] and message [%s]',
             update.get('edxVideoId'),
-            update.get('status'),
+            video_status,
             update.get('message')
         )
 

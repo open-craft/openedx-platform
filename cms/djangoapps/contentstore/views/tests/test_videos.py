@@ -9,13 +9,14 @@ import re
 from contextlib import contextmanager
 from datetime import datetime
 from io import StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
+from uuid import uuid4
 
 import dateutil.parser
 import ddt
 import pytz
 from django.conf import settings
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.test.utils import override_settings
 from django.urls import reverse
 from edx_toggles.toggles.testutils import override_waffle_flag, override_waffle_switch
@@ -31,12 +32,14 @@ from edxval.api import (
 
 from cms.djangoapps.contentstore.models import VideoUploadConfig
 from cms.djangoapps.contentstore.tests.utils import CourseTestCase
+from cms.djangoapps.contentstore.toggles import MOCK_VIDEO_UPLOADS
 from cms.djangoapps.contentstore.utils import reverse_course_url
 from cms.djangoapps.contentstore.video_storage_handlers import (
     PUBLIC_VIDEO_SHARE,
     StatusDisplayStrings,
     TranscriptProvider,
     convert_video_status,
+    mock_video_upload,
     storage_service_bucket,
     storage_service_key,
 )
@@ -479,6 +482,92 @@ class VideosHandlerTestCase(
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 302)  # noqa: PT009
         self.assertEqual(response.url, get_video_uploads_url(self.course.id))  # noqa: PT009
+
+    def test_mock_video_upload_workflow(self):
+        """Mock uploads create VAL records and support the complete upload workflow."""
+        with override_waffle_flag(MOCK_VIDEO_UPLOADS, active=True):
+            with patch('cms.djangoapps.contentstore.video_storage_handlers.boto3.resource') as mock_boto3_resource:
+                response = self.client.post(
+                    self.url,
+                    json.dumps({'files': [{'file_name': 'mock.mp4', 'content_type': 'video/mp4'}]}),
+                    content_type='application/json',
+                )
+
+            self.assertEqual(response.status_code, 200)  # noqa: PT009
+            response_file = json.loads(response.content)['files'][0]
+            video_id = response_file['edx_video_id']
+            upload_path = reverse('mock_video_upload', kwargs={'edx_video_id': video_id})
+            self.assertEqual(response_file['upload_url'], f'http://testserver{upload_path}')  # noqa: PT009
+            mock_boto3_resource.assert_not_called()
+
+            self.assertEqual(get_video_info(video_id)['status'], 'upload')  # noqa: PT009
+            list_response = self.client.get_json(self.url)
+            self.assertEqual(list_response.status_code, 200)  # noqa: PT009
+            listed_video_ids = [
+                video['edx_video_id']
+                for video in json.loads(list_response.content)['videos']
+            ]
+            self.assertIn(video_id, listed_video_ids)  # noqa: PT009
+
+            missing_upload_response = self.client.put(
+                reverse('mock_video_upload', kwargs={'edx_video_id': str(uuid4())}),
+                b'video bytes', content_type='video/mp4',
+            )
+            self.assertEqual(missing_upload_response.status_code, 404)  # noqa: PT009
+
+            upload_response = Client(enforce_csrf_checks=True).put(
+                upload_path, b'video bytes', content_type='video/mp4'
+            )
+            self.assertEqual(upload_response.status_code, 200)  # noqa: PT009
+
+            status_response = self.client.post(
+                self.url,
+                json.dumps([{'edxVideoId': video_id, 'status': 'file_complete'}]),
+                content_type='application/json',
+            )
+            self.assertEqual(status_response.status_code, 204)  # noqa: PT009
+            self.assertEqual(get_video_info(video_id)['status'], 'file_complete')  # noqa: PT009
+
+    @patch('cms.djangoapps.contentstore.video_storage_handlers.is_video_available', return_value=True)
+    def test_mock_video_upload_consumes_request_in_chunks(self, mock_is_video_available):
+        request = Mock(method='PUT')
+        request.read.side_effect = [b'a' * 64 * 1024, b'b', b'']
+
+        with override_waffle_flag(MOCK_VIDEO_UPLOADS, active=True):
+            response = mock_video_upload(request, 'video-id')
+
+        self.assertEqual(response.status_code, 200)  # noqa: PT009
+        self.assertEqual(request.read.call_args_list, [call(64 * 1024)] * 3)  # noqa: PT009
+        mock_is_video_available.assert_called_once_with('video-id')  # noqa: PT009
+
+    def test_mock_video_uploads_have_unique_ids(self):
+        """Each mocked file gets a distinct listable VAL record."""
+        with override_waffle_flag(MOCK_VIDEO_UPLOADS, active=True):
+            response = self.client.post(
+                self.url,
+                json.dumps({'files': [
+                    {'file_name': 'first.mp4', 'content_type': 'video/mp4'},
+                    {'file_name': 'second.mp4', 'content_type': 'video/mp4'},
+                ]}),
+                content_type='application/json',
+            )
+
+        response_files = json.loads(response.content)['files']
+        video_ids = [file_data['edx_video_id'] for file_data in response_files]
+        self.assertEqual(response.status_code, 200)  # noqa: PT009
+        self.assertEqual(len(video_ids), len(set(video_ids)))  # noqa: PT009
+        listed_video_ids = {
+            video['edx_video_id']
+            for video in json.loads(self.client.get_json(self.url).content)['videos']
+        }
+        self.assertTrue(set(video_ids).issubset(listed_video_ids))  # noqa: PT009
+
+    def test_mock_video_upload_endpoint_disabled_without_flag(self):
+        """The local upload endpoint is unavailable outside mock mode."""
+        with override_waffle_flag(MOCK_VIDEO_UPLOADS, active=False):
+            upload_url = reverse('mock_video_upload', kwargs={'edx_video_id': str(uuid4())})
+            response = self.client.put(upload_url, b'video bytes', content_type='video/mp4')
+        self.assertEqual(response.status_code, 404)  # noqa: PT009
 
     @override_settings(AWS_ACCESS_KEY_ID="test_key_id", AWS_SECRET_ACCESS_KEY="test_secret")
     @patch("cms.djangoapps.contentstore.video_storage_handlers.boto3.resource")

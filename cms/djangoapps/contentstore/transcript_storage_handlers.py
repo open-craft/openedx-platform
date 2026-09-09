@@ -28,7 +28,6 @@ from openedx.core.djangoapps.video_config.transcripts_utils import (
 )
 from openedx.core.djangoapps.video_pipeline.api import update_3rd_party_transcription_service_credentials
 
-from .toggles import use_mock_video_uploads
 from .video_storage_handlers import TranscriptProvider
 
 LOGGER = logging.getLogger(__name__)
@@ -164,9 +163,6 @@ def handle_transcript_download(request):
 
 
 def _create_or_update_video_transcript(**kwargs):
-    if use_mock_video_uploads():
-        return True
-
     return create_or_update_video_transcript(**kwargs)
 
 

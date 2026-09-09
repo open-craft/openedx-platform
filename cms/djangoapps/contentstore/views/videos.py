@@ -6,6 +6,7 @@ Views related to the video upload feature
 import logging
 
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from edx_toggles.toggles import WaffleSwitch
 from rest_framework.decorators import api_view
@@ -28,6 +29,9 @@ from cms.djangoapps.contentstore.video_storage_handlers import (
 )
 from cms.djangoapps.contentstore.video_storage_handlers import (
     is_status_update_request as is_status_update_request_source_function,
+)
+from cms.djangoapps.contentstore.video_storage_handlers import (
+    mock_video_upload as mock_video_upload_source_function,
 )
 from cms.djangoapps.contentstore.video_storage_handlers import (
     send_video_status_update as send_video_status_update_source_function,
@@ -57,6 +61,7 @@ __all__ = [
     'transcript_preferences_handler',
     'generate_video_upload_link_handler',
     'get_course_youtube_edx_videos_ids',
+    'mock_video_upload',
 ]
 
 LOGGER = logging.getLogger(__name__)
@@ -245,6 +250,12 @@ def send_video_status_update(updates):
     Exposes helper method without breaking existing bindings/dependencies
     """
     return send_video_status_update_source_function(updates)
+
+
+@csrf_exempt
+def mock_video_upload(request, edx_video_id):
+    """Exposes the development-only mock video upload endpoint."""
+    return mock_video_upload_source_function(request, edx_video_id)
 
 
 def is_status_update_request(request_data):

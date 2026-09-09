@@ -42,6 +42,7 @@ from cms.djangoapps.contentstore.toggles import (
     libraries_v1_enabled,
     libraries_v2_enabled,
     split_library_view_on_dashboard,
+    use_mock_video_uploads,
     use_new_unit_page,
 )
 from cms.djangoapps.models.settings.course_grading import CourseGradingModel
@@ -1794,7 +1795,9 @@ def get_course_videos_context(course_block, pagination_conf, course_key=None):
         'video_supported_file_formats': list(VIDEO_SUPPORTED_FILE_FORMATS.keys()),
         'video_upload_max_file_size': VIDEO_UPLOAD_MAX_FILE_SIZE_GB,
         'video_image_settings': {
-            'video_image_upload_enabled': VIDEO_IMAGE_UPLOAD_ENABLED.is_enabled(),
+            'video_image_upload_enabled': (
+                VIDEO_IMAGE_UPLOAD_ENABLED.is_enabled() or use_mock_video_uploads()
+            ),
             'max_size': settings.VIDEO_IMAGE_SETTINGS['VIDEO_IMAGE_MAX_BYTES'],
             'min_size': settings.VIDEO_IMAGE_SETTINGS['VIDEO_IMAGE_MIN_BYTES'],
             'max_width': settings.VIDEO_IMAGE_MAX_WIDTH,
