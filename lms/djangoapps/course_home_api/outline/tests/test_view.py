@@ -20,6 +20,7 @@ from common.djangoapps.course_modes.tests.factories import CourseModeFactory
 from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.student.roles import CourseInstructorRole
 from common.djangoapps.student.tests.factories import UserFactory
+from lms.djangoapps.course_blocks.toggles import SHOW_HIDDEN_CONTENT_WITHOUT_LINKS
 from lms.djangoapps.course_home_api.toggles import (
     COURSE_HOME_DISABLE_SEQUENCE_QUESTION_COUNT,
     COURSE_HOME_SEND_COURSE_PROGRESS_ANALYTICS_FOR_STUDENT,
@@ -303,6 +304,33 @@ class OutlineTabTestViews(BaseCourseHomeTests):
         assert exam_data['display_name'] == 'Test Proctored Exam'
         assert exam_data['due'] is not None
         assert exam_data['icon'] == 'fa-foo-bar'
+
+    @override_waffle_flag(SHOW_HIDDEN_CONTENT_WITHOUT_LINKS, active=True)
+    def test_past_due_hidden_subsection_is_listed_without_a_link(self):
+        """
+        A subsection set to hide after its due date stays on the outline, but without a link.
+        """
+        course = CourseFactory.create(start=datetime(2020, 1, 1, tzinfo=timezone.utc))
+        with self.store.bulk_operations(course.id):
+            chapter = BlockFactory.create(category="chapter", parent_location=course.location)
+            sequential = BlockFactory.create(
+                display_name="Past Due Assignment",
+                category="sequential",
+                graded=True,
+                due=datetime.now(timezone.utc) - timedelta(days=1),
+                hide_after_due=True,
+                parent_location=chapter.location,
+            )
+        update_outline_from_modulestore(course.id)
+        CourseEnrollment.enroll(self.user, course.id)
+
+        response = self.client.get(reverse("course-home:outline-tab", args=[course.id]))
+        assert response.status_code == 200
+
+        blocks = response.data["course_blocks"]["blocks"]
+        assert blocks[str(sequential.location)]["display_name"] == "Past Due Assignment"
+        assert blocks[str(sequential.location)]["lms_web_url"] is None
+        assert blocks[str(chapter.location)]["lms_web_url"] is not None
 
     def test_assignment(self):
         course = CourseFactory.create()
