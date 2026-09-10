@@ -323,7 +323,7 @@ class CourseInformationSerializer(serializers.Serializer):
         return get_analytics_dashboard_message(data['course'].id)
 
 
-class InstructorTaskSerializer(serializers.Serializer):
+class InstructorTaskSerializerV2(serializers.Serializer):
     """Serializer for instructor task details."""
     task_id = serializers.UUIDField()
     task_type = serializers.CharField()
@@ -338,7 +338,7 @@ class InstructorTaskSerializer(serializers.Serializer):
 
 
 class InstructorTaskListSerializer(serializers.Serializer):
-    tasks = InstructorTaskSerializer(many=True)
+    tasks = InstructorTaskSerializerV2(many=True)
 
 
 class BlockDueDateSerializerV2(serializers.Serializer):
