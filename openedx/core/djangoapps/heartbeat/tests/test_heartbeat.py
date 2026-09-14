@@ -6,10 +6,12 @@ Test the heartbeat
 import json
 from unittest.mock import patch
 
+from celery.exceptions import TimeoutError
 from django.db.utils import DatabaseError
 from django.test.client import Client
 from django.urls import reverse
 
+from openedx.core.djangoapps.heartbeat.default_checks import check_celery
 from xmodule.exceptions import HeartbeatFailure
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 
@@ -50,3 +52,19 @@ class HeartbeatTestCase(ModuleStoreTestCase):
         mock_set_attribute.assert_any_call(
             'heartbeat.failure.openedx.core.djangoapps.heartbeat.default_checks.check_modulestore', 'msg'
         )
+
+    @patch('openedx.core.djangoapps.heartbeat.default_checks.sample_task')
+    def test_celery_expired_when_task_times_out(self, mock_sample_task):
+        mock_sample_task.apply_async.return_value.get.side_effect = TimeoutError
+
+        assert check_celery() == ('celery', False, 'expired')
+
+    @patch('openedx.core.djangoapps.heartbeat.default_checks.sample_task')
+    def test_celery_success(self, mock_sample_task):
+        mock_sample_task.apply_async.return_value.get.return_value = True
+
+        check_name, is_ok, message = check_celery()
+
+        assert check_name == 'celery'
+        assert is_ok is True
+        assert 'time' in message

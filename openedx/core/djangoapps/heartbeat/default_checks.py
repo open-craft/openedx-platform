@@ -5,8 +5,8 @@ Other checks should be included in their respective modules/djangoapps
 """
 
 
-from datetime import datetime, timedelta
-from time import sleep, time
+from datetime import timedelta
+from time import time
 
 from django.conf import settings
 from django.core.cache import cache
@@ -108,16 +108,14 @@ def check_celery():
 
     """
     now = time()
-    datetimenow = datetime.now()
-    expires = datetimenow + timedelta(seconds=settings.HEARTBEAT_CELERY_TIMEOUT)
 
     try:
+        expires = timedelta(seconds=settings.HEARTBEAT_CELERY_TIMEOUT * 2)
         task = sample_task.apply_async(expires=expires)
-        while expires > datetime.now():
-            if task.ready() and task.result:
-                finished = str(time() - now)
-                return 'celery', True, str({'time': finished})
-            sleep(0.25)
+        task.get(timeout=settings.HEARTBEAT_CELERY_TIMEOUT)
+        finished = str(time() - now)
+        return 'celery', True, str({'time': finished})
+    except TimeoutError:
         return 'celery', False, "expired"
     except Exception as fail:  # pylint: disable=broad-except
         return 'celery', False, str(fail)
