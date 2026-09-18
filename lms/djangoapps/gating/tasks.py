@@ -6,19 +6,17 @@ This file contains celery tasks related to course content gating.
 import logging
 
 from celery import shared_task
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
-from edx_django_utils.monitoring import set_code_owner_attribute
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from opaque_keys.edx.keys import CourseKey, UsageKey
 
 from lms.djangoapps.course_blocks.api import get_course_blocks
 from lms.djangoapps.gating import api as gating_api
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 
 
 @shared_task
-@set_code_owner_attribute
 def task_evaluate_subsection_completion_milestones(course_id, block_id, user_id):
     """
     Updates users' milestones related to completion of a subsection.

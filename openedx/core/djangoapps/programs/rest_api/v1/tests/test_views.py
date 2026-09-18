@@ -6,18 +6,13 @@ from unittest import mock
 from uuid import uuid4
 
 from django.core.cache import cache
+from django.test import TestCase
 from django.test.utils import override_settings
 from django.urls import reverse_lazy
-from enterprise.models import EnterpriseCourseEnrollment
 
 from common.djangoapps.student.models import CourseEnrollment
-from common.djangoapps.student.tests.factories import (
-    CourseEnrollmentFactory,
-    UserFactory,
-)
-from lms.djangoapps.program_enrollments.rest_api.v1.tests.test_views import (
-    ProgramCacheMixin,
-)
+from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
+from lms.djangoapps.program_enrollments.rest_api.v1.tests.test_views import ProgramCacheMixin
 from lms.djangoapps.program_enrollments.tests.factories import ProgramEnrollmentFactory
 from openedx.core.djangoapps.catalog.cache import SITE_PROGRAM_UUIDS_CACHE_KEY_TPL
 from openedx.core.djangoapps.catalog.constants import PathwayType
@@ -27,22 +22,13 @@ from openedx.core.djangoapps.catalog.tests.factories import (
     PathwayFactory,
     ProgramFactory,
 )
+from openedx.core.djangoapps.programs.rest_api.v1.views import get_enterprise_course_ids
 from openedx.core.djangoapps.programs.tests.mixins import ProgramsApiConfigMixin
 from openedx.core.djangoapps.site_configuration.tests.factories import SiteFactory
-from openedx.core.djangoapps.site_configuration.tests.test_util import (
-    with_site_configuration,
-)
+from openedx.core.djangoapps.site_configuration.tests.test_util import with_site_configuration
 from openedx.core.djangolib.testing.utils import skip_unless_lms
-from openedx.features.enterprise_support.api import enterprise_is_enabled
-from openedx.features.enterprise_support.tests.factories import (
-    EnterpriseCourseEnrollmentFactory,
-    EnterpriseCustomerFactory,
-    EnterpriseCustomerUserFactory,
-)
 from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase
-from xmodule.modulestore.tests.factories import (
-    CourseFactory as ModuleStoreCourseFactory,
-)
+from xmodule.modulestore.tests.factories import CourseFactory as ModuleStoreCourseFactory
 
 PROGRAMS_UTILS_MODULE = "openedx.core.djangoapps.programs.utils"
 
@@ -63,14 +49,14 @@ class TestProgramProgressDetailView(ProgramsApiConfigMixin, SharedModuleStoreTes
         super().setUpClass()
 
         modulestore_course = ModuleStoreCourseFactory()
-        course_run = CourseRunFactory(key=str(modulestore_course.id))  # lint-amnesty, pylint: disable=no-member
+        course_run = CourseRunFactory(key=str(modulestore_course.id))  # pylint: disable=no-member
         course = CourseFactory(course_runs=[course_run])
 
         cls.program_data = ProgramFactory(uuid=cls.program_uuid, courses=[course])
         cls.pathway_data = PathwayFactory()
         cls.program_data["pathway_ids"] = [cls.pathway_data["id"]]
         cls.pathway_data["program_uuids"] = [cls.program_data["uuid"]]
-        del cls.pathway_data["programs"]  # lint-amnesty, pylint: disable=unsupported-delete-operation
+        del cls.pathway_data["programs"]  # pylint: disable=unsupported-delete-operation
 
     def setUp(self):
         super().setUp()
@@ -114,7 +100,7 @@ class TestProgramProgressDetailView(ProgramsApiConfigMixin, SharedModuleStoreTes
             certs.return_value = [{"type": "program", "url": "/"}]
             response = self.client.get(self.url)
 
-        self.assertEqual(200, response.status_code)
+        self.assertEqual(200, response.status_code)  # noqa: PT009
         self.assert_program_data_present(response)
         self.assert_pathway_data_present(response)
 
@@ -131,7 +117,7 @@ class TestProgramProgressDetailView(ProgramsApiConfigMixin, SharedModuleStoreTes
         response = self.client.get(self.url)
         assert response.status_code == 401
 
-    def test_404_if_no_program_data(self, mock_get_programs, _mock_get_pathways):
+    def test_404_if_no_program_data(self, mock_get_programs, _mock_get_pathways):  # noqa: PT019
         """
         Verify that the API returns 404 if program data is not available.
         """
@@ -142,6 +128,38 @@ class TestProgramProgressDetailView(ProgramsApiConfigMixin, SharedModuleStoreTes
         response = self.client.get(self.url)
         assert response.status_code == 404
         assert response.data["error_code"] == "No program data available."
+
+
+# Test target for OVERRIDE_PROGRAMS_GET_ENTERPRISE_COURSE_IDS.
+_fake_get_enterprise_course_ids = mock.MagicMock(return_value=[])
+FAKE_OVERRIDE_PATH = f"{__name__}._fake_get_enterprise_course_ids"
+
+
+@skip_unless_lms
+class TestGetEnterpriseCourseIds(TestCase):
+    """Unit tests for the get_enterprise_course_ids pluggable override point."""
+
+    def test_get_enterprise_course_ids_default(self):
+        """With no plugin override configured, the base implementation returns an empty list"""
+        enterprise_uuid, user = str(uuid4()), mock.Mock()
+
+        result = get_enterprise_course_ids(enterprise_uuid=enterprise_uuid, user=user)
+
+        assert not result
+
+    @override_settings(OVERRIDE_PROGRAMS_GET_ENTERPRISE_COURSE_IDS=FAKE_OVERRIDE_PATH)
+    def test_get_enterprise_course_ids_uses_plugin_override(self):
+        """When OVERRIDE_PROGRAMS_GET_ENTERPRISE_COURSE_IDS is configured, it is used instead"""
+        enterprise_uuid, user = str(uuid4()), mock.Mock()
+        _fake_get_enterprise_course_ids.reset_mock()
+        _fake_get_enterprise_course_ids.return_value = ["course-v1:edX+DemoX+Demo_Course"]
+
+        result = get_enterprise_course_ids(enterprise_uuid=enterprise_uuid, user=user)
+
+        assert result == ["course-v1:edX+DemoX+Demo_Course"]
+        _fake_get_enterprise_course_ids.assert_called_once_with(
+            mock.ANY, enterprise_uuid=enterprise_uuid, user=user
+        )
 
 
 @skip_unless_lms
@@ -158,17 +176,10 @@ class TestProgramsEnterpriseView(SharedModuleStoreTestCase, ProgramCacheMixin):
 
         cls.user = UserFactory()
         modulestore_course = ModuleStoreCourseFactory()
-        course_run = CourseRunFactory(key=str(modulestore_course.id))
+        cls.course_id = str(modulestore_course.id)
+        course_run = CourseRunFactory(key=cls.course_id)
         course = CourseFactory(course_runs=[course_run])
-        enterprise_customer = EnterpriseCustomerFactory(uuid=cls.enterprise_uuid)
-        enterprise_customer_user = EnterpriseCustomerUserFactory(
-            user_id=cls.user.id, enterprise_customer=enterprise_customer
-        )
         CourseEnrollmentFactory(is_active=True, course_id=modulestore_course.id, user=cls.user)
-        EnterpriseCourseEnrollmentFactory(
-            course_id=modulestore_course.id,
-            enterprise_customer_user=enterprise_customer_user,
-        )
 
         cls.program = ProgramFactory(
             uuid=cls.program_uuid,
@@ -193,22 +204,22 @@ class TestProgramsEnterpriseView(SharedModuleStoreTestCase, ProgramCacheMixin):
             program_uuid=self.program_uuid,
             external_user_key="0001",
         )
-
-    @with_site_configuration(configuration={"COURSE_CATALOG_API_URL": "foo"})
-    @override_settings(FEATURES=dict(ENABLE_ENTERPRISE_INTEGRATION=True))
-    @enterprise_is_enabled()
-    def test_program_list_enterprise(self):
-        """
-        Verify API returns proper response.
-        """
+        _fake_get_enterprise_course_ids.reset_mock()
+        _fake_get_enterprise_course_ids.return_value = [self.course_id]
         cache.set(
             SITE_PROGRAM_UUIDS_CACHE_KEY_TPL.format(domain=self.site.domain),
             [self.program_uuid],
             None,
         )
 
+    @with_site_configuration(configuration={"COURSE_CATALOG_API_URL": "foo"})
+    @override_settings(OVERRIDE_PROGRAMS_GET_ENTERPRISE_COURSE_IDS=FAKE_OVERRIDE_PATH)
+    def test_program_list_enterprise(self):
+        """
+        Verify API returns proper response.
+        """
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200)  # noqa: PT009
         program = response.data[0]
 
         assert len(program)
@@ -225,25 +236,30 @@ class TestProgramsEnterpriseView(SharedModuleStoreTestCase, ProgramCacheMixin):
             "all_unenrolled": False,
         }
 
+        _fake_get_enterprise_course_ids.assert_called_once_with(
+            mock.ANY, enterprise_uuid=self.enterprise_uuid, user=self.user
+        )
+
     @with_site_configuration(configuration={"COURSE_CATALOG_API_URL": "foo"})
-    @override_settings(FEATURES=dict(ENABLE_ENTERPRISE_INTEGRATION=True))
-    @enterprise_is_enabled()
+    @override_settings(OVERRIDE_PROGRAMS_GET_ENTERPRISE_COURSE_IDS=FAKE_OVERRIDE_PATH)
     def test_program_empty_list_if_no_enterprise_enrollments(self):
         """
         Verify API returns empty response if no enterprise enrollments exists for a learner.
         """
-        # delete all enterprise course enrollments for the user
-        EnterpriseCourseEnrollment.objects.filter(enterprise_customer_user__user_id=self.user.id).delete()
-
-        cache.set(
-            SITE_PROGRAM_UUIDS_CACHE_KEY_TPL.format(domain=self.site.domain),
-            [self.program_uuid],
-            None,
-        )
+        _fake_get_enterprise_course_ids.return_value = []
 
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, [])
+        self.assertEqual(response.status_code, 200)  # noqa: PT009
+        self.assertEqual(response.data, [])  # noqa: PT009
+
+    @with_site_configuration(configuration={"COURSE_CATALOG_API_URL": "foo"})
+    def test_program_empty_list_without_override(self):
+        """
+        Verify API returns an empty response (not a 500) when no plugin override is installed.
+        """
+        response = self.client.get(self.url)
+        assert response.status_code == 200
+        assert not response.data
 
 
 @skip_unless_lms
@@ -300,7 +316,7 @@ class TestProgramsB2CView(SharedModuleStoreTestCase, ProgramCacheMixin):
         )
 
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200)  # noqa: PT009
         program = response.data[0]
 
         assert len(program)
@@ -331,5 +347,5 @@ class TestProgramsB2CView(SharedModuleStoreTestCase, ProgramCacheMixin):
         )
 
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, [])
+        self.assertEqual(response.status_code, 200)  # noqa: PT009
+        self.assertEqual(response.data, [])  # noqa: PT009

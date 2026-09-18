@@ -8,7 +8,6 @@ import logging
 import requests
 from celery import shared_task
 from django.core.exceptions import ObjectDoesNotExist
-from edx_django_utils.monitoring import set_code_owner_attribute
 from lxml import etree
 from requests import exceptions
 from social_django.models import UserSocialAuth
@@ -16,8 +15,10 @@ from social_django.models import UserSocialAuth
 from common.djangoapps.third_party_auth.models import SAMLConfiguration, SAMLProviderConfig
 from common.djangoapps.third_party_auth.utils import (
     MetadataParseError,
+    SAMLMetadataURLError,
     create_or_update_bulk_saml_provider_data,
     parse_metadata_xml,
+    validate_saml_metadata_url,
 )
 
 log = logging.getLogger(__name__)
@@ -26,7 +27,6 @@ SAML_XML_NS = 'urn:oasis:names:tc:SAML:2.0:metadata'  # The SAML Metadata XML na
 
 
 @shared_task
-@set_code_owner_attribute
 def fetch_saml_metadata():
     """
     Fetch and store/update the metadata of all IdPs
@@ -74,16 +74,15 @@ def fetch_saml_metadata():
     failure_messages = []  # We return the length of this array for num_failed
     for url, entity_ids in url_map.items():
         try:
+            validate_saml_metadata_url(url)
             log.info("Fetching %s", url)
-            if not url.lower().startswith('https'):
-                log.warning("This SAML metadata URL is not secure! It should use HTTPS. (%s)", url)
-            response = requests.get(url, verify=True)  # May raise HTTPError or SSLError or ConnectionError
+            response = requests.get(url, verify=True, timeout=30)  # May raise HTTPError or SSLError or ConnectionError
             response.raise_for_status()  # May raise an HTTPError
 
             try:
                 parser = etree.XMLParser(remove_comments=True)
                 xml = etree.fromstring(response.content, parser)
-            except etree.XMLSyntaxError:  # lint-amnesty, pylint: disable=try-except-raise
+            except etree.XMLSyntaxError:  # pylint: disable=try-except-raise
                 raise
             # TODO: Can use OneLogin_Saml2_Utils to validate signed XML if anyone is using that
 
@@ -96,7 +95,13 @@ def fetch_saml_metadata():
                     num_updated += 1
                 else:
                     log.info(f"→ Updated existing SAMLProviderData. Nothing has changed for entityID {entity_id}")
-        except (exceptions.SSLError, exceptions.HTTPError, exceptions.RequestException, MetadataParseError) as error:
+        except (
+            exceptions.SSLError,
+            exceptions.HTTPError,
+            exceptions.RequestException,
+            MetadataParseError,
+            SAMLMetadataURLError,
+        ) as error:
             # Catch and process exception in case of errors during fetching and processing saml metadata.
             # Here is a description of each exception.
             # SSLError is raised in case of errors caused by SSL (e.g. SSL cer verification failure etc.)
@@ -119,7 +124,7 @@ def fetch_saml_metadata():
             log.exception(str(error))
             failure_messages.append(
                 "XMLSyntaxError: {error_message}\nMetadata Source: {url}\nEntity IDs: \n{entity_ids}.".format(
-                    error_message=str(error.error_log),  # lint-amnesty, pylint: disable=no-member
+                    error_message=str(error.error_log),  # pylint: disable=no-member
                     url=url,
                     entity_ids="\n".join(
                         [f"\t{count}: {item}" for count, item in enumerate(entity_ids, start=1)],
@@ -132,7 +137,6 @@ def fetch_saml_metadata():
 
 
 @shared_task
-@set_code_owner_attribute
 def update_saml_users_social_auth_uid(reader, slug):
     """
     Update the UserSocialAuth UID for users based on a CSV reader input.

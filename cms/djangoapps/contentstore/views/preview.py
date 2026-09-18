@@ -1,11 +1,11 @@
-# lint-amnesty, pylint: disable=missing-module-docstring
+# pylint: disable=missing-module-docstring
 
 import logging
 from functools import partial
 
 from django.conf import settings
-from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.http import Http404, HttpResponseBadRequest
 from django.urls import reverse
 from django.utils.translation import gettext as _
@@ -18,35 +18,31 @@ from xblock.django.request import django_to_webob_request, webob_to_django_respo
 from xblock.exceptions import NoSuchHandlerError, NotFoundError, ProcessingError
 from xblock.runtime import KvsFieldData
 
+from cms.djangoapps.contentstore.toggles import individualize_anonymous_user_id
+from cms.djangoapps.xblock_config.models import StudioConfig
+from cms.lib.xblock.field_data import CmsFieldData
+from cms.lib.xblock.upstream_sync import UpstreamLink
+from common.djangoapps.edxmako.services import MakoService
+from common.djangoapps.edxmako.shortcuts import render_to_string
+from common.djangoapps.static_replace.services import ReplaceURLService
+from common.djangoapps.static_replace.wrapper import replace_urls_wrapper
+from common.djangoapps.student.models import anonymous_id_for_user
+from common.djangoapps.xblock_django.user_service import DjangoXBlockUserService
+from lms.djangoapps.lms_xblock.field_data import LmsFieldData
+from openedx.core.djangoapps.discussions.services import DiscussionConfigService
 from openedx.core.djangoapps.video_config.services import VideoConfigService
+from openedx.core.lib.cache_utils import CacheService
+from openedx.core.lib.license import wrap_with_license
+from openedx.core.lib.xblock_utils import request_token, wrap_fragment, wrap_xblock, wrap_xblock_aside
 from xmodule.contentstore.django import contentstore
 from xmodule.exceptions import NotFoundError as XModuleNotFoundError
 from xmodule.modulestore.django import XBlockI18nService, modulestore
 from xmodule.partitions.partitions_service import PartitionService
-from xmodule.services import SettingsService, TeamsConfigurationService
+from xmodule.services import SettingsService, TeamsConfigurationService, XQueueService
 from xmodule.studio_editable import has_author_view
-from xmodule.util.sandboxing import SandboxService
 from xmodule.util.builtin_assets import add_webpack_js_to_fragment
+from xmodule.util.sandboxing import SandboxService
 from xmodule.x_module import AUTHOR_VIEW, PREVIEW_VIEWS, STUDENT_VIEW, XModuleMixin
-from cms.djangoapps.xblock_config.models import StudioConfig
-from cms.djangoapps.contentstore.toggles import individualize_anonymous_user_id
-from cms.lib.xblock.field_data import CmsFieldData
-from cms.lib.xblock.upstream_sync import UpstreamLink
-from common.djangoapps.static_replace.services import ReplaceURLService
-from common.djangoapps.static_replace.wrapper import replace_urls_wrapper
-from common.djangoapps.student.models import anonymous_id_for_user
-from common.djangoapps.edxmako.shortcuts import render_to_string
-from common.djangoapps.edxmako.services import MakoService
-from common.djangoapps.xblock_django.user_service import DjangoXBlockUserService
-from lms.djangoapps.lms_xblock.field_data import LmsFieldData
-from openedx.core.lib.license import wrap_with_license
-from openedx.core.lib.cache_utils import CacheService
-from openedx.core.lib.xblock_utils import (
-    request_token,
-    wrap_fragment,
-    wrap_xblock,
-    wrap_xblock_aside
-)
 
 from ..utils import StudioPermissionsService, get_visibility_partition_info
 from .access import get_user_role
@@ -79,11 +75,11 @@ def preview_handler(request, usage_key_string, handler, suffix=''):
 
     except NoSuchHandlerError:
         log.exception("XBlock %s attempted to access missing handler %r", instance, handler)
-        raise Http404  # lint-amnesty, pylint: disable=raise-missing-from
+        raise Http404  # pylint: disable=raise-missing-from  # noqa: B904
 
     except (XModuleNotFoundError, NotFoundError):
         log.exception("Module indicating to user that request doesn't exist")
-        raise Http404  # lint-amnesty, pylint: disable=raise-missing-from
+        raise Http404  # pylint: disable=raise-missing-from  # noqa: B904
 
     except ProcessingError:
         log.warning("Module raised an error while processing AJAX request",
@@ -97,7 +93,7 @@ def preview_handler(request, usage_key_string, handler, suffix=''):
     return webob_to_django_response(resp)
 
 
-def handler_url(block, handler_name, suffix='', query='', thirdparty=False):  # lint-amnesty, pylint: disable=unused-argument
+def handler_url(block, handler_name, suffix='', query='', thirdparty=False):  # pylint: disable=unused-argument
     """
     Handler URL function for Preview
     """
@@ -190,7 +186,7 @@ def _prepare_runtime_for_preview(request, block):
     ]
 
     mako_service = MakoService(namespace_prefix='lms.')
-    if settings.FEATURES.get("LICENSING", False):
+    if settings.LICENSING:
         # stick the license wrapper in front
         wrappers.insert(0, partial(wrap_with_license, mako_service=mako_service))
 
@@ -228,6 +224,8 @@ def _prepare_runtime_for_preview(request, block):
         "cache": CacheService(cache),
         'replace_urls': ReplaceURLService,
         'video_config': VideoConfigService(),
+        'discussion_config_service': DiscussionConfigService(),
+        'xqueue': XQueueService(block),
     }
 
     block.runtime.get_block_for_descriptor = partial(_load_preview_block, request)
@@ -306,7 +304,7 @@ def _studio_wrap_xblock(xblock, view, frag, context, display_name_only=False):
     Wraps the results of rendering an XBlock view in a div which adds a header and Studio action buttons.
     """
     # Allow some imported components to be edited by authors in course.
-    editable_library_components = ["html"]
+    editable_library_components = ["html", "problem"]
     # Only add the Studio wrapper when on the container page. The "Pages" page will remain as is for now.
     if not context.get('is_pages_view', None) and view in PREVIEW_VIEWS:
         root_xblock = context.get('root_xblock')
@@ -314,12 +312,16 @@ def _studio_wrap_xblock(xblock, view, frag, context, display_name_only=False):
         is_reorderable = _is_xblock_reorderable(xblock, context)
         selected_groups_label = get_visibility_partition_info(xblock)['selected_groups_label']
         if selected_groups_label:
-            selected_groups_label = _('Access restricted to: {list_of_groups}').format(list_of_groups=selected_groups_label)  # lint-amnesty, pylint: disable=line-too-long
+            selected_groups_label = _('Access restricted to: {list_of_groups}').format(list_of_groups=selected_groups_label)  # pylint: disable=line-too-long
         course = modulestore().get_course(xblock.location.course_key)
 
         can_edit = context.get('can_edit', True)
         can_add = context.get('can_add', True)
         can_move = context.get('can_move', True)
+        # Set by block.py; default False so callers that don't set it are unaffected.
+        is_authz_authoring_enabled = context.get('is_authz_authoring_enabled', False)
+        authz_can_edit_course_content = context.get('authz_can_edit_course_content', True)
+        authz_can_manage_tags = context.get('authz_can_manage_tags', True)
         root_upstream_link = UpstreamLink.try_get_for_block(root_xblock, log_error=False)
         upstream_link = UpstreamLink.try_get_for_block(xblock, log_error=False)
         if (
@@ -365,6 +367,9 @@ def _studio_wrap_xblock(xblock, view, frag, context, display_name_only=False):
             'is_course': is_course,
             'tags_count': tags_count,
             'can_edit_title': True,  # This is always true even for imported components
+            'is_authz_authoring_enabled': is_authz_authoring_enabled,
+            'authz_can_edit_course_content': authz_can_edit_course_content,
+            'authz_can_manage_tags': authz_can_manage_tags,
         }
 
         add_webpack_js_to_fragment(frag, "js/factories/xblock_validation")

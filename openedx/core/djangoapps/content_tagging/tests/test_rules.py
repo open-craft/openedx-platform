@@ -1,19 +1,20 @@
 """Tests content_tagging rules-based permissions"""
 
+from unittest.mock import patch
+
 import ddt
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from opaque_keys.edx.locator import BlockUsageLocator, CourseLocator
-from openedx_tagging.core.tagging.models import (
-    Tag,
-    UserSystemDefinedTaxonomy,
-)
-from openedx_tagging.core.tagging.rules import ObjectTagPermissionItem
+from opaque_keys.edx.locator import BlockUsageLocator, CourseLocator, LibraryLocatorV2
+from openedx_authz.constants import permissions as authz_permissions
+from openedx_tagging.models import Tag
+from openedx_tagging.rules import ObjectTagPermissionItem
 
 from common.djangoapps.student.auth import add_users, update_org_role
 from common.djangoapps.student.roles import CourseStaffRole, OrgStaffRole
 
 from .. import api
+from ..rules import can_change_object_tag_objectid, can_remove_object_tag_objectid
 from .test_api import TestTaxonomyMixin
 
 User = get_user_model()
@@ -263,25 +264,6 @@ class TestRulesTaxonomy(TestTaxonomyMixin, TestCase):
         assert not self.user_org2.has_perm(perm, taxonomy)
         assert not self.learner.has_perm(perm, taxonomy)
 
-    @ddt.data(
-        "oel_tagging.change_taxonomy",
-        "oel_tagging.delete_taxonomy",
-    )
-    def test_system_taxonomy(self, perm):
-        """
-        Test that even taxonomy administrators cannot edit/delete system taxonomies.
-        """
-        system_taxonomy = api.create_taxonomy(
-            name="System Languages",
-        )
-        system_taxonomy.taxonomy_class = UserSystemDefinedTaxonomy
-        system_taxonomy = system_taxonomy.cast()
-        assert self.superuser.has_perm(perm, system_taxonomy)
-        assert not self.staff.has_perm(perm, system_taxonomy)
-        assert not self.user_both_orgs.has_perm(perm, system_taxonomy)
-        assert not self.user_org2.has_perm(perm, system_taxonomy)
-        assert not self.learner.has_perm(perm, system_taxonomy)
-
     def test_view_taxonomy_no_orgs(self):
         """
         Test that only Staff & Superuser can view taxonomies with no orgs.
@@ -383,13 +365,15 @@ class TestRulesTaxonomy(TestTaxonomyMixin, TestCase):
     )
     def test_tag_base_edit_permissions(self, perm):
         """
-        Test that only Staff & Superuser can call add/edit/delete tags.
+        Test that only Staff & Superuser can call add/edit/delete tags in an
+        "all orgs" taxonomy.
         """
-        assert self.superuser.has_perm(perm)
-        assert self.staff.has_perm(perm)
-        assert not self.user_both_orgs.has_perm(perm)
-        assert not self.user_org2.has_perm(perm)
-        assert not self.learner.has_perm(perm)
+        tag = Tag(taxonomy=self.taxonomy_all_orgs)
+        assert self.superuser.has_perm(perm, tag)
+        assert self.staff.has_perm(perm, tag)
+        assert not self.user_both_orgs.has_perm(perm, tag)
+        assert not self.user_org2.has_perm(perm, tag)
+        assert not self.learner.has_perm(perm, tag)
 
     def test_tag_base_view_permissions(self):
         """
@@ -427,28 +411,26 @@ class TestRulesTaxonomy(TestTaxonomyMixin, TestCase):
         assert not self.learner.has_perm(perm, tag)
 
     @ddt.data(
+        "oel_tagging.add_tag",
         "oel_tagging.change_tag",
         "oel_tagging.delete_tag",
     )
     def test_system_taxonomy_tag(self, perm):
         """
-        Test that even taxonomy administrators cannot edit/delete tags on system taxonomies.
+        Test that even taxonomy administrators cannot add/edit/delete tags on read-only taxonomies.
         """
-        system_taxonomy = api.create_taxonomy(
+        ro_taxonomy = api.create_taxonomy(
             name="System Languages",
         )
-        system_taxonomy.taxonomy_class = UserSystemDefinedTaxonomy
-        system_taxonomy = system_taxonomy.cast()
-        tag_system_taxonomy = Tag.objects.create(
-            taxonomy=system_taxonomy,
-            value="en",
-        )
+        ro_taxonomy.read_only = True
+        ro_taxonomy.save()
+        dummy_tag = Tag(taxonomy=ro_taxonomy, value="en")  # Not saved
 
-        assert self.superuser.has_perm(perm, tag_system_taxonomy)
-        assert not self.staff.has_perm(perm, tag_system_taxonomy)
-        assert not self.user_both_orgs.has_perm(perm, tag_system_taxonomy)
-        assert not self.user_org2.has_perm(perm, tag_system_taxonomy)
-        assert not self.learner.has_perm(perm, tag_system_taxonomy)
+        assert self.superuser.has_perm(perm, dummy_tag)
+        assert not self.staff.has_perm(perm, dummy_tag)
+        assert not self.user_both_orgs.has_perm(perm, dummy_tag)
+        assert not self.user_org2.has_perm(perm, dummy_tag)
+        assert not self.learner.has_perm(perm, dummy_tag)
 
     @ddt.data(
         "oel_tagging.change_tag",
@@ -479,14 +461,14 @@ class TestRulesTaxonomy(TestTaxonomyMixin, TestCase):
         "oel_tagging.delete_tag",
     )
     def test_tag_no_taxonomy(self, perm):
-        """Taxonomy administrators can modify any Tag, even those with no Taxonnmy."""
+        """A "floating" tag with no taxonomy cannot be edited. This shouldn't really happen"""
         tag = Tag()
 
-        # Global Taxonomy Admins can do pretty much anything
+        # superusers cannot be prevented from doing anything - their permissions check short-circuits our logic.
         assert self.superuser.has_perm(perm, tag)
-        assert self.staff.has_perm(perm, tag)
 
         # Everyone else can't do anything
+        assert not self.staff.has_perm(perm, tag)
         assert not self.user_both_orgs.has_perm(perm, tag)
         assert not self.user_org2.has_perm(perm, tag)
         assert not self.learner.has_perm(perm, tag)
@@ -608,3 +590,137 @@ class TestRulesTaxonomy(TestTaxonomyMixin, TestCase):
         assert not self.user_both_orgs.has_perm(perm, self.disabled_course_tag)
         assert not self.user_org2.has_perm(perm, self.disabled_course_tag)
         assert not self.learner.has_perm(perm, self.disabled_course_tag)
+
+
+class TestRulesLibraryV2Permissions(TestTaxonomyMixin, TestCase):
+    """
+    Tests for Content Library V2 permissions with MANAGE_LIBRARY_TAGS.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.library_user = User.objects.create(
+            username="library_user",
+            email="library_user@example.com",
+        )
+        self.org_admin = User.objects.create(
+            username="org_admin",
+            email="org_admin@example.com",
+        )
+        self.regular_user = User.objects.create(
+            username="regular_user",
+            email="regular_user@example.com",
+        )
+        self.superuser = User.objects.create(
+            username="superuser",
+            email="superuser@example.com",
+            is_superuser=True,
+        )
+
+        # Make org_admin an OrgStaffRole for org1
+        update_org_role(
+            self.superuser,
+            OrgStaffRole,
+            self.org_admin,
+            [self.org1.short_name],
+        )
+
+        self.library_key = LibraryLocatorV2.from_string(f"lib:{self.org1.short_name}:test_library")
+
+    @patch("openedx_authz.api.is_user_allowed")
+    def test_change_objecttag_objectid_with_manage_library_tags_permission(self, mock_is_user_allowed):
+        """
+        Test that a user with MANAGE_LIBRARY_TAGS permission can change tags on a library.
+        """
+        mock_is_user_allowed.return_value = True
+
+        result = can_change_object_tag_objectid(self.library_user, str(self.library_key))
+
+        self.assertTrue(result)  # noqa: PT009
+        mock_is_user_allowed.assert_called_once_with(
+            self.library_user.username,
+            authz_permissions.MANAGE_LIBRARY_TAGS.identifier,
+            str(self.library_key),
+        )
+
+    @patch("openedx_authz.api.is_user_allowed")
+    def test_change_objecttag_objectid_without_manage_library_tags_but_org_admin(self, mock_is_user_allowed):
+        """
+        Test that an org admin can change tags on a library even without
+        explicit MANAGE_LIBRARY_TAGS permission.
+        """
+        mock_is_user_allowed.return_value = False
+
+        result = can_change_object_tag_objectid(self.org_admin, str(self.library_key))
+
+        self.assertTrue(result)  # noqa: PT009
+
+    @patch("openedx_authz.api.is_user_allowed")
+    def test_change_objecttag_objectid_without_permissions(self, mock_is_user_allowed):
+        """
+        Test that a regular user without MANAGE_LIBRARY_TAGS permission and
+        without org admin access cannot change tags.
+        """
+        mock_is_user_allowed.return_value = False
+
+        result = can_change_object_tag_objectid(self.regular_user, str(self.library_key))
+
+        self.assertFalse(result)  # noqa: PT009
+
+    @patch("openedx_authz.api.is_user_allowed")
+    def test_remove_objecttag_objectid_with_manage_library_tags_permission(self, mock_is_user_allowed):
+        """
+        Test that a user with MANAGE_LIBRARY_TAGS permission can remove tags
+        from a library.
+        """
+        mock_is_user_allowed.return_value = True
+
+        result = can_remove_object_tag_objectid(self.library_user, str(self.library_key))
+
+        self.assertTrue(result)  # noqa: PT009
+        mock_is_user_allowed.assert_called_once_with(
+            self.library_user.username,
+            authz_permissions.MANAGE_LIBRARY_TAGS.identifier,
+            str(self.library_key),
+        )
+
+    @patch("openedx_authz.api.is_user_allowed")
+    def test_remove_objecttag_objectid_without_manage_library_tags_but_org_admin(self, mock_is_user_allowed):
+        """
+        Test that an org admin can remove tags from a library even without
+        explicit MANAGE_LIBRARY_TAGS permission.
+        """
+        mock_is_user_allowed.return_value = False
+
+        result = can_remove_object_tag_objectid(self.org_admin, str(self.library_key))
+
+        self.assertTrue(result)  # noqa: PT009
+
+    @patch("openedx_authz.api.is_user_allowed")
+    def test_remove_objecttag_objectid_without_permissions(self, mock_is_user_allowed):
+        """
+        Test that a regular user without MANAGE_LIBRARY_TAGS permission and
+        without org admin access cannot remove tags.
+        """
+        mock_is_user_allowed.return_value = False
+
+        result = can_remove_object_tag_objectid(self.regular_user, str(self.library_key))
+
+        self.assertFalse(result)  # noqa: PT009
+
+    def test_invalid_library_key(self):
+        """
+        Test that invalid library keys return False.
+        """
+        self.assertFalse(can_change_object_tag_objectid(self.library_user, "invalid_key"))  # noqa: PT009
+        self.assertFalse(can_remove_object_tag_objectid(self.library_user, "invalid_key"))  # noqa: PT009
+
+    def test_empty_object_id(self):
+        """
+        Test behavior with empty object_id.
+        """
+        self.assertTrue(can_change_object_tag_objectid(self.library_user, ""))  # noqa: PT009
+
+        with self.assertRaises(ValueError):  # noqa: PT027
+            can_remove_object_tag_objectid(self.library_user, "")

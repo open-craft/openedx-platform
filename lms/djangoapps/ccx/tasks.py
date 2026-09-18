@@ -7,13 +7,12 @@ import logging
 
 from ccx_keys.locator import CCXLocator
 from django.dispatch import receiver
-from edx_django_utils.monitoring import set_code_owner_attribute
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.locator import CourseLocator
 
 from lms import CELERY_APP
 from lms.djangoapps.ccx.models import CustomCourseForEdX
-from xmodule.modulestore.django import SignalHandler  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import SignalHandler  # pylint: disable=wrong-import-order
 
 log = logging.getLogger("edx.ccx")
 
@@ -28,7 +27,6 @@ def course_published_handler(sender, course_key, **kwargs):  # pylint: disable=u
 
 
 @CELERY_APP.task
-@set_code_owner_attribute
 def send_ccx_course_published(course_key):
     """
     Find all CCX derived from this course, and send course published event for them.

@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Union
 
 import django.contrib.auth.models
-import openedx_tagging.core.tagging.rules as oel_tagging
+import openedx_tagging.rules as oel_tagging
 import rules
+from opaque_keys.edx.locator import LibraryLocatorV2
+from openedx_authz import api as authz_api
+from openedx_authz.constants import permissions as authz_permissions
 from organizations.models import Organization
 
 from common.djangoapps.student.auth import has_studio_read_access, has_studio_write_access
@@ -17,14 +20,13 @@ from common.djangoapps.student.roles import (
     OrgContentCreatorRole,
     OrgInstructorRole,
     OrgLibraryUserRole,
-    OrgStaffRole
+    OrgStaffRole,
 )
 
 from .models import TaxonomyOrg
 from .utils import check_taxonomy_context_key_org, get_context_key_from_key_string, rules_cache
 
-
-UserType = Union[django.contrib.auth.models.User, django.contrib.auth.models.AnonymousUser]
+UserType = Union[django.contrib.auth.models.User, django.contrib.auth.models.AnonymousUser]  # noqa: UP007
 
 
 def is_org_admin(user: UserType, orgs: list[Organization] | None = None) -> bool:
@@ -155,8 +157,6 @@ def can_view_taxonomy(user: UserType, taxonomy: oel_tagging.Taxonomy) -> bool:
     if not taxonomy:
         return True
 
-    taxonomy = taxonomy.cast()
-
     # Taxonomy admins can view any taxonomy
     if oel_tagging.is_taxonomy_admin(user):
         return True
@@ -183,8 +183,7 @@ def can_change_taxonomy(user: UserType, taxonomy: oel_tagging.Taxonomy) -> bool:
     """
     Returns True if the given user can edit the given taxonomy.
 
-    System definied taxonomies cannot be edited
-    Taxonomy admins can edit any non system defined taxonomies
+    Taxonomy admins can edit any taxonomies (but can't change tags if the taxonomy is read-only).
     Only taxonomy admins can edit all org taxonomies
     Org-level staff can edit any taxonomy that is associated with one of their orgs.
     """
@@ -192,13 +191,7 @@ def can_change_taxonomy(user: UserType, taxonomy: oel_tagging.Taxonomy) -> bool:
     if not taxonomy:
         return True
 
-    taxonomy = taxonomy.cast()
-
-    # System definied taxonomies cannot be edited
-    if taxonomy.system_defined:
-        return False
-
-    # Taxonomy admins can edit any non system defined taxonomies
+    # Taxonomy admins can edit any taxonomies
     if oel_tagging.is_taxonomy_admin(user):
         return True
 
@@ -218,7 +211,13 @@ def can_change_taxonomy(user: UserType, taxonomy: oel_tagging.Taxonomy) -> bool:
 @rules.predicate
 def can_change_object_tag_objectid(user: UserType, object_id: str) -> bool:
     """
-    Everyone that has permission to edit the object should be able to tag it.
+    Return True if the user may add or modify tags on the given object.
+
+    For Content Libraries V2, this requires either explicit library tagging permission
+    (MANAGE_LIBRARY_TAGS) or org-level admin access for the library's org.
+
+    For other contexts (courses, xblocks, etc.), this requires studio write access or
+    org-level admin access for the object's org.
     """
     if not object_id:
         return True
@@ -229,6 +228,16 @@ def can_change_object_tag_objectid(user: UserType, object_id: str) -> bool:
     except (ValueError, AssertionError):
         return False
 
+    # For Content Libraries V2, prefer explicit library tagging permission,
+    # however, org-level admins are also allowed to perform these operations.
+    if isinstance(context_key, LibraryLocatorV2) and authz_api.is_user_allowed(
+        user.username,
+        authz_permissions.MANAGE_LIBRARY_TAGS.identifier,
+        str(context_key),
+    ):
+        return True
+
+    # For other contexts (courses, xblocks, etc.), use general write or org-admin access
     if has_studio_write_access(user, context_key):
         return True
 
@@ -246,7 +255,7 @@ def can_view_object_tag_taxonomy(user: UserType, taxonomy: oel_tagging.Taxonomy)
     """
     # Note: in the REST API, where we're dealing with multiple taxonomies at once, permissions
     # are also enforced by ObjectTagTaxonomyOrgFilterBackend.
-    return not taxonomy or (taxonomy.cast().enabled and can_view_taxonomy(user, taxonomy))
+    return not taxonomy or (taxonomy.enabled and can_view_taxonomy(user, taxonomy))
 
 
 @rules.predicate
@@ -276,7 +285,13 @@ def can_view_object_tag_objectid(user: UserType, object_id: str) -> bool:
 @rules.predicate
 def can_remove_object_tag_objectid(user: UserType, object_id: str) -> bool:
     """
-    Everyone that has permission to edit the object should be able remove tags from it.
+    Return True if the user may remove tags from the given object.
+
+    For Content Libraries V2, this requires either explicit library tagging permission
+    (MANAGE_LIBRARY_TAGS) or org-level admin access for the library's org.
+
+    For other contexts (courses, xblocks, etc.), this requires studio write access or
+    org-level admin access for the object's org.
     """
     if not object_id:
         raise ValueError("object_id must be provided")
@@ -290,6 +305,16 @@ def can_remove_object_tag_objectid(user: UserType, object_id: str) -> bool:
     except (ValueError, AssertionError):
         return False
 
+    # For Content Libraries V2, prefer explicit library tagging permission,
+    # however, org-level admins are also allowed to perform these operations.
+    if isinstance(context_key, LibraryLocatorV2) and authz_api.is_user_allowed(
+        user.username,
+        authz_permissions.MANAGE_LIBRARY_TAGS.identifier,
+        str(context_key),
+    ):
+        return True
+
+    # For other contexts (courses, xblocks, etc.), use general write or org-admin access
     if has_studio_write_access(user, context_key):
         return True
 
@@ -322,18 +347,19 @@ def can_change_object_tag(
 @rules.predicate
 def can_change_taxonomy_tag(user: UserType, tag: oel_tagging.Tag | None = None) -> bool:
     """
-    Even taxonomy admins cannot add tags to system taxonomies (their tags are system-defined), or free-text taxonomies
-    (these don't have predefined tags).
+    Even taxonomy admins cannot add tags to read-only or free-text taxonomies.
     """
     taxonomy = tag.taxonomy if tag else None
     if taxonomy:
-        taxonomy = taxonomy.cast()
-    return oel_tagging.is_taxonomy_admin(user) and (
-        not tag
-        or not taxonomy
-        or (bool(taxonomy) and not taxonomy.allow_free_text and not taxonomy.system_defined)
-    )
-
+        if taxonomy.read_only:
+            return False  # Cannot edit tags in read-only taxonomies.
+        if taxonomy.allow_free_text:
+            return False  # Cannot edit tags in free-text taxonomies.
+    if taxonomy is None:
+        # Taxonomy shouldn't be None if we're editing any real tag.
+        # And for testing "add", we should always be passed a dummy Tag() object with a valid taxonomy.
+        return False
+    return oel_tagging.is_taxonomy_admin(user)
 
 # Taxonomy
 rules.set_perm("oel_tagging.add_taxonomy", can_create_taxonomy)

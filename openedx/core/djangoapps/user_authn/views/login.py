@@ -7,8 +7,6 @@ Much of this file was broken out from views.py, previous history can be found th
 import hashlib
 import json
 import logging
-import re
-import urllib
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
@@ -29,6 +27,7 @@ from edx_django_utils.monitoring import set_custom_attribute
 from eventtracking import tracker
 from openedx_events.learning.data import UserData, UserPersonalData
 from openedx_events.learning.signals import SESSION_LOGIN_COMPLETED
+from openedx_filters.authentication.filters import LoginAltRedirectURLRequested
 from openedx_filters.learning.filters import StudentLoginRequested
 from rest_framework import status
 from rest_framework.views import APIView
@@ -54,13 +53,12 @@ from openedx.core.djangoapps.user_authn.toggles import (
     is_require_third_party_auth_enabled,
     should_redirect_to_authn_microfrontend,
 )
+from openedx.core.djangoapps.user_authn.utils import is_safe_login_or_logout_redirect
 from openedx.core.djangoapps.user_authn.views.login_form import get_login_session_form
 from openedx.core.djangoapps.user_authn.views.password_reset import send_password_reset_email_for_user
-from openedx.core.djangoapps.user_authn.views.utils import API_V1, ENTERPRISE_ENROLLMENT_URL_REGEX, UUID4_REGEX
+from openedx.core.djangoapps.user_authn.views.utils import API_V1
 from openedx.core.djangoapps.util.user_messages import PageLevelMessages
 from openedx.core.djangolib.markup import HTML, Text
-from openedx.core.lib.api.view_utils import require_post_params  # lint-amnesty, pylint: disable=unused-import
-from openedx.features.enterprise_support.api import activate_learner_enterprise, get_enterprise_learner_data_from_api
 
 log = logging.getLogger("edx.student")
 AUDIT_LOG = logging.getLogger("audit")
@@ -83,7 +81,7 @@ def _do_third_party_auth(request):
         return pipeline.get_authenticated_user(requested_provider, username, third_party_uid)
     except USER_MODEL.DoesNotExist:
         AUDIT_LOG.info(
-            "Login failed - user with username {username} has no social auth "
+            "Login failed - user with username {username} has no social auth "  # noqa: UP032
             "with backend_name {backend_name}".format(username=username, backend_name=backend_name)
         )
         message = Text(
@@ -102,7 +100,7 @@ def _do_third_party_auth(request):
             register_label_strong=HTML("<strong>{register_text}</strong>").format(register_text=_("Register")),
         )
 
-        raise AuthFailedError(message, error_code="third-party-auth-with-no-linked-account")  # lint-amnesty, pylint: disable=raise-missing-from
+        raise AuthFailedError(message, error_code="third-party-auth-with-no-linked-account")  # pylint: disable=raise-missing-from  # noqa: B904
 
 
 def _get_user_by_email(email):
@@ -188,7 +186,7 @@ def _generate_locked_out_error_message():
     )
 
 
-def _enforce_password_policy_compliance(request, user):  # lint-amnesty, pylint: disable=missing-function-docstring
+def _enforce_password_policy_compliance(request, user):  # pylint: disable=missing-function-docstring
     try:
         password_policy_compliance.enforce_compliance_on_login(user, request.POST.get("password"))
     except password_policy_compliance.NonCompliantPasswordWarning as e:
@@ -200,7 +198,8 @@ def _enforce_password_policy_compliance(request, user):  # lint-amnesty, pylint:
         if LoginFailures.is_feature_enabled():
             LoginFailures.increment_lockout_counter(user)
 
-        AUDIT_LOG.info("Password reset initiated for email %s.", user.email)
+        user_identifier_for_log = user.id if getattr(settings, 'SQUELCH_PII_IN_LOGS', False) else user.email
+        AUDIT_LOG.info("Password reset initiated for email %s.", user_identifier_for_log)
         tracker.emit(
             PASSWORD_RESET_INITIATED,
             {
@@ -211,7 +210,7 @@ def _enforce_password_policy_compliance(request, user):  # lint-amnesty, pylint:
         send_password_reset_email_for_user(user, request)
 
         # Prevent the login attempt.
-        raise AuthFailedError(HTML(str(e)), error_code=e.__class__.__name__)  # lint-amnesty, pylint: disable=raise-missing-from
+        raise AuthFailedError(HTML(str(e)), error_code=e.__class__.__name__)  # pylint: disable=raise-missing-from  # noqa: B904
 
 
 def _log_and_raise_inactive_user_auth_error(unauthenticated_user):
@@ -241,7 +240,7 @@ def _authenticate_first_party(request, unauthenticated_user, third_party_auth_re
     if should_be_rate_limited:
         raise AuthFailedError(
             _("Too many failed login attempts. Try again later.")
-        )  # lint-amnesty, pylint: disable=raise-missing-from
+        )  # pylint: disable=raise-missing-from
 
     # If the user doesn't exist, we want to set the username to an invalid username so that authentication is guaranteed
     # to fail and we can take advantage of the ratelimited backend
@@ -478,33 +477,45 @@ def finish_auth(request):
     )
 
 
-def enterprise_selection_page(request, user, next_url):
+def _get_alt_redirect_url(request, redirect_url, user):
     """
-    Updates redirect url to enterprise selection page if user is associated
-    with multiple enterprises otherwise return the next url.
+    Ask the configured pipeline steps for an alternative post-login redirect URL.
 
-    param:
-      next_url(string): The URL to redirect to after multiple enterprise selection or in case
-      the selection page is bypassed e.g when dealing with direct enrolment urls.
+    The pipeline is arbitrary configured code, so its answer is held to the same
+    open-redirect protections as a caller-supplied ``?next=`` parameter: an unsafe URL is
+    discarded and the caller's own destination is used instead.
+
+    Arguments:
+        request (HttpRequest)
+        redirect_url (str): the destination the caller intends to send the user to.
+        user (User): the authenticated user.
+
+    Returns: str
+        the alternative redirect url if safe, else the given redirect_url.
     """
-    redirect_url = next_url
+    # .. filter_implemented_name: LoginAltRedirectURLRequested
+    # .. filter_type: org.openedx.authentication.login.alt_redirect_url.requested.v1
+    alt_redirect_url, __ = LoginAltRedirectURLRequested.run_filter(
+        redirect_url=redirect_url,
+        user=user,
+    )
 
-    response = get_enterprise_learner_data_from_api(user)
-    if response and len(response) > 1:
-        redirect_url = reverse("enterprise_select_active") + "/?success_url=" + urllib.parse.quote(next_url)
+    if alt_redirect_url == redirect_url:
+        return redirect_url
 
-        # Check to see if next url has an enterprise in it. In this case if user is associated with
-        # that enterprise, activate that enterprise and bypass the selection page.
-        if re.match(ENTERPRISE_ENROLLMENT_URL_REGEX, urllib.parse.unquote(next_url)):
-            enterprise_in_url = re.search(UUID4_REGEX, next_url).group(0)
-            for enterprise in response:
-                if enterprise_in_url == str(enterprise["enterprise_customer"]["uuid"]):
-                    is_activated_successfully = activate_learner_enterprise(request, user, enterprise_in_url)
-                    if is_activated_successfully:
-                        redirect_url = next_url
-                    break
+    if not alt_redirect_url or not is_safe_login_or_logout_redirect(
+        redirect_to=alt_redirect_url,
+        request_host=request.get_host(),
+        dot_client_id=request.POST.get("client_id"),
+        require_https=request.is_secure(),
+    ):
+        log.warning(
+            "Unsafe alternative redirect URL detected after login: '%(alt_redirect_url)s'",
+            {"alt_redirect_url": alt_redirect_url},
+        )
+        return redirect_url
 
-    return redirect_url
+    return alt_redirect_url
 
 
 @ensure_csrf_cookie
@@ -514,13 +525,13 @@ def enterprise_selection_page(request, user, next_url):
     rate=settings.LOGISTRATION_PER_EMAIL_RATELIMIT_RATE,
     method="POST",
     block=False,
-)  # lint-amnesty, pylint: disable=too-many-statements
+)  # pylint: disable=too-many-statements
 @ratelimit(
     key="openedx.core.djangoapps.util.ratelimit.real_ip",
     rate=settings.LOGISTRATION_RATELIMIT_RATE,
     method="POST",
     block=False,
-)  # lint-amnesty, pylint: disable=too-many-statements
+)  # pylint: disable=too-many-statements
 def login_user(request, api_version="v1"):  # pylint: disable=too-many-statements
     """
     AJAX request to log in the user.
@@ -649,7 +660,8 @@ def login_user(request, api_version="v1"):  # pylint: disable=too-many-statement
         elif should_redirect_to_authn_microfrontend():
             next_url, root_url = get_next_url_for_login_page(request, include_host=True)
             redirect_url = get_redirect_url_with_host(
-                root_url, enterprise_selection_page(request, possibly_authenticated_user, finish_auth_url or next_url)
+                root_url,
+                _get_alt_redirect_url(request, finish_auth_url or next_url, possibly_authenticated_user),
             )
 
         if (
@@ -702,7 +714,7 @@ def login_user(request, api_version="v1"):  # pylint: disable=too-many-statement
 # complexity.
 @csrf_exempt
 @require_http_methods(["POST"])
-def login_refresh(request):  # lint-amnesty, pylint: disable=missing-function-docstring
+def login_refresh(request):  # pylint: disable=missing-function-docstring
     if not request.user.is_authenticated or request.user.is_anonymous:
         return JsonResponse("Unauthorized", status=401)
 
@@ -754,7 +766,7 @@ class LoginSessionView(APIView):
 
     @method_decorator(ensure_csrf_cookie)
     def get(self, request, *args, **kwargs):
-        return HttpResponse(get_login_session_form(request).to_json(), content_type="application/json")  # lint-amnesty, pylint: disable=http-response-with-content-type-json
+        return HttpResponse(get_login_session_form(request).to_json(), content_type="application/json")  # pylint: disable=http-response-with-content-type-json
 
     @swagger_auto_schema(
         request_body=login_user_schema,
@@ -801,4 +813,4 @@ def _parse_analytics_param_for_course_id(request):
                 modified_request["course_id"] = analytics.get("enroll_course_id")
         except (ValueError, TypeError):
             set_custom_attribute("shim_analytics_course_id", "parse-error")
-            log.error("Could not parse analytics object sent to user API: {analytics}".format(analytics=analytics))
+            log.error("Could not parse analytics object sent to user API: {analytics}".format(analytics=analytics))  # noqa: UP032  # pylint: disable=line-too-long

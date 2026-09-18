@@ -1,15 +1,14 @@
-# lint-amnesty, pylint: disable=missing-module-docstring
+# pylint: disable=missing-module-docstring
 
 import logging
 
 from celery import shared_task
 from celery_utils.persist_on_failure import LoggedPersistOnFailureTask
 from django.conf import settings
-from edx_django_utils.monitoring import set_code_owner_attribute
 from opaque_keys.edx.keys import CourseKey
 
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ def chunks(sequence, chunk_size):
     return (sequence[index: index + chunk_size] for index in range(0, len(sequence), chunk_size))
 
 
-def _task_options(routing_key):  # lint-amnesty, pylint: disable=missing-function-docstring
+def _task_options(routing_key):  # pylint: disable=missing-function-docstring
     task_options = {}
     if getattr(settings, 'HIGH_MEM_QUEUE', None):
         task_options['routing_key'] = settings.HIGH_MEM_QUEUE
@@ -34,7 +33,7 @@ def _task_options(routing_key):  # lint-amnesty, pylint: disable=missing-functio
     return task_options
 
 
-def enqueue_async_course_overview_update_tasks(  # lint-amnesty, pylint: disable=missing-function-docstring
+def enqueue_async_course_overview_update_tasks(  # pylint: disable=missing-function-docstring
         course_ids,
         all_courses=False,
         force_update=False,
@@ -58,7 +57,6 @@ def enqueue_async_course_overview_update_tasks(  # lint-amnesty, pylint: disable
 
 
 @shared_task(base=LoggedPersistOnFailureTask)
-@set_code_owner_attribute
 def async_course_overview_update(*args, **kwargs):
     course_keys = [CourseKey.from_string(arg) for arg in args]
     CourseOverview.update_select_courses(course_keys, force_update=kwargs['force_update'])

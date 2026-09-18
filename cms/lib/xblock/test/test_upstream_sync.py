@@ -2,12 +2,14 @@
 Test CMS's upstream->downstream syncing system
 """
 import datetime
+from unittest.mock import patch
 
 import ddt
+from openedx_content.models_api import Unit
 from organizations.api import ensure_organization
 from organizations.models import Organization
-from pytz import utc
 
+from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import save_xblock_with_callback
 from cms.lib.xblock.upstream_sync import (
     BadDownstream,
     BadUpstream,
@@ -16,12 +18,13 @@ from cms.lib.xblock.upstream_sync import (
     decline_sync,
     sever_upstream_link,
 )
-from cms.lib.xblock.upstream_sync_block import sync_from_upstream_block, fetch_customizable_fields_from_block
-from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import save_xblock_with_callback
+from cms.lib.xblock.upstream_sync_block import fetch_customizable_fields_from_block, sync_from_upstream_block
+from cms.lib.xblock.upstream_sync_container import sync_from_upstream_container
 from common.djangoapps.student.tests.factories import UserFactory
 from openedx.core.djangoapps.content_libraries import api as libs
 from openedx.core.djangoapps.content_tagging import api as tagging_api
 from openedx.core.djangoapps.xblock import api as xblock
+from openedx.core.djangoapps.xblock.data import CheckPerm
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
@@ -117,7 +120,7 @@ class UpstreamTestCase(ModuleStoreTestCase):
         downstream_lib_block.upstream = str(self.upstream_key)
         downstream_lib_block.save()
 
-        with self.assertRaises(BadDownstream):
+        with self.assertRaises(BadDownstream):  # noqa: PT027
             sync_from_upstream_block(downstream_lib_block, self.user)
 
         assert downstream_lib_block.display_name == "Another lib block"
@@ -131,7 +134,7 @@ class UpstreamTestCase(ModuleStoreTestCase):
         block.display_name = "Block Title"
         block.data = "Block content"
 
-        with self.assertRaises(NoUpstream):
+        with self.assertRaises(NoUpstream):  # noqa: PT027
             sync_from_upstream_block(block, self.user)
 
         assert block.display_name == "Block Title"
@@ -154,7 +157,7 @@ class UpstreamTestCase(ModuleStoreTestCase):
         block.display_name = "Block Title"
         block.data = "Block content"
 
-        with self.assertRaisesRegex(BadUpstream, message_regex):
+        with self.assertRaisesRegex(BadUpstream, message_regex):  # noqa: PT027
             sync_from_upstream_block(block, self.user)
 
         assert block.display_name == "Block Title"
@@ -171,7 +174,7 @@ class UpstreamTestCase(ModuleStoreTestCase):
         downstream_block.display_name = "Block Title"
         downstream_block.data = "Block content"
 
-        with self.assertRaisesRegex(BadUpstream, "Content type mismatch.*"):
+        with self.assertRaisesRegex(BadUpstream, "Content type mismatch.*"):  # noqa: PT027
             sync_from_upstream_block(downstream_block, self.user)
 
         assert downstream_block.display_name == "Block Title"
@@ -184,7 +187,7 @@ class UpstreamTestCase(ModuleStoreTestCase):
         """
         downstream = BlockFactory.create(category='html', parent=self.unit, upstream=str(self.upstream_key))
         user_who_cannot_read_upstream = UserFactory.create(username="rando", is_staff=False, is_superuser=False)
-        with self.assertRaisesRegex(BadUpstream, ".*could not be loaded.*") as exc:
+        with self.assertRaisesRegex(BadUpstream, ".*could not be loaded.*") as exc:  # noqa: F841, PT027
             sync_from_upstream_block(downstream, user_who_cannot_read_upstream)
 
     def test_sync_updates_happy_path(self):
@@ -292,9 +295,9 @@ class UpstreamTestCase(ModuleStoreTestCase):
         # Modifing downstream-only fields are "safe" customizations
         downstream.display_name = "Downstream Title Override"
         downstream.attempts_before_showanswer_button = 2
-        downstream.due = datetime.datetime(2025, 2, 2, tzinfo=utc)
+        downstream.due = datetime.datetime(2025, 2, 2, tzinfo=datetime.timezone.utc)  # noqa: UP017
         downstream.force_save_button = True
-        downstream.graceperiod = '2d'
+        downstream.graceperiod = datetime.timedelta(days=2)
         downstream.grading_method = 'last_score'
         downstream.max_attempts = 100
         downstream.show_correctness = 'always'
@@ -320,9 +323,9 @@ class UpstreamTestCase(ModuleStoreTestCase):
         # but "safe" customizations survive
         assert downstream.display_name == "Downstream Title Override"
         assert downstream.attempts_before_showanswer_button == 2
-        assert downstream.due == datetime.datetime(2025, 2, 2, tzinfo=utc)
+        assert downstream.due == datetime.datetime(2025, 2, 2, tzinfo=datetime.timezone.utc)  # noqa: UP017
         assert downstream.force_save_button
-        assert downstream.graceperiod == '2d'
+        assert downstream.graceperiod == datetime.timedelta(days=2)
         assert downstream.grading_method == 'last_score'
         assert downstream.max_attempts == 100
         assert downstream.show_correctness == 'always'
@@ -652,3 +655,55 @@ class UpstreamTestCase(ModuleStoreTestCase):
         # data is overridden
         assert downstream.data == "<html><body>Upstream content V2</body></html>"
         assert downstream.downstream_customized == ["display_name"]
+
+    def test_load_upstream_block_legacy_does_not_bypass_library_permission(self):
+        """
+        When AuthZ is not enabled, _load_upstream_block falls through to the
+        library-level CAN_READ_AS_AUTHOR check.
+        """
+        downstream = BlockFactory.create(
+            category="html", parent=self.unit, upstream=str(self.upstream_key)
+        )
+
+        # Get upstream xblock before patching
+        real_upstream = xblock.load_block(self.upstream_key, self.user)
+
+        with patch("openedx.core.djangoapps.xblock.api.load_block") as mock_load_block:
+            mock_load_block.return_value = real_upstream
+            sync_from_upstream_block(downstream, self.user)
+
+        mock_load_block.assert_called_once()
+        _, lb_kwargs = mock_load_block.call_args
+        assert lb_kwargs["check_permission"] == CheckPerm.CAN_READ_AS_AUTHOR, (
+            "When the course-level permission is denied, the library block "
+            "should be loaded with CAN_READ_AS_AUTHOR, not with check_permission=None"
+        )
+
+    def test_sync_container_legacy_does_not_bypass_library_permission(self):
+        """
+        When AuthZ is not enabled, sync_from_upstream_container falls through
+        to the library-level CAN_VIEW_THIS_CONTENT_LIBRARY check.
+        """
+        upstream_container = libs.create_container(
+            self.library.key, Unit, "test-container", "Test Container Title", self.user.id,
+        )
+        libs.publish_changes(self.library.key, self.user.id)
+
+        downstream = BlockFactory.create(
+            category="vertical",
+            parent=self.unit,
+            upstream=str(upstream_container.container_key),
+        )
+
+        with patch(
+            "cms.lib.xblock.upstream_sync_container.lib_api.require_permission_for_library_key"
+        ) as mock_require_perm:
+            sync_from_upstream_container(downstream, self.user)
+
+        mock_require_perm.assert_called_once()
+        _, rp_kwargs = mock_require_perm.call_args
+        assert rp_kwargs.get("permission") == libs.permissions.CAN_VIEW_THIS_CONTENT_LIBRARY, (
+            "When the course-level permission is denied, the container sync "
+            "should enforce CAN_VIEW_THIS_CONTENT_LIBRARY via "
+            "require_permission_for_library_key"
+        )
