@@ -15,7 +15,7 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx import locator
 from opaque_keys.edx.keys import CourseKey
 from rest_framework import generics, status, viewsets
-from rest_framework.exceptions import ParseError, ValidationError
+from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -269,10 +269,15 @@ class UserModifyView(APIView):
     )
     permission_classes = (IsAdminUser,)
 
+    def _check_superuser(self, request):
+        if request.data.get("superuser", False) and not request.user.is_superuser:
+            raise PermissionDenied("You must be a superuser to perform this action.")
+
     def post(self, request):
         """
         Create a user with email and username.
         """
+        self._check_superuser(request)
         data = request.data.copy()
         allowed_fields = UserProfileSerializer.Meta.fields
         try:
@@ -307,6 +312,7 @@ class UserModifyView(APIView):
         Update user information by email or username.
         """
         try:
+            self._check_superuser(request)
             data = request.data.copy()
             username_or_email = data.pop("username_or_email", None)
 

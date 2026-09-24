@@ -811,6 +811,18 @@ class TestUserModifyAPI(ApiTestCase):
             "username": created_user.username,
         }
 
+    def test_create_new_user_forbidden_when_superuser_flag_is_set_by_non_superuser(self):
+        """Test a non-superuser cannot set the superuser flag on a new user."""
+        self.test_user.is_superuser = False
+        self.test_user.save(update_fields=["is_superuser"])
+
+        data = self.DATA.copy()
+        data["superuser"] = True
+        response = self.client.post(self.PATH, data)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == {"detail": "You must be a superuser to perform this action."}
+
     @ddt.data("username", "email")
     def test_create_new_user_error_missing_info(self, missing_field):
         """Test creating a user with missing required information"""

@@ -10029,9 +10029,9 @@ paths:
       description: |-
         Creates a user with the provided account details.
 
-        The request body must include the required registration fields such as
-        `name`, `username`, `password`, `email`, `terms_of_service`, and
-        `honor_code`. This endpoint is restricted to admin users.
+        The request body must include the required account fields
+        `username` and `email`. This endpoint is restricted
+        to admin users.
 
         **Example Requests**
 
@@ -10042,8 +10042,8 @@ paths:
               "username": "testuser",
               "password": "Password1234",
               "email": "e@mail.com",
-              "terms_of_service": "true",
-              "honor_code": "true"
+              "is_staff": false,
+              "is_superuser": false
             }
       parameters:
       - in: body
@@ -10056,8 +10056,6 @@ paths:
           - username
           - password
           - email
-          - terms_of_service
-          - honor_code
           properties:
             name:
               type: string
@@ -10068,15 +10066,20 @@ paths:
             email:
               type: string
               format: email
-            terms_of_service:
+            is_active:
+              type: boolean
+            is_staff:
+              type: boolean
+            is_superuser:
+              type: boolean
+            year_of_birth:
+              type: integer
+            gender:
               type: string
-              description: Boolean-like string value, typically "true".
-            honor_code:
+            level_of_education:
               type: string
-              description: Boolean-like string value, typically "true".
-            course_id:
+            country:
               type: string
-              description: Optional course identifier for analytics tracking.
           additionalProperties: true
       responses:
         '201':
@@ -10131,14 +10134,27 @@ paths:
             username_or_email:
               type: string
               description: Username or email identifying the user to update.
+            email:
+              type: string
+              format: email
+            password:
+              type: string
             name:
               type: string
+            is_active:
+              type: boolean
+            is_staff:
+              type: boolean
+            is_superuser:
+              type: boolean
+            year_of_birth:
+              type: integer
             gender:
+              type: string
+            level_of_education:
               type: string
             country:
               type: string
-            year_of_birth:
-              type: integer
           additionalProperties: true
       responses:
         '200':

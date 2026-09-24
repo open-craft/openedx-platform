@@ -206,7 +206,9 @@ class UserProfileSerializer(serializers.Serializer):
 
         if "level_of_education" in attrs:
             if attrs["level_of_education"] not in dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES):
-                raise ValidationError(f"Level of education must be one of {list(dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES).keys())}")
+                raise ValidationError(
+                    f"Level of education must be one of {list(dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES).keys())}"
+                )
 
         if "country" in attrs:
             if attrs["country"] not in dict(countries):
