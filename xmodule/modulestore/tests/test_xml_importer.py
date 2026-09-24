@@ -618,22 +618,27 @@ class SubsectionPrerequisitesImportTest(unittest.TestCase):
 
     def test_import_subsection_prerequisites_unknown_prerequisite(self):
         """
-        Requiring a subsection that is not part of the imported course fails before any settings are applied.
+        Requiring a subsection that is not part of the imported course is skipped with a warning, and the existing
+        requirement of the subsection is removed.
         """
+        self._set_existing_milestones("gated")
         sequentials = [
-            self._make_sequential('prereq', is_prereq='true'),
-            self._make_sequential('gated', prereq='missing'),
+            self._make_sequential("prereq", is_prereq="true"),
+            self._make_sequential("gated", prereq="missing", prereq_min_score="80"),
         ]
 
-        with pytest.raises(InvalidSubsectionPrerequisite) as context:
+        with self.assertLogs("xmodule.modulestore.xml_importer", level="WARNING") as logs:
             _import_subsection_prerequisites(sequentials, self.dest_course_key)
 
-        assert str(context.value) == (
-            f'Invalid prerequisite settings of the subsection "Subsection gated" ({self._dest_key("gated")}): '
-            f'"{self._dest_key("missing")}" is not a subsection of this course'
+        assert logs.output == [
+            f"WARNING:xmodule.modulestore.xml_importer:Course import {self.dest_course_key}: skipping the "
+            f"requirement of the subsection {self._dest_key('gated')} on {self._dest_key('missing')}, which is not "
+            "a subsection of this course."
+        ]
+        self.gating_api.add_prerequisite.assert_called_once_with(self.dest_course_key, self._dest_key("prereq"))
+        self.gating_api.set_required_content.assert_called_once_with(
+            self.dest_course_key, self._dest_key("gated"), None
         )
-        self.gating_api.add_prerequisite.assert_not_called()
-        self.gating_api.set_required_content.assert_not_called()
 
     def test_import_subsection_prerequisites_self_reference(self):
         """

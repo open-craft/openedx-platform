@@ -1562,24 +1562,48 @@ class TestCourseExportImportSubsectionPrerequisites(CourseTestCase, MilestonesTe
 
         assert not gating_api.find_gating_milestones(self.source_course.id)
 
-    def test_invalid_prerequisite_fails_import(self):
+    def _replace_in_exported_sequential(self, course_dir, sequential, old, new):
         """
-        Requiring a subsection that does not exist in the course fails the import with a clear error.
+        Replace occurrences of `old` with `new` in the exported XML of a sequential block.
         """
-        self._export(self.source_course.id, 'exported_course')
-        sequential_path = self._exported_sequential_path('exported_course', self.gated)
+        sequential_path = self._exported_sequential_path(course_dir, sequential)
         with open(sequential_path) as sequential_file:
             sequential_xml = sequential_file.read()
-        with open(sequential_path, 'w') as sequential_file:
-            sequential_file.write(sequential_xml.replace(self.prereq.location.block_id, 'missing'))
+        with open(sequential_path, "w") as sequential_file:
+            sequential_file.write(sequential_xml.replace(old, new))
+
+    def test_unknown_prerequisite_is_skipped(self):
+        """
+        A requirement on a subsection that does not exist in the course is skipped, and the import succeeds.
+        """
+        self._export(self.source_course.id, "exported_course")
+        self._replace_in_exported_sequential("exported_course", self.gated, self.prereq.location.block_id, "missing")
+
+        self._import("exported_course", self.source_course.id)
+
+        assert gating_api.get_prerequisite_settings(self.source_course.id, self.prereq.location) == (
+            True,
+            None,
+            None,
+            None,
+        )
+        self._assert_no_prerequisites(self.source_course.id, self.gated)
+
+    def test_invalid_prerequisite_fails_import(self):
+        """
+        A malformed prerequisite fails the import with a clear error.
+        """
+        self._export(self.source_course.id, 'exported_course')
+        self._replace_in_exported_sequential(
+            "exported_course", self.gated, 'prereq_min_score="80"', 'prereq_min_score="abc"'
+        )
 
         with pytest.raises(InvalidSubsectionPrerequisite) as context:
             self._import('exported_course', self.source_course.id)
 
-        missing_key = self.source_course.id.make_usage_key('sequential', 'missing')
         assert str(context.value) == (
             f'Invalid prerequisite settings of the subsection "Gated" ({self.gated.location}): '
-            f'"{missing_key}" is not a subsection of this course'
+            "abc is not a valid grade percentage"
         )
 
 
