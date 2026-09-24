@@ -945,9 +945,11 @@ def _import_subsection_prerequisites(sequentials, dest_id):
       feature: the imported subsections keep their existing settings, so that restoring an old export does not
       silently drop them.
 
+    Requirements on subsections that are not part of the OLX cannot be met, so they are skipped with a warning.
+
     Raises:
-        InvalidSubsectionPrerequisite: If the prerequisite settings of a subsection are invalid. Invalid
-            prerequisite references are detected before any settings are applied.
+        InvalidSubsectionPrerequisite: If the prerequisite settings of a subsection are invalid, i.e. malformed or
+            requiring the subsection itself. Such references are detected before any settings are applied.
     """
     prerequisites = {}
     for sequential in sequentials:
@@ -957,19 +959,23 @@ def _import_subsection_prerequisites(sequentials, dest_id):
     # A subsection may only require another subsection of the same course. The required subsection must be
     # a prerequisite, even if the OLX does not flag it as such.
     prereq_keys = {usage_key for usage_key, prerequisite in prerequisites.items() if prerequisite.is_prereq}
-    for prerequisite in prerequisites.values():
+    for usage_key, prerequisite in prerequisites.items():
         if prerequisite.prereq_key is None:
             continue
-        if prerequisite.prereq_key == prerequisite.usage_key:
+        if prerequisite.prereq_key == usage_key:
             raise InvalidSubsectionPrerequisite(
-                prerequisite.display_name, prerequisite.usage_key, _('a subsection cannot be its own prerequisite')
+                prerequisite.display_name, usage_key, _('a subsection cannot be its own prerequisite')
             )
         if prerequisite.prereq_key not in prerequisites:
-            raise InvalidSubsectionPrerequisite(
-                prerequisite.display_name,
-                prerequisite.usage_key,
-                _('"{}" is not a subsection of this course').format(prerequisite.prereq_key),
+            # A requirement that cannot be met, e.g. exported from a course where the prerequisite subsection was
+            # removed without removing the requirements pointing at it. The subsection is imported without it.
+            log.warning(
+                'Course import %s: skipping the requirement of the subsection %s on %s, which is not a subsection '
+                'of this course.',
+                dest_id, usage_key, prerequisite.prereq_key,
             )
+            prerequisites[usage_key] = prerequisite._replace(prereq_key=None)
+            continue
         prereq_keys.add(prerequisite.prereq_key)
 
     # The existing settings only need to be removed from the subsections that have some. This also keeps the import
