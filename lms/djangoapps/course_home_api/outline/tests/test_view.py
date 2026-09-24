@@ -4,7 +4,7 @@ Tests for Outline Tab API in the Course Home API
 
 import itertools
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import ddt
@@ -300,14 +300,14 @@ class OutlineTabTestViews(BaseCourseHomeTests):
         """
         A subsection set to hide after its due date stays on the outline, but without a link.
         """
-        course = CourseFactory.create(start=datetime(2020, 1, 1, tzinfo=timezone.utc))
+        course = CourseFactory.create(start=datetime(2020, 1, 1, tzinfo=UTC))
         with self.store.bulk_operations(course.id):
             chapter = BlockFactory.create(category="chapter", parent_location=course.location)
             sequential = BlockFactory.create(
                 display_name="Past Due Assignment",
                 category="sequential",
                 graded=True,
-                due=datetime.now(timezone.utc) - timedelta(days=1),
+                due=datetime.now(UTC) - timedelta(days=1),
                 hide_after_due=True,
                 parent_location=chapter.location,
             )

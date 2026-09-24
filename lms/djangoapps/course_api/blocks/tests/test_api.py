@@ -3,7 +3,7 @@ Tests for Blocks api.py
 """
 
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import ddt
@@ -257,8 +257,8 @@ class TestGetBlocksHiddenContentWithoutLinks(ModuleStoreTestCase):
         self.request = RequestFactory().get("/dummy")
         self.request.user = self.user
 
-        past_due = datetime.now(timezone.utc) - timedelta(days=1)
-        self.course = CourseFactory.create(start=datetime(2020, 1, 1, tzinfo=timezone.utc))
+        past_due = datetime.now(UTC) - timedelta(days=1)
+        self.course = CourseFactory.create(start=datetime(2020, 1, 1, tzinfo=UTC))
 
         with self.store.bulk_operations(self.course.id):
             # A section the learner finished before its subsection went past due.
