@@ -1,7 +1,10 @@
 """Tests for the user API at the HTTP request level. """
 
+import json
+
 import ddt
 import pytest
+from django.contrib.auth import get_user_model
 from django.contrib import messages as django_messages
 from django.contrib.messages.storage.session import SessionStorage
 from django.http import HttpResponse
@@ -10,6 +13,7 @@ from django.test.utils import override_settings
 from django.urls import reverse
 from opaque_keys.edx.keys import CourseKey
 from pytz import common_timezones, common_timezones_set, country_timezones
+from rest_framework import status
 
 from common.djangoapps.student.tests.factories import UserFactory
 from openedx.core.djangoapps.django_comment_common import models
@@ -33,6 +37,7 @@ USER_LIST_URI = "/api/user/v1/users/"
 USER_PREFERENCE_LIST_URI = "/api/user/v1/user_prefs/"
 ROLE_LIST_URI = "/api/user/v1/forum_roles/Moderator/users/"
 
+User = get_user_model()
 
 class UserAPITestCase(ApiTestCase):
     """
@@ -764,3 +769,240 @@ class CountryTimeZoneListViewTest(UserApiTestCase):
         assert len(results) == len(common_timezones)
         for time_zone_info in results:
             self._assert_time_zone_is_valid(time_zone_info)
+
+
+@override_settings(ENABLE_AUTHN_REGISTER_HIBP_POLICY=False)
+@ddt.ddt
+class TestUserModifyAPI(ApiTestCase):
+    """Test cases covering the user modification API"""
+
+    PATH = "/api/user/v1/modify"
+
+    DATA = {
+        "name": "Test User",
+        "username": "testuser",
+        "password": "Password1234",
+        "email": "e@mail.com",
+        "is_staff": False,
+        "is_superuser": False,
+    }
+
+    def setUp(self):
+        """Create a test user and log in with that user"""
+        super().setUp()
+
+        self.test_user = UserFactory.create(
+            username="user",
+            email="user@example.com",
+            password="pass",
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.client.login(username="user", password="pass")
+
+    @override_settings(ENFORCE_SAFE_SESSIONS=False)
+    def test_create_new_user_success(self):
+        """Test creating a user with valid information"""
+        response = self.client.post(self.PATH, self.DATA)
+        assert response.status_code == status.HTTP_201_CREATED
+        created_user = User.objects.get(username=self.DATA["username"])
+        assert response.json() == {
+            "user_id": created_user.id,
+            "username": created_user.username,
+        }
+
+    @ddt.data("username", "email")
+    def test_create_new_user_error_missing_info(self, missing_field):
+        """Test creating a user with missing required information"""
+        data = self.DATA.copy()
+        data.pop(missing_field)
+        response = self.client.post(self.PATH, data)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
+        assert missing_field in str(response.json()["error"]).lower()
+
+    def test_create_new_user_error_invalid_attribute(self):
+        """Test creating a user with an invalid attribute"""
+        data = self.DATA.copy()
+        data["email"] = "invalid-email"
+        response = self.client.post(self.PATH, data)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
+        assert "email" in str(response.json()["error"])
+
+    @ddt.data(
+        ("email", "user@example.com", "User already exists with this email"),
+        ("username", "user", "already exists"),
+    )
+    @ddt.unpack
+    def test_create_new_user_error_already_exists(self, field, value, error):
+        """Test creating a user with an invalid attribute"""
+        data = self.DATA.copy()
+        data[field] = value
+        response = self.client.post(self.PATH, data)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
+        assert error in str(response.json()["error"])
+
+    def test_patch_user_success(self):
+        """Test updating a user with a valid lookup field"""
+        user = UserFactory.create(
+            username="patch-user",
+            email="patch@example.com",
+        )
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(
+                {"username_or_email": user.email, "name": "Updated Name"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"user_id": user.id, "username": user.username}
+        user = User.objects.get(id=user.id)
+        assert user.profile.name == "Updated Name"
+
+    def test_patch_user_success_by_username(self):
+        """Test updating a user using their username as the lookup field"""
+        user = UserFactory.create(
+            username="patch-user",
+            email="patch@example.com",
+        )
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(
+                {"username_or_email": user.username, "name": "Updated Name"}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.profile.refresh_from_db()
+        assert user.profile.name == "Updated Name"
+
+    def test_patch_user_updates_user_and_profile_fields(self):
+        """Test updating fields stored on both the user and profile models"""
+        user = UserFactory.create(
+            username="patch-user",
+            email="patch@example.com",
+            profile__name="Original Name",
+        )
+        data = {
+            "username_or_email": user.email,
+            "email": "updated@example.com",
+            "name": "Updated Name",
+            "password": "new-password",
+            "year_of_birth": 2000,
+            "gender": "f",
+            "level_of_education": "b",
+            "country": "US",
+        }
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(data),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        user.profile.refresh_from_db()
+        assert user.email == data["email"]
+        assert user.check_password(data["password"])
+        assert user.profile.name == data["name"]
+        assert user.profile.year_of_birth == data["year_of_birth"]
+        assert user.profile.gender == data["gender"]
+        assert user.profile.level_of_education == data["level_of_education"]
+        assert user.profile.country == data["country"]
+
+    def test_patch_user_invalid_profile_field_does_not_update_user(self):
+        """Test invalid profile data does not partially update the user"""
+        user = UserFactory.create(
+            username="test-user",
+            email="patch-error@example.com",
+        )
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(
+                {
+                    "username_or_email": user.email,
+                    "email": "updated@example.com",
+                    "gender": "invalid",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user.refresh_from_db()
+        assert user.email == "patch-error@example.com"
+
+    def test_patch_user_invalid_email(self):
+        """Test invalid user data is returned as a validation error"""
+        user = UserFactory.create(
+            username="test-user",
+            email="patch-error@example.com",
+        )
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(
+                {"username_or_email": user.email, "email": "invalid-email"}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "email" in str(response.json()["error"])
+
+    def test_patch_user_not_found(self):
+        """Test patch returns 404 when no user matches the lookup fields"""
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(
+                {"username_or_email": "missing@example.com", "name": "Updated Name"}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.json() == {"error": "User not found."}
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_patch_user_validation_read_only_field(self):
+        """Test serializer validation errors are returned with status 400"""
+        user = UserFactory.create(
+            username="test-user",
+            email="patch-error@example.com",
+        )
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(
+                {"username_or_email": user.email, "username": "modifieduser"}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.json() == {'error': "['Username cannot be changed.']"}
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_patch_user_validation_inexistent_field(self):
+        """Test serializer validation errors are returned with status 400"""
+        user = UserFactory.create(
+            username="test-user",
+            email="patch-error@example.com",
+        )
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(
+                {"username_or_email": user.email, "non_existent_field": "value"}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.json() == {'error': ['Unexpected field: non_existent_field']}
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -1,0 +1,138 @@
+"""Unit tests for the combined User/UserProfile serializer."""
+
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.test import TestCase
+
+from common.djangoapps.student.models.user import UserProfile
+from common.djangoapps.student.tests.factories import UserFactory
+
+from ..serializers import UserProfileSerializer
+
+User = get_user_model()
+
+
+class UserProfileSerializerTest(TestCase):
+    """Tests for updates spanning the User and UserProfile models."""
+
+    def test_create_user_and_profile_fields(self):
+        data = {
+            "username": "new-user",
+            "email": "new@example.com",
+            "password": "Password1234",
+            "name": "New User",
+            "year_of_birth": UserProfile.VALID_YEARS[-1],
+            "gender": "f",
+            "level_of_education": "b",
+            "country": "US",
+        }
+
+        serializer = UserProfileSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        user = serializer.save()
+
+        self.assertEqual(user.username, data["username"])
+        self.assertEqual(user.email, data["email"])
+        self.assertTrue(user.check_password(data["password"]))
+        self.assertEqual(user.profile.name, data["name"])
+        self.assertEqual(user.profile.year_of_birth, data["year_of_birth"])
+        self.assertEqual(user.profile.gender, data["gender"])
+        self.assertEqual(user.profile.level_of_education, data["level_of_education"])
+        self.assertEqual(user.profile.country, data["country"])
+
+    def test_update_user_and_profile_fields(self):
+        user = UserFactory.create(email="original@example.com", profile__name="Original Name")
+        data = {
+            "email": "updated@example.com",
+            "name": "Updated Name",
+            "password": "new-password",
+            "year_of_birth": UserProfile.VALID_YEARS[-1],
+            "gender": "f",
+            "level_of_education": "b",
+            "country": "US",
+        }
+
+        serializer = UserProfileSerializer(instance=user, data=data, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        user.refresh_from_db()
+        user.profile.refresh_from_db()
+
+        self.assertEqual(user.email, data["email"])
+        self.assertTrue(user.check_password(data["password"]))
+        self.assertEqual(user.profile.name, data["name"])
+        self.assertEqual(user.profile.year_of_birth, data["year_of_birth"])
+        self.assertEqual(user.profile.gender, data["gender"])
+        self.assertEqual(user.profile.level_of_education, data["level_of_education"])
+        self.assertEqual(user.profile.country, data["country"])
+
+    def test_invalid_profile_fields(self):
+        invalid_values = {
+            "year_of_birth": 1800,
+            "gender": "invalid",
+            "level_of_education": "invalid",
+            "country": "invalid",
+        }
+
+        for field, value in invalid_values.items():
+            serializer = UserProfileSerializer(data={field: value}, partial=True)
+            self.assertFalse(serializer.is_valid())
+            self.assertTrue(
+                field in serializer.errors or "non_field_errors" in serializer.errors,
+                serializer.errors,
+            )
+
+    def test_blank_user_fields_are_rejected(self):
+        for field in ("email", "username", "password", "name"):
+            serializer = UserProfileSerializer(data={field: ""}, partial=True)
+            self.assertFalse(serializer.is_valid())
+            self.assertIn(field, serializer.errors)
+
+    def test_whitespace_only_fields_are_rejected(self):
+        for field in ("email", "username", "name"):
+            serializer = UserProfileSerializer(data={field: "   "}, partial=True)
+            self.assertFalse(serializer.is_valid())
+            self.assertIn(field, serializer.errors)
+
+    def test_missing_required_fields_are_rejected(self):
+        for field, message in (("email", "Email is required."), ("username", "Username is required.")):
+            data = {"email": "new@example.com", "username": "new-user"}
+            data.pop(field)
+            serializer = UserProfileSerializer(data=data)
+            self.assertFalse(serializer.is_valid(), serializer.errors)
+            self.assertIn("non_field_errors", serializer.errors)
+            self.assertIn(message, serializer.errors["non_field_errors"])
+
+    def test_duplicate_email_and_username_are_rejected(self):
+        existing = UserFactory.create(username="existing-user", email="existing@example.com")
+
+        cases = (
+            ("email", existing.email, "User already exists with this email"),
+            ("username", existing.username, "User already exists with this username"),
+        )
+
+        for field, value, message in cases:
+            serializer = UserProfileSerializer(
+                data={"email": "new@example.com", "username": "new-user", field: value}
+            )
+            self.assertFalse(serializer.is_valid(), serializer.errors)
+            self.assertIn("non_field_errors", serializer.errors)
+            self.assertIn(message, serializer.errors["non_field_errors"])
+
+    def test_weak_password_is_rejected(self):
+        serializer = UserProfileSerializer(data={
+            "username": "new-user",
+            "email": "new@example.com",
+            "password": "weak",
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertTrue(
+            "password" in serializer.errors or "non_field_errors" in serializer.errors,
+            serializer.errors,
+        )
+
+    def test_username_cannot_be_changed(self):
+        user = UserFactory.create(username="original-user", email="original@example.com")
+        with self.assertRaisesMessage(DjangoValidationError, "Username cannot be changed."):
+            UserProfileSerializer().update(user, {"username": "new-user"})
