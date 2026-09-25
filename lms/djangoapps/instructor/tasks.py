@@ -5,7 +5,6 @@ import logging
 from celery import shared_task
 from celery_utils.logged_task import LoggedTask
 from django.core.exceptions import ObjectDoesNotExist
-from edx_django_utils.monitoring import set_code_owner_attribute
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import UsageKey
 from xblock.completable import XBlockCompletionMode
@@ -14,14 +13,13 @@ from common.djangoapps.student.models import get_user_by_username_or_email
 from lms.djangoapps.courseware.block_render import get_block_for_descriptor
 from lms.djangoapps.courseware.model_data import FieldDataCache
 from openedx.core.lib.request_utils import get_request_or_stub
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.exceptions import ItemNotFoundError  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.exceptions import ItemNotFoundError  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 
 
 @shared_task(base=LoggedTask, ignore_result=True)
-@set_code_owner_attribute
 def update_exam_completion_task(user_identifier: str, content_id: str, completion: float) -> None:
     """
     Marks all completable children of content_id as complete for the user.

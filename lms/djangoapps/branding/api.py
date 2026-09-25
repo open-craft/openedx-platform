@@ -348,7 +348,7 @@ def _add_enterprise_marketing_footer_query_params(url):
     """Add query params to url if they exist in the settings"""
     params = settings.ENTERPRISE_MARKETING_FOOTER_QUERY_PARAMS
     if params:
-        return "{url}/?{params}".format(
+        return "{url}/?{params}".format(  # noqa: UP032
             url=url,
             params=six.moves.urllib.parse.urlencode(params),
         )
@@ -431,7 +431,7 @@ def _footer_mobile_links(is_secure):
     platform_name = configuration_helpers.get_value('platform_name', settings.PLATFORM_NAME)
 
     mobile_links = []
-    if settings.FEATURES.get('ENABLE_FOOTER_MOBILE_APP_LINKS'):
+    if settings.ENABLE_FOOTER_MOBILE_APP_LINKS:
         mobile_links = [
             {
                 "name": "apple",

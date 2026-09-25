@@ -6,13 +6,10 @@ import datetime
 import functools
 import json
 import logging
-from copy import deepcopy
 
-import pytz
 from ccx_keys.locator import CCXLocator
-from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.db import transaction
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect
@@ -28,32 +25,27 @@ from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.student.roles import CourseCcxCoachRole
 from lms.djangoapps.ccx.models import CustomCourseForEdX
 from lms.djangoapps.ccx.overrides import (
-    bulk_delete_ccx_override_fields,
-    clear_ccx_field_info_from_ccx_map,
     get_override_for_ccx,
-    override_field_for_ccx
+    override_field_for_ccx,
 )
 from lms.djangoapps.ccx.permissions import VIEW_CCX_COACH_DASHBOARD
 from lms.djangoapps.ccx.utils import (
-    add_master_course_staff_to_ccx,
     assign_staff_role_to_ccx,
     ccx_course,
     ccx_students_enrolling_center,
+    create_ccx_course,
     get_ccx_by_ccx_id,
     get_ccx_creation_dict,
     get_ccx_for_coach,
-    get_date,
+    get_ccx_schedule,
     get_enrollment_action_and_identifiers,
-    parse_date
+    save_ccx_schedule,
 )
-from lms.djangoapps.courseware.field_overrides import disable_overrides
 from lms.djangoapps.grades.api import CourseGradeFactory
-from lms.djangoapps.instructor.enrollment import enroll_email, get_email_params
+from lms.djangoapps.instructor.enrollment import get_email_params
 from lms.djangoapps.instructor.views.gradebook_api import get_grade_book_page
-from openedx.core.djangoapps.django_comment_common.models import FORUM_ROLE_ADMINISTRATOR, assign_role
-from openedx.core.djangoapps.django_comment_common.utils import seed_permissions_roles
 from openedx.core.lib.courses import get_course_by_id
-from xmodule.modulestore.django import SignalHandler  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import SignalHandler  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 TODAY = datetime.datetime.today  # for patching in tests
@@ -78,13 +70,13 @@ def coach_dashboard(view):
             try:
                 ccx = CustomCourseForEdX.objects.get(pk=ccx_id)
             except CustomCourseForEdX.DoesNotExist:
-                raise Http404  # lint-amnesty, pylint: disable=raise-missing-from
+                raise Http404  # pylint: disable=raise-missing-from  # noqa: B904
 
         if ccx:
             course_key = ccx.course_id
         course = get_course_by_id(course_key, depth=None)
 
-        if not course.enable_ccx:  # lint-amnesty, pylint: disable=no-else-raise
+        if not course.enable_ccx:  # pylint: disable=no-else-raise
             raise Http404
         else:
             if bool(request.user.has_perm(VIEW_CCX_COACH_DASHBOARD, course)):
@@ -149,7 +141,7 @@ def dashboard(request, course, ccx=None):
         context['grading_policy_url'] = reverse(
             'ccx_set_grading_policy', kwargs={'course_id': ccx_locator})
 
-        with ccx_course(ccx_locator) as course:  # lint-amnesty, pylint: disable=redefined-argument-from-local
+        with ccx_course(ccx_locator) as course:  # pylint: disable=redefined-argument-from-local
             context['course'] = course
 
     else:
@@ -183,60 +175,10 @@ def create_ccx(request, course, ccx=None):
         url = reverse('ccx_coach_dashboard', kwargs={'course_id': course.id})
         return redirect(url)
 
-    ccx = CustomCourseForEdX(
-        course_id=course.id,
-        coach=request.user,
-        display_name=name)
-    ccx.save()
-
-    # Make sure start/due are overridden for entire course
-    start = TODAY().replace(tzinfo=pytz.UTC)
-    override_field_for_ccx(ccx, course, 'start', start)
-    override_field_for_ccx(ccx, course, 'due', None)
-
-    # Enforce a static limit for the maximum amount of students that can be enrolled
-    override_field_for_ccx(ccx, course, 'max_student_enrollments_allowed', settings.CCX_MAX_STUDENTS_ALLOWED)
-    # Save display name explicitly
-    override_field_for_ccx(ccx, course, 'display_name', name)
-
-    # Hide anything that can show up in the schedule
-    hidden = 'visible_to_staff_only'
-    for chapter in course.get_children():
-        override_field_for_ccx(ccx, chapter, hidden, True)
-        for sequential in chapter.get_children():
-            override_field_for_ccx(ccx, sequential, hidden, True)
-            for vertical in sequential.get_children():
-                override_field_for_ccx(ccx, vertical, hidden, True)
+    ccx = create_ccx_course(course, request.user, name)
 
     ccx_id = CCXLocator.from_course_locator(course.id, str(ccx.id))
-
-    # Create forum roles
-    seed_permissions_roles(ccx_id)
-    # Assign administrator forum role to CCX coach
-    assign_role(ccx_id, request.user, FORUM_ROLE_ADMINISTRATOR)
-
     url = reverse('ccx_coach_dashboard', kwargs={'course_id': ccx_id})
-
-    # Enroll the coach in the course
-    email_params = get_email_params(course, auto_enroll=True, course_key=ccx_id, display_name=ccx.display_name)
-    enroll_email(
-        course_id=ccx_id,
-        student_email=request.user.email,
-        auto_enroll=True,
-        message_students=True,
-        message_params=email_params,
-    )
-
-    assign_staff_role_to_ccx(ccx_id, request.user, course.id)
-    add_master_course_staff_to_ccx(course, ccx_id, ccx.display_name)
-
-    # using CCX object as sender here.
-    responses = SignalHandler.course_published.send(
-        sender=ccx,
-        course_key=CCXLocator.from_course_locator(course.id, str(ccx.id))
-    )
-    for rec, response in responses:
-        log.info('Signal fired when course is published. Receiver: %s. Response: %s', rec, response)
 
     return redirect(url)
 
@@ -244,102 +186,18 @@ def create_ccx(request, course, ccx=None):
 @ensure_csrf_cookie
 @cache_control(no_cache=True, no_store=True, must_revalidate=True)
 @coach_dashboard
-def save_ccx(request, course, ccx=None):  # lint-amnesty, pylint: disable=too-many-statements
+def save_ccx(request, course, ccx=None):
     """
     Save changes to CCX.
     """
     if not ccx:
         raise Http404
 
-    def override_fields(parent, data, graded, earliest=None, ccx_ids_to_delete=None):
-        """
-        Recursively apply CCX schedule data to CCX by overriding the
-        `visible_to_staff_only`, `start` and `due` fields for units in the
-        course.
-        """
-        if ccx_ids_to_delete is None:
-            ccx_ids_to_delete = []
-        blocks = {
-            str(child.location): child
-            for child in parent.get_children()}
+    schedule, policy = save_ccx_schedule(course, ccx, json.loads(request.body.decode('utf8')))
 
-        for unit in data:
-            block = blocks[unit['location']]
-            override_field_for_ccx(
-                ccx, block, 'visible_to_staff_only', unit['hidden'])
-
-            start = parse_date(unit['start'])
-            if start:
-                if not earliest or start < earliest:
-                    earliest = start
-                override_field_for_ccx(ccx, block, 'start', start)
-            else:
-                ccx_ids_to_delete.append(get_override_for_ccx(ccx, block, 'start_id'))
-                clear_ccx_field_info_from_ccx_map(ccx, block, 'start')
-
-            # Only subsection (aka sequential) and unit (aka vertical) have due dates.
-            if 'due' in unit:  # checking that the key (due) exist in dict (unit).
-                due = parse_date(unit['due'])
-                if due:
-                    override_field_for_ccx(ccx, block, 'due', due)
-                else:
-                    ccx_ids_to_delete.append(get_override_for_ccx(ccx, block, 'due_id'))
-                    clear_ccx_field_info_from_ccx_map(ccx, block, 'due')
-            else:
-                # In case of section aka chapter we do not have due date.
-                ccx_ids_to_delete.append(get_override_for_ccx(ccx, block, 'due_id'))
-                clear_ccx_field_info_from_ccx_map(ccx, block, 'due')
-
-            if not unit['hidden'] and block.graded:
-                graded[block.format] = graded.get(block.format, 0) + 1
-
-            children = unit.get('children', None)
-            # For a vertical, override start and due dates of all its problems.
-            if unit.get('category', None) == 'vertical':
-                for component in block.get_children():
-                    # override start and due date of problem (Copy dates of vertical into problems)
-                    if start:
-                        override_field_for_ccx(ccx, component, 'start', start)
-
-                    if due:
-                        override_field_for_ccx(ccx, component, 'due', due)
-
-            if children:
-                override_fields(block, children, graded, earliest, ccx_ids_to_delete)
-        return earliest, ccx_ids_to_delete
-
-    graded = {}
-    earliest, ccx_ids_to_delete = override_fields(course, json.loads(request.body.decode('utf8')), graded, [])
-    bulk_delete_ccx_override_fields(ccx, ccx_ids_to_delete)
-    if earliest:
-        override_field_for_ccx(ccx, course, 'start', earliest)
-
-    # Attempt to automatically adjust grading policy
-    changed = False
-    policy = get_override_for_ccx(
-        ccx, course, 'grading_policy', course.grading_policy
-    )
-    policy = deepcopy(policy)
-    grader = policy['GRADER']
-    for section in grader:
-        count = graded.get(section.get('type'), 0)
-        if count < section.get('min_count', 0):
-            changed = True
-            section['min_count'] = count
-    if changed:
-        override_field_for_ccx(ccx, course, 'grading_policy', policy)
-
-    # using CCX object as sender here.
-    responses = SignalHandler.course_published.send(
-        sender=ccx,
-        course_key=CCXLocator.from_course_locator(course.id, str(ccx.id))
-    )
-    for rec, response in responses:
-        log.info('Signal fired when course is published. Receiver: %s. Response: %s', rec, response)
-
-    return HttpResponse(  # lint-amnesty, pylint: disable=http-response-with-content-type-json, http-response-with-json-dumps
+    return HttpResponse(  # pylint: disable=http-response-with-content-type-json, http-response-with-json-dumps
         json.dumps({
-            'schedule': get_ccx_schedule(course, ccx),
+            'schedule': schedule,
             'grading_policy': json.dumps(policy, indent=4)}),
         content_type='application/json',
     )
@@ -373,73 +231,6 @@ def set_grading_policy(request, course, ccx=None):
     return redirect(url)
 
 
-def get_ccx_schedule(course, ccx):
-    """
-    Generate a JSON serializable CCX schedule.
-    """
-    def visit(node, depth=1):
-        """
-        Recursive generator function which yields CCX schedule nodes.
-        We convert dates to string to get them ready for use by the js date
-        widgets, which use text inputs.
-        Visits students visible nodes only; nodes children of hidden ones
-        are skipped as well.
-
-        Dates:
-        Only start date is applicable to a section. If ccx coach did not override start date then
-        getting it from the master course.
-        Both start and due dates are applicable to a subsection (aka sequential). If ccx coach did not override
-        these dates then getting these dates from corresponding subsection in master course.
-        Unit inherits start date and due date from its subsection. If ccx coach did not override these dates
-        then getting them from corresponding subsection in master course.
-        """
-        for child in node.get_children():
-            # in case the children are visible to staff only, skip them
-            if child.visible_to_staff_only:
-                continue
-
-            hidden = get_override_for_ccx(
-                ccx, child, 'visible_to_staff_only',
-                child.visible_to_staff_only)
-
-            start = get_date(ccx, child, 'start')
-            if depth > 1:
-                # Subsection has both start and due dates and unit inherit dates from their subsections
-                if depth == 2:
-                    due = get_date(ccx, child, 'due')
-                elif depth == 3:
-                    # Get start and due date of subsection in case unit has not override dates.
-                    due = get_date(ccx, child, 'due', node)
-                    start = get_date(ccx, child, 'start', node)
-
-                visited = {
-                    'location': str(child.location),
-                    'display_name': child.display_name,
-                    'category': child.category,
-                    'start': start,
-                    'due': due,
-                    'hidden': hidden,
-                }
-            else:
-                visited = {
-                    'location': str(child.location),
-                    'display_name': child.display_name,
-                    'category': child.category,
-                    'start': start,
-                    'hidden': hidden,
-                }
-            if depth < 3:
-                children = tuple(visit(child, depth + 1))
-                if children:
-                    visited['children'] = children
-                    yield visited
-            else:
-                yield visited
-
-    with disable_overrides():
-        return tuple(visit(course))
-
-
 @ensure_csrf_cookie
 @cache_control(no_cache=True, no_store=True, must_revalidate=True)
 @coach_dashboard
@@ -452,7 +243,7 @@ def ccx_schedule(request, course, ccx=None):
 
     schedule = get_ccx_schedule(course, ccx)
     json_schedule = json.dumps(schedule, indent=4)
-    return HttpResponse(json_schedule, content_type='application/json')  # lint-amnesty, pylint: disable=http-response-with-content-type-json
+    return HttpResponse(json_schedule, content_type='application/json')  # pylint: disable=http-response-with-content-type-json
 
 
 @ensure_csrf_cookie
@@ -491,7 +282,7 @@ def ccx_gradebook(request, course, ccx=None):
         raise Http404
 
     ccx_key = CCXLocator.from_course_locator(course.id, str(ccx.id))
-    with ccx_course(ccx_key) as course:  # lint-amnesty, pylint: disable=redefined-argument-from-local
+    with ccx_course(ccx_key) as course:  # pylint: disable=redefined-argument-from-local
         student_info, page = get_grade_book_page(request, course, course_key=ccx_key)
 
         return render_to_response('courseware/gradebook.html', {
@@ -518,7 +309,7 @@ def ccx_grades_csv(request, course, ccx=None):
         raise Http404
 
     ccx_key = CCXLocator.from_course_locator(course.id, str(ccx.id))
-    with ccx_course(ccx_key) as course:  # lint-amnesty, pylint: disable=redefined-argument-from-local
+    with ccx_course(ccx_key) as course:  # pylint: disable=redefined-argument-from-local
 
         enrolled_students = User.objects.filter(
             courseenrollment__course_id=ccx_key,

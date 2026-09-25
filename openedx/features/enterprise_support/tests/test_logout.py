@@ -11,19 +11,18 @@ from django.urls import reverse
 
 from common.djangoapps.student.tests.factories import UserFactory
 from common.djangoapps.util.testing import UrlResetMixin
+from common.test.utils import assert_dict_contains_subset
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_unless_lms
 from openedx.features.enterprise_support.api import enterprise_enabled
 from openedx.features.enterprise_support.tests import (
     FAKE_ENTERPRISE_CUSTOMER,
-    FEATURES_WITH_ENTERPRISE_ENABLED,
-    factories
+    factories,
 )
 from openedx.features.enterprise_support.tests.mixins.enterprise import EnterpriseServiceMockMixin
-from common.test.utils import assert_dict_contains_subset
 
 
 @ddt.ddt
-@override_settings(FEATURES=FEATURES_WITH_ENTERPRISE_ENABLED)
+@override_settings(ENABLE_ENTERPRISE_INTEGRATION=True)
 @skip_unless_lms
 class EnterpriseLogoutTests(EnterpriseServiceMockMixin, CacheIsolationTestCase, UrlResetMixin):
     """ Tests for the enterprise logout functionality. """

@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from openedx_filters.authentication.types import RunningPipelineKwargs
 from organizations.models import Organization
 from social_core.backends.base import BaseAuth
 from social_core.backends.oauth import OAuthAuth
@@ -60,7 +61,7 @@ def clean_json(value, of_type):
     try:
         value_python = json.loads(value)
     except ValueError as err:
-        raise ValidationError(f"Invalid JSON: {err}")  # lint-amnesty, pylint: disable=raise-missing-from
+        raise ValidationError(f"Invalid JSON: {err}")  # pylint: disable=raise-missing-from  # noqa: B904
     if not isinstance(value_python, of_type):
         raise ValidationError(f"Expected a JSON {of_type}")
     return json.dumps(value_python, indent=4)
@@ -70,7 +71,7 @@ def clean_username(username=''):
     """
     Simple helper method to ensure a username is compatible with our system requirements.
     """
-    if settings.FEATURES.get("ENABLE_UNICODE_USERNAME"):
+    if getattr(settings, 'ENABLE_UNICODE_USERNAME', False):
         return ('_').join(re.findall(settings.USERNAME_REGEX_PARTIAL, username))[:USERNAME_MAX_LENGTH]
     else:
         return ('_').join(re.findall(r'[a-zA-Z0-9\-]+', username))[:USERNAME_MAX_LENGTH]
@@ -237,6 +238,10 @@ class ProviderConfig(ConfigurationModel):
         help_text="Use the presence of a profile from a trusted third party as proof of identity verification.",
     )
 
+    # Enterprise-only field: excludes this provider from the EnterpriseCustomer Django admin IDP
+    # dropdown. Added in ENT-1366 after social auth providers (Facebook, Google, etc.) were linked
+    # as enterprise IDPs, incorrectly associating all their users with an enterprise. Should ideally
+    # be migrated into the enterprise plugin.
     disable_for_enterprise_sso = models.BooleanField(
         default=False,
         verbose_name='Disabled for Enterprise TPA',
@@ -313,7 +318,7 @@ class ProviderConfig(ConfigurationModel):
         return remote_id
 
     @classmethod
-    def get_register_form_data(cls, pipeline_kwargs):
+    def get_register_form_data(cls, pipeline_kwargs: RunningPipelineKwargs):
         """Gets dict of data to display on the register form.
 
         register_user uses this to populate
@@ -321,8 +326,11 @@ class ProviderConfig(ConfigurationModel):
         provider, preventing duplicate data entry.
 
         Args:
-            pipeline_kwargs: dict of string -> object. Keyword arguments
-                accumulated by the pipeline thus far.
+            pipeline_kwargs (RunningPipelineKwargs): Keyword arguments accumulated by the
+                pipeline thus far. This method is reachable from pipeline steps of the
+                registration form filter, which may live in other repositories, so the
+                argument's declared shape is the shared cross-repository contract in
+                ``openedx_filters.authentication.types``.
 
         Returns:
             Dict of string -> string. Keys are names of form fields; values are
@@ -425,7 +433,7 @@ class OAuth2ProviderConfig(ProviderConfig):
         site.
         """
         site_id = Site.objects.get_current(get_current_request()).id
-        return super(OAuth2ProviderConfig, cls).current(site_id, *args)
+        return super(OAuth2ProviderConfig, cls).current(site_id, *args)  # noqa: UP008
 
     @property
     def provider_id(self):
@@ -540,7 +548,7 @@ class SAMLConfiguration(ConfigurationModel):
         """
         Return human-readable string representation.
         """
-        return "SAMLConfiguration {site}: {slug} on {date:%Y-%m-%d %H:%M:%S}".format(
+        return "SAMLConfiguration {site}: {slug} on {date:%Y-%m-%d %H:%M:%S}".format(  # noqa: UP032
             site=self.site.name,
             slug=self.slug,
             date=self.change_date,
@@ -673,17 +681,21 @@ class SAMLProviderConfig(ProviderConfig):
     default_last_name = models.CharField(
         max_length=255, blank=True, verbose_name="Default Value for Last Name",
         help_text="Default value for last name to be used if not present in SAML response.")
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     attr_username = models.CharField(
         max_length=128, blank=True, verbose_name="Username Hint Attribute",
         help_text="URN of SAML attribute to use as a suggested username for this user. Leave blank for default."
     )
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     default_username = models.CharField(
         max_length=255, blank=True, verbose_name="Default Value for Username",
         help_text="Default value for username to be used if not present in SAML response."
     )
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     attr_email = models.CharField(
         max_length=128, blank=True, verbose_name="Email Attribute",
         help_text="URN of SAML attribute containing the user's email address[es]. Leave blank for default.")
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     default_email = models.CharField(
         max_length=255, blank=True, verbose_name="Default Value for Email",
         help_text="Default value for email to be used if not present in SAML response."
@@ -731,6 +743,7 @@ class SAMLProviderConfig(ProviderConfig):
             "for trusted providers that are known to provide accurate user information."
         ),
     )
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     skip_email_verification = models.BooleanField(
         default=True,
         help_text=_(
@@ -743,6 +756,14 @@ class SAMLProviderConfig(ProviderConfig):
         help_text=_(
             "If this option is selected, users will be directed to the registration page "
             "immediately after authenticating with the third party instead of the login page."
+        ),
+    )
+    skip_registration_optional_checkboxes = models.BooleanField(
+        default=False,
+        help_text=_(
+            "If enabled, optional checkboxes (marketing emails opt-in, etc.) will not be rendered "
+            "on the registration form for users registering via this provider. When these checkboxes "
+            "are skipped, their values are inferred as False (opted out)."
         ),
     )
     other_settings = models.TextField(
@@ -901,7 +922,7 @@ class SAMLProviderConfig(ProviderConfig):
         return idp_class(backend, self.slug, **conf)
 
 
-class SAMLProviderData(models.Model):
+class SAMLProviderData(models.Model):  # noqa: DJ008
     """
     Data about a SAML IdP that is fetched automatically by 'manage.py saml pull'
 
@@ -1049,15 +1070,19 @@ class AppleMigrationUserIdInfo(models.Model):
     """
     Model to store users' Apple Unique Identifier during migration
     process of Apple team from edx Inc. to edx LLC.
+
+    .. pii: Contains Apple user identifiers (old_apple_id, transfer_id, new_apple_id).
+    .. pii_types: external_service
+    .. pii_retirement: local_api
     """
     old_apple_id = models.CharField(max_length=255)
-    transfer_id = models.CharField(max_length=255, null=True, blank=True)
-    new_apple_id = models.CharField(max_length=255, null=True, blank=True)
+    transfer_id = models.CharField(max_length=255, null=True, blank=True)  # noqa: DJ001
+    new_apple_id = models.CharField(max_length=255, null=True, blank=True)  # noqa: DJ001
 
     def __str__(self):
         return self.old_apple_id
 
-    class Meta:
+    class Meta:  # noqa: DJ012
         app_label = "third_party_auth"
         verbose_name = "Apple User Id Migration Info"
         verbose_name_plural = verbose_name

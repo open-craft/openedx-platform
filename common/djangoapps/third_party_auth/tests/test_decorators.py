@@ -8,7 +8,7 @@ from django.test import RequestFactory
 
 from common.djangoapps.third_party_auth.decorators import xframe_allow_whitelisted
 from common.djangoapps.third_party_auth.tests.testutil import TestCase
-from common.djangoapps.third_party_auth.tests.utils import skip_unless_thirdpartyauth
+from openedx.core.djangolib.testing.utils import skip_unless_lms
 
 
 @xframe_allow_whitelisted
@@ -17,7 +17,7 @@ def mock_view(_request):
     return HttpResponse()
 
 
-@skip_unless_thirdpartyauth()
+@skip_unless_lms
 @ddt.ddt
 class TestXFrameWhitelistDecorator(TestCase):
     """ Test the xframe_allow_whitelisted decorator. """
@@ -48,7 +48,7 @@ class TestXFrameWhitelistDecorator(TestCase):
 
     @ddt.data('http://localhost/login', 'http://not-a-real-domain.com', None)
     def test_feature_flag_off(self, url):
-        with self.settings(FEATURES={'ENABLE_THIRD_PARTY_AUTH': False}):
+        with self.settings(ENABLE_THIRD_PARTY_AUTH=False):
             request = self.construct_request(url)
             response = mock_view(request)
             assert response['X-Frame-Options'] == 'DENY'

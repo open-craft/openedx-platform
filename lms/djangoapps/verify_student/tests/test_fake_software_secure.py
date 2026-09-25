@@ -3,9 +3,7 @@ Tests for the fake software secure response.
 """
 
 
-from unittest.mock import patch
-
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from common.djangoapps.student.tests.factories import UserFactory
 from common.djangoapps.util.testing import UrlResetMixin
@@ -21,7 +19,7 @@ class SoftwareSecureFakeViewTest(UrlResetMixin, TestCase):
 
     def setUp(self, **kwargs):
         enable_software_secure_fake = kwargs.get('enable_software_secure_fake', False)
-        with patch.dict('django.conf.settings.FEATURES', {'ENABLE_SOFTWARE_SECURE_FAKE': enable_software_secure_fake}):
+        with override_settings(ENABLE_SOFTWARE_SECURE_FAKE=enable_software_secure_fake):
             super().setUp()
 
         self.user = UserFactory.create(username="test", password="test")
@@ -35,7 +33,7 @@ class SoftwareSecureFakeViewDisabledTest(SoftwareSecureFakeViewTest):
     'ENABLE_SOFTWARE_SECURE_FAKE' is not enabled.
     """
 
-    def setUp(self):  # lint-amnesty, pylint: disable=arguments-differ
+    def setUp(self):  # pylint: disable=arguments-differ
         super().setUp(enable_software_secure_fake=False)
 
     def test_get_method_without_enable_feature_flag(self):
@@ -56,7 +54,7 @@ class SoftwareSecureFakeViewEnabledTest(SoftwareSecureFakeViewTest):
     'ENABLE_SOFTWARE_SECURE_FAKE' is enabled.
     """
 
-    def setUp(self):  # lint-amnesty, pylint: disable=arguments-differ
+    def setUp(self):  # pylint: disable=arguments-differ
         super().setUp(enable_software_secure_fake=True)
 
     def test_get_method_without_logged_in_user(self):

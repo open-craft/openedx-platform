@@ -7,12 +7,11 @@ import logging
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError
 from django.conf import settings
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.contrib.sites.models import Site
 from edx_ace import ace
 from edx_ace.errors import RecoverableChannelDeliveryError
 from edx_ace.message import Message
-from edx_django_utils.monitoring import set_code_owner_attribute
 
 from common.djangoapps.track import segment
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
@@ -23,7 +22,6 @@ log = logging.getLogger('edx.celery.task')
 
 
 @shared_task
-@set_code_owner_attribute
 def check_pwned_password_and_send_track_event(
     user_id, password,
     internal_user=False,
@@ -46,11 +44,10 @@ def check_pwned_password_and_send_track_event(
             'Unable to get response from pwned password api for user_id: "%s"',
             user_id,
         )
-        return {}  # lint-amnesty, pylint: disable=raise-missing-from
+        return {}  # pylint: disable=raise-missing-from
 
 
 @shared_task(bind=True, default_retry_delay=30, max_retries=2)
-@set_code_owner_attribute
 def send_activation_email(self, msg_string, from_address=None, site_id=None):
     """
     Sending an activation email to the user.
@@ -75,7 +72,7 @@ def send_activation_email(self, msg_string, from_address=None, site_id=None):
         with emulate_http_request(site=site, user=user):
             ace.send(msg)
     except RecoverableChannelDeliveryError:
-        log.info('Retrying sending email to user {dest_addr}, attempt # {attempt} of {max_attempts}'.format(
+        log.info('Retrying sending email to user {dest_addr}, attempt # {attempt} of {max_attempts}'.format(  # noqa: UP032  # pylint: disable=line-too-long
             dest_addr=dest_addr,
             attempt=retries,
             max_attempts=max_retries
@@ -95,4 +92,4 @@ def send_activation_email(self, msg_string, from_address=None, site_id=None):
             from_address,
             dest_addr,
         )
-        raise Exception  # lint-amnesty, pylint: disable=raise-missing-from
+        raise Exception  # pylint: disable=raise-missing-from  # noqa: B904
