@@ -270,7 +270,8 @@ class UserModifyView(APIView):
     permission_classes = (IsAdminUser,)
 
     def _check_superuser(self, request):
-        if request.data.get("is_superuser", False) and not request.user.is_superuser:
+        is_superuser = request.data.get("is_superuser", False) in {True, "true", "True"}
+        if is_superuser and not request.user.is_superuser:
             raise PermissionDenied("You must be a superuser to perform this action.")
 
     def post(self, request):

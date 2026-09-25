@@ -816,6 +816,21 @@ class TestUserModifyAPI(ApiTestCase):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json() == {"detail": "You must be a superuser to perform this action."}
 
+    @ddt.data(True, False)
+    def test_create_new_user_superuser_success(self, is_superuser):
+        """Test creating a new superuser successfully"""
+
+        self.test_user.is_superuser = is_superuser
+        self.test_user.save(update_fields=["is_superuser"])
+
+        data = self.DATA.copy()
+        data["is_superuser"] = is_superuser
+        response = self.client.post(self.PATH, data)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        user = User.objects.get(username=data["username"])
+        assert user.is_superuser == is_superuser
+
     @ddt.data("username", "email")
     def test_create_new_user_error_missing_info(self, missing_field):
         """Test creating a user with missing required information"""

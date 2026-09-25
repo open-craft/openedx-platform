@@ -62,7 +62,6 @@ class UserProfileSerializerTest(TestCase):
         assert user.profile.level_of_education is None
         assert user.profile.country is None
 
-
     def test_update_user_and_profile_fields(self):
         user = UserFactory.create(email="original@example.com", profile__name="Original Name")
         data = {
