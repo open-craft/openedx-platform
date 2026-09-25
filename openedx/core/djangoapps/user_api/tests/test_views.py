@@ -810,7 +810,7 @@ class TestUserModifyAPI(ApiTestCase):
         self.test_user.save(update_fields=["is_superuser"])
 
         data = self.DATA.copy()
-        data["superuser"] = True
+        data["is_superuser"] = True
         response = self.client.post(self.PATH, data)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN

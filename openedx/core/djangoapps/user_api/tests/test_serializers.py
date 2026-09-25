@@ -153,6 +153,15 @@ class UserProfileSerializerTest(TestCase):
             "password" in serializer.errors or "non_field_errors" in serializer.errors
         ), serializer.errors
 
+    def test_no_password_is_accepted(self):
+        serializer = UserProfileSerializer(data={
+            "username": "new-user",
+            "email": "new@example.com",
+        })
+        assert serializer.is_valid(), serializer.errors
+        user = serializer.save()
+        assert not user.has_usable_password()
+
     def test_username_cannot_be_changed(self):
         user = UserFactory.create(username="original-user", email="original@example.com")
         with pytest.raises(DjangoValidationError, match=r"Username cannot be changed\."):

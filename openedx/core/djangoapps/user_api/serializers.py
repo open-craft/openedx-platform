@@ -162,12 +162,7 @@ class UserProfileSerializer(serializers.Serializer):
                 user_data[field_name] = field_value
 
         with transaction.atomic():
-            user = User.objects.create(**user_data)
-
-            if password:
-                user.set_password(normalize_password(password))
-                user.save()
-
+            user = User.objects.create_user(password=password, **user_data)
             UserProfile.objects.create(user=user, **profile_data)
 
         return user
