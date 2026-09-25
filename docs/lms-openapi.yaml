@@ -10052,9 +10052,7 @@ paths:
         schema:
           type: object
           required:
-          - name
           - username
-          - password
           - email
           properties:
             name:
