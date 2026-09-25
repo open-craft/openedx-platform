@@ -154,6 +154,8 @@ class UserProfileSerializer(serializers.Serializer):
         user_data = {}
         profile_data = {}
         password = validated_data.pop("password", None)
+        if password is not None:
+            password = normalize_password(password)
 
         for field_name, field_value in validated_data.items():
             if field_name in {"name", "year_of_birth", "gender", "level_of_education", "country"}:
@@ -231,8 +233,6 @@ class UserProfileSerializer(serializers.Serializer):
 
         if "username" in validated_data:
             raise ValidationError("Username cannot be changed.")
-
-        validated_data = self.run_validation(validated_data)
 
         user_data = {}
         profile_data = {}

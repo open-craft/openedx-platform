@@ -269,16 +269,10 @@ class UserModifyView(APIView):
     )
     permission_classes = (IsAdminUser,)
 
-    def _check_superuser(self, request):
-        is_superuser = request.data.get("is_superuser", False) in {True, "true", "True"}
-        if is_superuser and not request.user.is_superuser:
-            raise PermissionDenied("You must be a superuser to perform this action.")
-
     def post(self, request):
         """
         Create a user with email and username.
         """
-        self._check_superuser(request)
         data = request.data.copy()
         allowed_fields = UserProfileSerializer.Meta.fields
         try:
@@ -287,21 +281,16 @@ class UserModifyView(APIView):
                     raise ValidationError(f"Unexpected field: {key}")
             serializer = UserProfileSerializer(data=data)
             serializer.is_valid(raise_exception=True)
+            self._check_superuser(serializer, request)
             user = serializer.save()
         except (
             AccountValidationError,
             ValueError,
             ValidationError,
             DjangoValidationError,
+            PermissionDenied,
         ) as e:
-            if isinstance(e, ValidationError):
-                message = e.detail
-            else:
-                message = str(e)
-            return Response(
-                data={"error": message},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return self._build_error_response(e)
 
         return Response(
             data={"user_id": user.id, "username": user.username},
@@ -313,9 +302,13 @@ class UserModifyView(APIView):
         Update user information by email or username.
         """
         try:
-            self._check_superuser(request)
             data = request.data.copy()
             username_or_email = data.pop("username_or_email", None)
+            if not username_or_email:
+                return Response(
+                    data={"error": ["username_or_email is required."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             for key in data:
                 if key not in UserProfileSerializer.Meta.fields:
@@ -329,12 +322,12 @@ class UserModifyView(APIView):
                 )
             except User.MultipleObjectsReturned:
                 return Response(
-                    data={"error": "Multiple users found."},
+                    data={"error": ["Multiple users found."]},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             except User.DoesNotExist:
                 return Response(
-                    data={"error": "User not found."},
+                    data={"error": ["User not found."]},
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
@@ -342,6 +335,7 @@ class UserModifyView(APIView):
                 instance=user, data=data, partial=True
             )
             serializer.is_valid(raise_exception=True)
+            self._check_superuser(serializer, request)
             serializer.save()
 
             return Response(
@@ -353,12 +347,30 @@ class UserModifyView(APIView):
             ValueError,
             ValidationError,
             DjangoValidationError,
+            PermissionDenied,
         ) as e:
-            if isinstance(e, ValidationError):
-                message = e.detail
-            else:
-                message = str(e)
+            return self._build_error_response(e)
+
+    def _check_superuser(self, serializer, request):
+        """Check if the current user is allowed to set the superuser flag."""
+        is_superuser = serializer.validated_data.get("is_superuser")
+        if is_superuser and not request.user.is_superuser:
+            raise PermissionDenied("You must be a superuser to perform this action.")
+
+    def _build_error_response(self, e: Exception) -> Response:
+        """Build an appropriate error response based on the type of exception."""
+        if isinstance(e, ValidationError):
+            message = e.detail
+        elif isinstance(e, DjangoValidationError):
+            message = e.messages
+        elif isinstance(e, PermissionDenied):
             return Response(
-                data={"error": message},
-                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": [e.detail]},
+                status=status.HTTP_403_FORBIDDEN,
             )
+        else:
+            message = str(e)
+        return Response(
+            data={"error": message},
+            status=status.HTTP_400_BAD_REQUEST,
+        )

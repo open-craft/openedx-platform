@@ -10153,7 +10153,7 @@ paths:
               type: string
             country:
               type: string
-          additionalProperties: true
+          additionalProperties: false
       responses:
         '200':
           description: User information was updated successfully.

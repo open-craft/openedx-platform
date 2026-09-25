@@ -769,7 +769,7 @@ class CountryTimeZoneListViewTest(UserApiTestCase):
 class TestUserModifyAPI(ApiTestCase):
     """Test cases covering the user modification API"""
 
-    PATH = "/api/user/v1/modify"
+    PATH = "/api/user/v1/modify/"
 
     DATA = {
         "name": "Test User",
@@ -814,7 +814,7 @@ class TestUserModifyAPI(ApiTestCase):
         response = self.client.post(self.PATH, data)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == {"detail": "You must be a superuser to perform this action."}
+        assert response.json() == {"error": ["You must be a superuser to perform this action."]}
 
     @ddt.data(True, False)
     def test_create_new_user_superuser_success(self, is_superuser):
@@ -937,6 +937,17 @@ class TestUserModifyAPI(ApiTestCase):
         assert user.profile.level_of_education == data["level_of_education"]
         assert user.profile.country == data["country"]
 
+    def test_patch_user_missing_username_or_email(self):
+        """Test patch returns 400 when username_or_email is missing"""
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps({"name": "Updated Name"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"error": ["username_or_email is required."]}
+
     def test_patch_user_invalid_profile_field_does_not_update_user(self):
         """Test invalid profile data does not partially update the user"""
         user = UserFactory.create(
@@ -988,7 +999,7 @@ class TestUserModifyAPI(ApiTestCase):
             content_type="application/json",
         )
 
-        assert response.json() == {"error": "User not found."}
+        assert response.json() == {"error": ["User not found."]}
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_patch_user_validation_read_only_field(self):
@@ -1006,7 +1017,7 @@ class TestUserModifyAPI(ApiTestCase):
             content_type="application/json",
         )
 
-        assert response.json() == {'error': "['Username cannot be changed.']"}
+        assert response.json() == {'error': ['Username cannot be changed.']}
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_patch_user_validation_inexistent_field(self):
@@ -1026,3 +1037,24 @@ class TestUserModifyAPI(ApiTestCase):
 
         assert response.json() == {'error': ['Unexpected field: non_existent_field']}
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_patch_superuser_without_permission(self):
+        """Test that a non-superuser cannot set the superuser flag"""
+        self.test_user.is_superuser = False
+        self.test_user.save(update_fields=["is_superuser"])
+
+        user = UserFactory.create(
+            username="test-user",
+            email="patch-error@example.com",
+        )
+
+        response = self.client.patch(
+            self.PATH,
+            data=json.dumps(
+                {"username_or_email": user.email, "is_superuser": True}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == {"error": ["You must be a superuser to perform this action."]}
