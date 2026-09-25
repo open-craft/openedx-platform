@@ -153,7 +153,7 @@ class UserProfileSerializer(serializers.Serializer):
     def create(self, validated_data: dict) -> User:
         user_data = {}
         profile_data = {}
-        password = validated_data.get("password", None)
+        password = validated_data.pop("password", None)
 
         for field_name, field_value in validated_data.items():
             if field_name in {"name", "year_of_birth", "gender", "level_of_education", "country"}:
@@ -168,8 +168,7 @@ class UserProfileSerializer(serializers.Serializer):
                 user.set_password(normalize_password(password))
                 user.save()
 
-            if profile_data:
-                UserProfile.objects.create(user=user, **profile_data)
+            UserProfile.objects.create(user=user, **profile_data)
 
         return user
 
@@ -257,7 +256,7 @@ class UserProfileSerializer(serializers.Serializer):
                 instance.save()
 
             if password:
-                instance.set_password(password)
+                instance.set_password(normalize_password(password))
                 instance.save()
 
             if profile_data:

@@ -41,6 +41,28 @@ class UserProfileSerializerTest(TestCase):
         assert user.profile.level_of_education == data["level_of_education"]
         assert user.profile.country == data["country"]
 
+    def test_create_user_with_no_profile_fields(self):
+        data = {
+            "username": "new-user",
+            "email": "new@example.com",
+            "password": "Password1234",
+        }
+
+        serializer = UserProfileSerializer(data=data)
+        assert serializer.is_valid(), serializer.errors
+        user = serializer.save()
+
+        assert user.username == data["username"]
+        assert user.email == data["email"]
+        assert user.check_password(data["password"])
+        assert UserProfile.objects.filter(user=user).exists()
+        assert user.profile.name == ""
+        assert user.profile.year_of_birth is None
+        assert user.profile.gender is None
+        assert user.profile.level_of_education is None
+        assert user.profile.country is None
+
+
     def test_update_user_and_profile_fields(self):
         user = UserFactory.create(email="original@example.com", profile__name="Original Name")
         data = {

@@ -10078,7 +10078,7 @@ paths:
               type: string
             country:
               type: string
-          additionalProperties: true
+          additionalProperties: false
       responses:
         '201':
           description: User was created successfully.
