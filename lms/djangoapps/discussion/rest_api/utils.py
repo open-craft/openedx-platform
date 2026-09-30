@@ -19,7 +19,7 @@ from openedx.core.djangoapps.django_comment_common.models import (
     FORUM_ROLE_MODERATOR,
     Role
 )
-
+from common.djangoapps.student.roles import ( eSHEInstructorRole, CourseStaffRole)
 
 class AttributeDict(dict):
     """
@@ -379,3 +379,18 @@ def is_posting_allowed(posting_restrictions: str, blackout_schedules: List):
         return not any(schedule["start"] <= now <= schedule["end"] for schedule in blackout_schedules)
     else:
         return False
+
+
+def get_course_eshe_instructors(course_key):
+    """
+    Return a list of user ids for users with custom eSHE Instructor Role.
+    """
+    role = eSHEInstructorRole(course_key)
+    return [user.id for user in role.users_with_role()]
+
+def get_course_teaching_assistants(course_key):
+    """
+    Return a list of user ids for users with custom TeachingAssistantRole.
+    """
+    role = CourseStaffRole(course_key)
+    return [user.id for user in role.users_with_role()]
