@@ -8,7 +8,7 @@ from opaque_keys.edx.django.models import LearningContextKeyField
 from rest_framework.request import Request
 
 from common.djangoapps.student.role_helpers import get_course_roles
-from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole
+from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole, eSHEInstructorRole, TeachingAssistantRole
 from openedx.core.djangoapps.content_libraries.api import get_libraries_for_user
 
 
@@ -48,7 +48,7 @@ def get_access_ids_for_request(request: Request, omit_orgs: list[str] = None) ->
         role.course_id
         for role in course_roles
         if (
-            role.role in [CourseInstructorRole.ROLE, CourseStaffRole.ROLE]
+            role.role in [eSHEInstructorRole.ROLE, TeachingAssistantRole.ROLE, CourseInstructorRole.ROLE, CourseStaffRole.ROLE]
             and role.org not in omit_orgs
         )
     ])
