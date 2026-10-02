@@ -4,23 +4,19 @@ in the verify_student module
 """
 
 
+from unittest.mock import ANY, call, patch  # pylint: disable=wrong-import-order
+
 from django.conf import settings
 from django.core.management import call_command
-
 from freezegun import freeze_time
-from unittest.mock import call, patch, ANY  # lint-amnesty, pylint: disable=wrong-import-order
 
 from common.test.utils import MockS3Boto3Mixin
 from lms.djangoapps.verify_student.tests import TestVerificationBase
-from lms.djangoapps.verify_student.tests.test_models import (
-    FAKE_SETTINGS,
-    mock_software_secure_post,
-)
+from lms.djangoapps.verify_student.tests.test_models import FAKE_SETTINGS, mock_software_secure_post
 
 
 # Lots of patching to stub in our own settings, and HTTP posting
 @patch.dict(settings.VERIFY_STUDENT, FAKE_SETTINGS)
-@patch.dict(settings.FEATURES, {'AUTOMATIC_VERIFY_STUDENT_IDENTITY_FOR_TESTING': True})
 @patch('lms.djangoapps.verify_student.models.requests.post', new=mock_software_secure_post)
 class TestTriggerSoftwareSecurePhotoVerificationsPostSaveSignal(MockS3Boto3Mixin, TestVerificationBase):
     """
@@ -69,5 +65,5 @@ class TestTriggerSoftwareSecurePhotoVerificationsPostSaveSignal(MockS3Boto3Mixin
             ),
         ]
         print(send_idv_update_mock.mock_calls)
-        self.assertEqual(send_idv_update_mock.call_count, 4)
+        self.assertEqual(send_idv_update_mock.call_count, 4)  # noqa: PT009
         send_idv_update_mock.assert_has_calls(expected_calls, any_order=True)

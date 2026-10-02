@@ -8,16 +8,14 @@ import csv
 import io
 import json
 import logging
-import os
-import requests
-import shutil
-import pathlib
+import mimetypes
 import zipfile
-import boto3
-
 from contextlib import closing
 from datetime import datetime, timedelta
 from uuid import uuid4
+
+import boto3
+import requests
 from django.conf import settings
 from django.contrib.staticfiles.storage import staticfiles_storage
 from django.http import FileResponse, HttpResponseNotFound, StreamingHttpResponse
@@ -32,38 +30,31 @@ from edxval.api import (
     create_video,
     get_3rd_party_transcription_plans,
     get_available_transcript_languages,
-    get_video_transcript_url,
     get_transcript_preferences,
+    get_video_transcript_url,
     get_videos_for_course,
     remove_transcript_preferences,
     remove_video_for_course,
     update_video_image,
-    update_video_status
+    update_video_status,
 )
-from fs.osfs import OSFS
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
-from path import Path as path
 from pytz import UTC
 from rest_framework import status as rest_status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
-from tempfile import NamedTemporaryFile, mkdtemp
-from wsgiref.util import FileWrapper
 
-from common.djangoapps.edxmako.shortcuts import render_to_response
 from common.djangoapps.util.json_request import JsonResponse
 from openedx.core.djangoapps.video_config.models import VideoTranscriptEnabledFlag
 from openedx.core.djangoapps.video_config.toggles import PUBLIC_VIDEO_SHARE
-from openedx.core.djangoapps.video_pipeline.config.waffle import (
-    DEPRECATE_YOUTUBE,
-    ENABLE_DEVSTACK_VIDEO_UPLOADS,
-)
+from openedx.core.djangoapps.video_pipeline.config.waffle import DEPRECATE_YOUTUBE, ENABLE_DEVSTACK_VIDEO_UPLOADS
 from openedx.core.djangoapps.waffle_utils import CourseWaffleFlag
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 from .models import VideoUploadConfig
-from .toggles import use_new_video_uploads_page, use_mock_video_uploads
-from .utils import get_video_uploads_url, get_course_videos_context
+from .toggles import use_mock_video_uploads
+from .utils import get_video_uploads_url
 from .video_utils import validate_video_image
 from .views.course import get_course_and_check_access
 
@@ -73,14 +64,14 @@ LOGGER = logging.getLogger(__name__)
 WAFFLE_NAMESPACE = 'videos'
 
 # Waffle switch for enabling/disabling video image upload feature
-VIDEO_IMAGE_UPLOAD_ENABLED = WaffleSwitch(  # lint-amnesty, pylint: disable=toggle-missing-annotation
+VIDEO_IMAGE_UPLOAD_ENABLED = WaffleSwitch(  # pylint: disable=toggle-missing-annotation
     f'{WAFFLE_NAMESPACE}.video_image_upload_enabled', __name__
 )
 
 # Waffle flag namespace for studio
 WAFFLE_STUDIO_FLAG_NAMESPACE = 'studio'
 
-ENABLE_VIDEO_UPLOAD_PAGINATION = CourseWaffleFlag(  # lint-amnesty, pylint: disable=toggle-missing-annotation
+ENABLE_VIDEO_UPLOAD_PAGINATION = CourseWaffleFlag(  # pylint: disable=toggle-missing-annotation
     f'{WAFFLE_STUDIO_FLAG_NAMESPACE}.enable_video_upload_pagination', __name__
 )
 # Default expiration, in seconds, of one-time URLs used for uploading videos.
@@ -230,51 +221,125 @@ def handle_videos(request, course_key_string, edx_video_id=None):
         return JsonResponse(data, status=status)
 
 
-def send_zip(zip_file, size=None):
+def get_course_video_download_urls(course_key_string):
     """
-    Generates a streaming http response for the zip file
+    Return the set of encoded-video URLs that legitimately belong to the given
+    course, as recorded in VAL.
+
+    The video download endpoint only ever needs to fetch URLs that were already
+    surfaced to the client by the video listing. Restricting fetches to this set
+    prevents server-side request forgery (SSRF) via attacker-supplied URLs.
     """
-    wrapper = FileWrapper(zip_file, settings.COURSE_EXPORT_DOWNLOAD_CHUNK_SIZE)
-    response = StreamingHttpResponse(wrapper, content_type='application/zip')
-    response['Content-Dispositon'] = 'attachment; filename=%s' % os.path.basename(zip_file.name)
-    response['Content-Length'] = size
-    return response
+    videos, __ = get_videos_for_course(
+        course_key_string,
+        VideoSortField.created,
+        SortDirection.desc,
+        None,
+    )
+    return {
+        encoding['url']
+        for video in videos
+        for encoding in video['encoded_videos']
+        if encoding.get('url')
+    }
+
+
+class _ZipStreamBuffer(io.RawIOBase):
+    """
+    File-like sink for ``zipfile.ZipFile`` output that lets the writer drain
+    bytes incrementally. Used so we can emit a zip archive directly into a
+    streaming HTTP response without staging anything to disk or holding the
+    whole archive in memory.
+    """
+
+    def __init__(self):
+        self._buf = bytearray()
+
+    def writable(self):
+        return True
+
+    def write(self, data):
+        self._buf.extend(data)
+        return len(data)
+
+    def drain(self):
+        chunk = bytes(self._buf)
+        self._buf.clear()
+        return chunk
+
+
+def _stream_video_zip(files):
+    """
+    Yield bytes of a zip archive containing the requested videos.
+
+    Each video is fetched with ``stream=True`` and piped into its zip entry
+    chunk-by-chunk, so peak memory is roughly the chunk size rather than the
+    file size, and no temp files are written to disk. ``ZIP_STORED`` (no
+    compression) is used because the underlying video files are already
+    compressed; running them through DEFLATE just burns CPU.
+    """
+    buf = _ZipStreamBuffer()
+    with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_STORED) as zf:
+        for file in files:
+            response = requests.get(file['url'], stream=True, allow_redirects=True)
+            response.raise_for_status()
+            try:
+                # If the caller's name lacks an extension, derive one from
+                # the upstream Content-Type so the entry in the zip has a
+                # sensible filename. mimetypes handles the unknown-type
+                # case (returns None) cleanly.
+                file_name = file['name']
+                content_type = response.headers.get('Content-Type', '').split(';', 1)[0].strip()
+                extension = mimetypes.guess_extension(content_type) if content_type else None
+                if extension and not file_name.endswith(extension):
+                    file_name += extension
+                # force_zip64=True so a single >4 GiB video doesn't trip
+                # ZIP32 size limits.
+                with zf.open(zipfile.ZipInfo(file_name), mode='w', force_zip64=True) as entry:
+                    for chunk in response.iter_content(chunk_size=64 * 1024):
+                        entry.write(chunk)
+                        drained = buf.drain()
+                        if drained:
+                            yield drained
+            finally:
+                response.close()
+            drained = buf.drain()
+            if drained:
+                yield drained
+    # ZipFile.__exit__ writes the central directory; emit the trailing bytes.
+    final = buf.drain()
+    if final:
+        yield final
 
 
 def create_video_zip(course_key_string, files):
     """
-    Generates the video zip, or returns None if there was an error.
+    Return a streaming HTTP response that delivers the requested course
+    videos as a single zip archive.
 
-    Updates the context with any error information if applicable.
+    Validates that each file URL belongs to the course (SSRF protection via
+    ``get_course_video_download_urls``). The zip is then streamed directly
+    to the response without buffering anything to disk. Per-request
+    wall-clock is bounded by the WSGI server's request timeout and per-user
+    frequency by the ``VideoDownloadThrottle`` on the view; no explicit
+    batch-size limit is enforced here.
     """
-    name = course_key_string + '_videos'
-    video_folder_zip = NamedTemporaryFile(prefix=name + '_',
-                                          suffix=".zip")  # lint-amnesty, pylint: disable=consider-using-with
-    root_dir = path(mkdtemp())
-    video_dir = root_dir + '/' + name
-    zip_folder = None
-    try:
-        for file in files:
-            url = file['url']
-            file_name = file['name']
-            response = requests.get(url, allow_redirects=True)
-            file_type = '.' + response.headers['Content-Type'][6:]
-            if file_type not in file_name:
-                file_name = file['name'] + file_type
-            if not os.path.isdir(video_dir):
-                os.makedirs(video_dir)
-            with OSFS(video_dir).open(file_name, mode="wb") as f:
-                f.write(response.content)
-        directory = pathlib.Path(video_dir)
-        with zipfile.ZipFile(video_folder_zip, mode="w") as archive:
-            for file_path in directory.iterdir():
-                archive.write(file_path, arcname=file_path.name)
-        zip_folder = open(video_folder_zip.name, '+rb')
+    # Only allow fetching URLs that belong to this course's videos. Anything
+    # else (internal services, cloud metadata endpoints, arbitrary hosts) is a
+    # potential SSRF target and is rejected before any request is made.
+    allowed_urls = get_course_video_download_urls(course_key_string)
+    for file in files:
+        if file['url'] not in allowed_urls:
+            raise ValidationError(f"Invalid video download url: {file['url']}")
 
-        return send_zip(zip_folder, video_folder_zip.tell())
-    finally:
-        if os.path.exists(root_dir / name):
-            shutil.rmtree(root_dir / name)
+    response = StreamingHttpResponse(
+        _stream_video_zip(files),
+        content_type='application/zip',
+    )
+    response['Content-Disposition'] = (
+        f'attachment; filename={course_key_string}_videos.zip'
+    )
+    return response
 
 
 def get_video_usage_path(course_key, edx_video_id):
@@ -389,7 +454,7 @@ def validate_transcript_preferences(provider, cielo24_fidelity, cielo24_turnarou
 
     # validate transcription providers
     transcription_plans = get_3rd_party_transcription_plans()
-    if provider in list(transcription_plans.keys()):   # lint-amnesty, pylint: disable=consider-iterating-dictionary
+    if provider in list(transcription_plans.keys()):   # pylint: disable=consider-iterating-dictionary
 
         # Further validations for providers
         if provider == TranscriptProvider.CIELO24:
@@ -578,7 +643,7 @@ def _get_and_validate_course(course_key_string, user):
     course = get_course_and_check_access(course_key, user)
 
     if (
-        settings.FEATURES["ENABLE_VIDEO_UPLOAD_PIPELINE"] and
+        settings.ENABLE_VIDEO_UPLOAD_PIPELINE and
         getattr(settings, "VIDEO_UPLOAD_PIPELINE", None) and
         course and
         course.video_pipeline_configured
@@ -740,13 +805,7 @@ def videos_index_html(course, pagination_conf=None):
     """
     Returns an HTML page to display previous video uploads and allow new ones
     """
-    if use_new_video_uploads_page(course.id):
-        return redirect(get_video_uploads_url(course.id))
-    context = get_course_videos_context(
-        course,
-        pagination_conf,
-    )
-    return render_to_response('videos_index.html', context)
+    return redirect(get_video_uploads_url(course.id))
 
 
 def videos_index_json(course):
@@ -821,7 +880,7 @@ def videos_post(course, request):
         try:
             file_name.encode('ascii')
         except UnicodeEncodeError:
-            error_msg = 'The file name for %s must contain only ASCII characters.' % file_name
+            error_msg = 'The file name for %s must contain only ASCII characters.' % file_name  # noqa: UP031
             return {'error': error_msg}, 400
 
         edx_video_id = str(uuid4())
@@ -971,10 +1030,10 @@ def get_course_youtube_edx_video_ids(course_id):
     """
     Get a list of youtube edx_video_ids
     """
-    invalid_key_error_msg = "Invalid course_key: '%s'." % course_id
-    unexpected_error_msg = "Unexpected error occurred for course_id: '%s'." % course_id
+    invalid_key_error_msg = "Invalid course_key: '%s'." % course_id  # noqa: UP031
+    unexpected_error_msg = "Unexpected error occurred for course_id: '%s'." % course_id  # noqa: UP031
 
-    try:  # lint-amnesty, pylint: disable=too-many-nested-blocks
+    try:  # pylint: disable=too-many-nested-blocks
         course_key = CourseKey.from_string(course_id)
         course = modulestore().get_course(course_key)
 

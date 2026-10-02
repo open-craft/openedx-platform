@@ -11,6 +11,7 @@ from django.utils.timezone import now
 from edx_django_utils.cache import TieredCache
 from opaque_keys.edx.keys import CourseKey
 from slumber.exceptions import HttpClientError, HttpServerError
+
 # from requests.exceptions import HTTPError
 from testfixtures import LogCapture
 
@@ -21,15 +22,16 @@ from lms.djangoapps.certificates.signals import listen_for_passing_grade
 from openedx.core.djangoapps.commerce.utils import ECOMMERCE_DATE_FORMAT
 from openedx.core.djangoapps.credit.tests.test_api import TEST_ECOMMERCE_WORKER
 from openedx.core.djangoapps.signals.signals import COURSE_ASSESSMENT_GRADE_CHANGED, COURSE_GRADE_NOW_PASSED
-from openedx.features.enterprise_support.tests import FEATURES_WITH_ENTERPRISE_ENABLED
 from openedx.features.enterprise_support.tests.factories import (
     EnterpriseCourseEnrollmentFactory,
     EnterpriseCustomerFactory,
-    EnterpriseCustomerUserFactory
+    EnterpriseCustomerUserFactory,
 )
 from openedx.features.enterprise_support.utils import get_data_consent_share_cache_key
-from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    SharedModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ TEST_EMAIL = "test@edx.org"
 
 
 @ddt.ddt
-@override_settings(FEATURES=FEATURES_WITH_ENTERPRISE_ENABLED)
+@override_settings(ENABLE_ENTERPRISE_INTEGRATION=True)
 @override_settings(ECOMMERCE_SERVICE_WORKER_USERNAME=TEST_ECOMMERCE_WORKER)
 class EnterpriseSupportSignals(SharedModuleStoreTestCase):
     """
@@ -184,7 +186,7 @@ class EnterpriseSupportSignals(SharedModuleStoreTestCase):
                     (
                         LOGGER_NAME,
                         log_level,
-                        'Encountered {} from ecommerce while creating refund voucher. '
+                        'Encountered {} from ecommerce while creating refund voucher. '  # noqa: UP032
                         'Order=EDX-000000001, enrollment={}, user={}'.format(
                             mock_error.__name__, enrollment, enrollment.user
                         ),

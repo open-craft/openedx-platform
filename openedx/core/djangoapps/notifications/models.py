@@ -9,8 +9,9 @@ from model_utils.models import TimeStampedModel
 from opaque_keys.edx.django.models import CourseKeyField
 
 from openedx.core.djangoapps.notifications.base_notification import (
+    COURSE_NOTIFICATION_TYPES,
+    get_default_values_of_preferences,
     get_notification_content,
-    COURSE_NOTIFICATION_TYPES, get_default_values_of_preferences
 )
 
 User = get_user_model()
@@ -46,14 +47,17 @@ class Notification(TimeStampedModel):
     app_name = models.CharField(max_length=64, db_index=True)
     notification_type = models.CharField(max_length=64)
     content_context = models.JSONField(default=dict)
-    content_url = models.URLField(null=True, blank=True)
+    content_url = models.URLField(null=True, blank=True)  # noqa: DJ001
     web = models.BooleanField(default=True, null=False, blank=False)
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     email = models.BooleanField(default=False, null=False, blank=False)
     push = models.BooleanField(default=False, null=False, blank=False)
     last_read = models.DateTimeField(null=True, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     group_by_id = models.CharField(max_length=255, db_index=True, null=False, default="")
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     email_sent_on = models.DateTimeField(null=True, blank=True)
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     email_scheduled = models.BooleanField(
         default=False,
         db_index=True,
@@ -81,7 +85,9 @@ class Notification(TimeStampedModel):
 
 class NotificationPreference(TimeStampedModel):
     """
-    Model to store notification preferences for users at account level
+    Model to store notification preferences for users at account level.
+
+    .. no_pii:
     """
 
     class EmailCadenceChoices(models.TextChoices):
@@ -98,7 +104,9 @@ class NotificationPreference(TimeStampedModel):
     app = models.CharField(max_length=128, null=False, blank=False, db_index=True)
     web = models.BooleanField(default=True, null=False, blank=False)
     push = models.BooleanField(default=False, null=False, blank=False)
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     email = models.BooleanField(default=False, null=False, blank=False)
+    # pylint: disable-next=pii-invalid-no-pii-annotation  # field does not store user PII data, safe under OEP-30
     email_cadence = models.CharField(max_length=64, choices=EmailCadenceChoices.choices, null=False, blank=False)
     is_active = models.BooleanField(default=True)
 
@@ -174,6 +182,34 @@ class NotificationPreference(TimeStampedModel):
         Returns the email cadence for the notification type.
         """
         return self.email_cadence
+
+
+class DigestSchedule(TimeStampedModel):
+    """
+    Tracks scheduled Celery digest tasks for daily/weekly email digests.
+
+    One record exists per (user, cadence_type, delivery_time) combination,
+    representing a single pending Celery task. This is the source of truth for
+    deduplication of digest scheduling.
+
+    NOTE: This is intentionally separate from Notification.email_scheduled.
+    Notification.email_scheduled serves the immediate/buffer cadence flow
+    (decide_email_action → schedule_digest_buffer → send_buffered_digest) and
+    operates at the notification row level. DigestSchedule operates at the
+    task level — one record per scheduled Celery job — for daily/weekly digests only.
+
+    .. no_pii:
+    """
+    user = models.ForeignKey(User, related_name="digest_schedules", on_delete=models.CASCADE)
+    cadence_type = models.CharField(max_length=20)
+    delivery_time = models.DateTimeField()
+    task_id = models.CharField(max_length=255)
+
+    class Meta:
+        unique_together = ('user', 'cadence_type', 'delivery_time')
+
+    def __str__(self):
+        return f'{self.user.username} - {self.cadence_type} - {self.delivery_time} (task={self.task_id})'
 
 
 def create_notification_preference(user_id: int, notification_type: str) -> NotificationPreference:

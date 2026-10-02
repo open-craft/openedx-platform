@@ -1,7 +1,6 @@
 """
 Tests for the milestones helpers library, which is the integration point for the edx_milestones API
 """
-from unittest.mock import patch
 
 import ddt
 import pytest
@@ -12,8 +11,10 @@ from milestones.exceptions import InvalidCourseKeyException, InvalidUserExceptio
 from milestones.models import MilestoneRelationshipType
 
 from common.djangoapps.util import milestones_helpers
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 
 @override_settings(MILESTONES_APP=False)
@@ -59,9 +60,10 @@ class MilestonesHelpersTestCase(ModuleStoreTestCase):
         ENABLE_PREREQUISITE_COURSES and MILESTONES_APP feature flags.
         """
 
-        with patch.dict("django.conf.settings.FEATURES", {
-            'ENABLE_PREREQUISITE_COURSES': feature_flags[0],
-        }), override_settings(MILESTONES_APP=feature_flags[1]):
+        with override_settings(
+            ENABLE_PREREQUISITE_COURSES=feature_flags[0],
+            MILESTONES_APP=feature_flags[1],
+        ):
             assert feature_flags[2] == milestones_helpers.is_prerequisite_courses_enabled()
 
     def test_add_milestone_returns_none_when_app_disabled(self):

@@ -4,28 +4,49 @@ Unit tests for the vertical block.
 
 from urllib.parse import quote
 
+import ddt
 from django.urls import reverse
-from rest_framework import status
 from edx_toggles.toggles.testutils import override_waffle_flag
+from openedx_authz.constants.roles import COURSE_ADMIN, COURSE_AUDITOR, COURSE_EDITOR, COURSE_STAFF
+from rest_framework import status
+from xblock.core import XBlock
+from xblock.utils.studio_editable import NestedXBlockSpec, StudioContainerWithNestedXBlocksMixin
 from xblock.validation import ValidationMessage
 
 from cms.djangoapps.contentstore.tests.utils import CourseTestCase
-from openedx.core.djangoapps.content_tagging.toggles import DISABLE_TAGGING_FEATURE
+from common.djangoapps.student.tests.factories import UserFactory
+from openedx.core.djangoapps.authz.tests.mixins import CourseAuthoringAuthzTestMixin
 from openedx.core.djangoapps.content_libraries.tests import ContentLibrariesRestApiTest
-from xmodule.partitions.partitions import (
-    ENROLLMENT_TRACK_PARTITION_ID,
-    Group,
-    UserPartition,
-)
-from xmodule.modulestore.django import (
-    modulestore,
-)  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import (
-    BlockFactory,
-)  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore import (
-    ModuleStoreEnum,
-)  # lint-amnesty, pylint: disable=wrong-import-order
+from openedx.core.djangoapps.content_tagging.toggles import DISABLE_TAGGING_FEATURE
+from xmodule.modulestore import ModuleStoreEnum  # pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.factories import BlockFactory  # pylint: disable=wrong-import-order
+from xmodule.partitions.partitions import ENROLLMENT_TRACK_PARTITION_ID, Group, UserPartition
+
+
+class TestNestedContainerBlock(StudioContainerWithNestedXBlocksMixin, XBlock):
+    """
+    Test-only XBlock that simulates a third-party container (e.g. Problem Builder)
+    which restricts and annotates its allowed child types via allowed_nested_blocks.
+
+    Third-party container XBlocks often declare child types that are not part of the
+    standard course-wide component_templates (e.g. "Ranged Value Slider"). If the
+    backend simply filtered the course-wide list, those custom types would be silently
+    dropped and authors would have no way to add them in Studio. This block lets us
+    verify that the API builds component_templates from the spec instead, and correctly
+    surfaces single_instance/disabled/disabled_reason so the MFE can disable buttons
+    and show tooltips.
+    """
+    CATEGORY = 'nested-container-test'
+    STUDIO_LABEL = 'Nested Container Test'
+
+    @property
+    def allowed_nested_blocks(self):
+        return [
+            NestedXBlockSpec(None, category='html', label='HTML', single_instance=True),
+            NestedXBlockSpec(None, category='video', label='Video', disabled=True, disabled_reason='Not available'),
+        ]
+
 
 
 class BaseXBlockContainer(CourseTestCase, ContentLibrariesRestApiTest):
@@ -148,7 +169,7 @@ class ContainerHandlerViewTest(BaseXBlockContainer):
         """
         url = self.get_reverse_url(self.vertical.location)
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
 
     def test_ancestor_xblocks_response(self):
         """
@@ -194,7 +215,7 @@ class ContainerHandlerViewTest(BaseXBlockContainer):
         def sort_key(block):
             return block.get("title", "")
 
-        self.assertEqual(
+        self.assertEqual(  # noqa: PT009
             sorted(response_ancestor_xblocks, key=sort_key),
             sorted(expected_ancestor_xblocks, key=sort_key)
         )
@@ -208,7 +229,87 @@ class ContainerHandlerViewTest(BaseXBlockContainer):
         )
         url = self.get_reverse_url(usage_key_string)
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)  # noqa: PT009
+
+    def _all_templates(self, response):
+        """Return a flat list of all template dicts from a component_templates response."""
+        return [
+            template
+            for group in response.json().get('component_templates', [])
+            for template in group.get('templates', [])
+        ]
+
+    @XBlock.register_temp_plugin(TestNestedContainerBlock, identifier='nested-container-test')
+    def test_component_templates_for_mixin_xblock(self):
+        """
+        Test for containers implementing StudioContainerWithNestedXBlocksMixin.
+        """
+        container = self.create_block(self.vertical.location, 'nested-container-test', 'Test Container')
+        response = self.client.get(self.get_reverse_url(container.location))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        component_templates = response.json().get('component_templates', [])
+
+        # Each spec maps to its own top-level group.
+        group_types = {group['type'] for group in component_templates}
+        self.assertEqual(group_types, {'html', 'video'})  # noqa: PT009
+        self.assertNotIn('advanced', group_types)  # noqa: PT009
+
+        # Each group carries exactly one template whose category matches the group type.
+        all_templates = self._all_templates(response)
+        self.assertEqual({t['category'] for t in all_templates}, {'html', 'video'})  # noqa: PT009
+
+        html_template = next(t for t in all_templates if t['category'] == 'html')
+        self.assertTrue(html_template.get('single_instance'))  # noqa: PT009
+
+        video_template = next(t for t in all_templates if t['category'] == 'video')
+        self.assertTrue(video_template.get('disabled'))  # noqa: PT009
+        self.assertEqual(video_template.get('disabled_reason'), 'Not available')  # noqa: PT009
+
+    def test_component_templates_for_non_mixin_xblock(self):
+        """
+        Test for containers do not implementing StudioContainerWithNestedXBlocksMixin.
+        """
+        response = self.client.get(self.get_reverse_url(self.vertical.location))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        group_types = {group['type'] for group in response.json().get('component_templates', [])}
+        self.assertIn('html', group_types)  # noqa: PT009
+        self.assertIn('problem', group_types)  # noqa: PT009
+        self.assertIn('video', group_types)  # noqa: PT009
+
+
+@ddt.ddt
+class ContainerHandlerViewAuthzTest(CourseAuthoringAuthzTestMixin, BaseXBlockContainer):
+    """
+    Regression test for openedx-authz#384: ContainerHandlerView (the endpoint the
+    Authoring MFE's unit page calls to render a unit) required legacy write access
+    via _get_item_in_course(), so AuthZ-native roles with no legacy equivalent
+    (course_auditor, course_editor) got a 403 despite holding COURSES_VIEW_COURSE.
+    """
+
+    view_name = "container_handler"
+
+    @ddt.data(
+        COURSE_STAFF.external_key,
+        COURSE_ADMIN.external_key,
+        COURSE_AUDITOR.external_key,
+        COURSE_EDITOR.external_key,
+    )
+    def test_course_roles_can_view_unit_container(self, role_key):
+        role_user = UserFactory(password=self.password)
+        self.add_user_to_role_in_course(role_user, role_key, self.course.id)
+
+        self.client.login(username=role_user.username, password=self.password)
+        response = self.client.get(self.get_reverse_url(self.vertical.location))
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_unauthorized_user_gets_permission_denied(self):
+        self.client.login(username=self.unauthorized_user.username, password=self.password)
+        response = self.client.get(self.get_reverse_url(self.vertical.location))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class ContainerVerticalViewTest(BaseXBlockContainer):
@@ -224,13 +325,13 @@ class ContainerVerticalViewTest(BaseXBlockContainer):
         """
         url = self.get_reverse_url(self.vertical.location)
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
         data = response.json()
-        self.assertEqual(len(data["children"]), 2)
-        self.assertFalse(data["is_published"])
-        self.assertTrue(data["can_paste_component"])
-        self.assertEqual(data["display_name"], "Unit")
-        self.assertEqual(data["upstream_ready_to_sync_children_info"], [])
+        self.assertEqual(len(data["children"]), 2)  # noqa: PT009
+        self.assertFalse(data["is_published"])  # noqa: PT009
+        self.assertTrue(data["can_paste_component"])  # noqa: PT009
+        self.assertEqual(data["display_name"], "Unit")  # noqa: PT009
+        self.assertEqual(data["upstream_ready_to_sync_children_info"], [])  # noqa: PT009
 
     def test_success_response_with_upstream_info(self):
         """
@@ -238,13 +339,13 @@ class ContainerVerticalViewTest(BaseXBlockContainer):
         """
         url = self.get_reverse_url(self.vertical.location)
         response = self.client.get(f"{url}?get_upstream_info=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
         data = response.json()
-        self.assertEqual(len(data["children"]), 2)
-        self.assertFalse(data["is_published"])
-        self.assertTrue(data["can_paste_component"])
-        self.assertEqual(data["display_name"], "Unit")
-        self.assertEqual(data["upstream_ready_to_sync_children_info"], [{
+        self.assertEqual(len(data["children"]), 2)  # noqa: PT009
+        self.assertFalse(data["is_published"])  # noqa: PT009
+        self.assertTrue(data["can_paste_component"])  # noqa: PT009
+        self.assertEqual(data["display_name"], "Unit")  # noqa: PT009
+        self.assertEqual(data["upstream_ready_to_sync_children_info"], [{  # noqa: PT009
             "id": str(self.html_unit_second.usage_key),
             "upstream": self.html_block["id"],
             "block_type": "html",
@@ -259,7 +360,7 @@ class ContainerVerticalViewTest(BaseXBlockContainer):
         self.publish_item(self.store, self.vertical.location)
         url = self.get_reverse_url(self.vertical.location)
         response = self.client.get(url)
-        self.assertTrue(response.data["is_published"])
+        self.assertTrue(response.data["is_published"])  # noqa: PT009
 
     def test_children_content(self):
         """
@@ -323,7 +424,7 @@ class ContainerVerticalViewTest(BaseXBlockContainer):
                     "version_declined": None,
                     "error_message": None,
                     "ready_to_sync": True,
-                    "has_top_level_parent": False,
+                    "top_level_parent_key": None,
                     "downstream_customized": [],
                 },
                 "user_partition_info": expected_user_partition_info,
@@ -334,7 +435,7 @@ class ContainerVerticalViewTest(BaseXBlockContainer):
         ]
         self.maxDiff = None
         # Using json() shows meaningful diff in case of error
-        self.assertEqual(response.json()["children"], expected_response)
+        self.assertEqual(response.json()["children"], expected_response)  # noqa: PT009
 
     def test_not_valid_usage_key_string(self):
         """
@@ -345,7 +446,7 @@ class ContainerVerticalViewTest(BaseXBlockContainer):
         )
         url = self.get_reverse_url(usage_key_string)
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)  # noqa: PT009
 
     @override_waffle_flag(DISABLE_TAGGING_FEATURE, True)
     def test_actions_with_turned_off_taxonomy_flag(self):
@@ -355,7 +456,7 @@ class ContainerVerticalViewTest(BaseXBlockContainer):
         url = self.get_reverse_url(self.vertical.location)
         response = self.client.get(url)
         for children in response.data["children"]:
-            self.assertFalse(children["actions"]["can_manage_tags"])
+            self.assertFalse(children["actions"]["can_manage_tags"])  # noqa: PT009
 
     def test_validation_errors(self):
         """
@@ -391,7 +492,7 @@ class ContainerVerticalViewTest(BaseXBlockContainer):
         children_response = response.data["children"]
 
         # Verify that html_unit_first access settings contradict its parent's access settings.
-        self.assertEqual(children_response[0]["validation_messages"][0]["type"], ValidationMessage.ERROR)
+        self.assertEqual(children_response[0]["validation_messages"][0]["type"], ValidationMessage.ERROR)  # noqa: PT009
 
         # Verify that html_unit_second has no validation messages.
-        self.assertFalse(children_response[1]["validation_messages"])
+        self.assertFalse(children_response[1]["validation_messages"])  # noqa: PT009

@@ -1,15 +1,15 @@
 """Models for course enrollment"""
-import hashlib  # lint-amnesty, pylint: disable=wrong-import-order
-import logging  # lint-amnesty, pylint: disable=wrong-import-order
-import uuid  # lint-amnesty, pylint: disable=wrong-import-order
-from collections import defaultdict, namedtuple  # lint-amnesty, pylint: disable=wrong-import-order
-from datetime import date, datetime, timedelta  # lint-amnesty, pylint: disable=wrong-import-order
+import hashlib  # pylint: disable=wrong-import-order
+import logging  # pylint: disable=wrong-import-order
+import uuid  # pylint: disable=wrong-import-order
+from collections import defaultdict, namedtuple  # pylint: disable=wrong-import-order
+from datetime import date, datetime, timedelta  # pylint: disable=wrong-import-order
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 from config_models.models import ConfigurationModel
 from django.conf import settings
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.core.validators import FileExtensionValidator
@@ -80,7 +80,7 @@ ALLOWEDTOENROLL_TO_ENROLLED = 'from allowed to enroll to enrolled'
 ENROLLED_TO_ENROLLED = 'from enrolled to enrolled'
 ENROLLED_TO_UNENROLLED = 'from enrolled to unenrolled'
 UNENROLLED_TO_ENROLLED = 'from unenrolled to enrolled'
-ALLOWEDTOENROLL_TO_UNENROLLED = 'from allowed to enroll to enrolled'
+ALLOWEDTOENROLL_TO_UNENROLLED = 'from allowed to enroll to unenrolled'
 UNENROLLED_TO_UNENROLLED = 'from unenrolled to unenrolled'
 DEFAULT_TRANSITION_STATE = 'N/A'
 SCORE_RECALCULATION_DELAY_ON_ENROLLMENT_UPDATE = 30
@@ -152,7 +152,7 @@ class CourseEnrollmentQuerySet(models.QuerySet):
         """
         return self.filter(course_id__in=self.get_user_course_ids_with_certificates(username))
 
-    def in_progress(self, username, time_zone=ZoneInfo("UTC")):
+    def in_progress(self, username, time_zone=ZoneInfo("UTC")):  # noqa: B008
         """
         Returns a queryset of CourseEnrollment objects for courses that are currently in progress.
         """
@@ -170,7 +170,7 @@ class CourseEnrollmentQuerySet(models.QuerySet):
         """
         return self.active().with_certificates(username)
 
-    def expired(self, username, time_zone=ZoneInfo("UTC")):
+    def expired(self, username, time_zone=ZoneInfo("UTC")):  # noqa: B008
         """
         Returns a queryset of CourseEnrollment objects for courses that have expired.
         """
@@ -199,7 +199,7 @@ class CourseEnrollmentManager(models.Manager):
 
         'course_id' is the course_id to return enrollments
         """
-        max_enrollments = settings.FEATURES.get("MAX_ENROLLMENT_INSTR_BUTTONS")
+        max_enrollments = settings.MAX_ENROLLMENT_INSTR_BUTTONS
 
         enrollment_number = super().get_queryset().filter(
             course_id=course_id,
@@ -319,7 +319,7 @@ class CourseEnrollment(models.Model):
     def course_price(self):
         return get_cosmetic_verified_display_price(self.course)
 
-    created = models.DateTimeField(auto_now_add=True, null=True, db_index=True)
+    created = models.DateTimeField(auto_now_add=True, null=True, db_index=True)  # noqa: DJ012
 
     # If is_active is False, then the student is not considered to be enrolled
     # in the course (is_enrolled() will return False)
@@ -337,19 +337,19 @@ class CourseEnrollment(models.Model):
         table_name='student_courseenrollment_history'
     )
 
-    objects = CourseEnrollmentManager()
+    objects = CourseEnrollmentManager()  # noqa: DJ012
 
     # cache key format e.g enrollment.<username>.<course_key>.mode = 'honor'
     COURSE_ENROLLMENT_CACHE_KEY = "enrollment.{}.{}.mode"
 
     MODE_CACHE_NAMESPACE = 'CourseEnrollment.mode_and_active'
 
-    class Meta:
+    class Meta:  # noqa: DJ012
         unique_together = (('user', 'course'),)
         indexes = [Index(fields=['user', '-created'])]
         ordering = ('user', 'course')
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs):  # noqa: DJ012
         super().__init__(*args, **kwargs)
 
         # Private variable for storing course_overview to minimize calls to the database.
@@ -357,11 +357,11 @@ class CourseEnrollment(models.Model):
         self._course_overview = None
 
     def __str__(self):
-        return (
+        return (  # noqa: UP032
             "[CourseEnrollment] {}: {} ({}); active: ({})"
         ).format(self.user, self.course_id, self.created, self.is_active)
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs):  # noqa: DJ012
         super().save(*args, **kwargs)
 
         # Delete the cached status hash, forcing the value to be recalculated the next time it is needed.
@@ -602,9 +602,9 @@ class CourseEnrollment(models.Model):
         """
         Emits an event to explicitly track course enrollment and unenrollment.
         """
-        from openedx.core.djangoapps.schedules.config import set_up_external_updates_for_enrollment
-        from common.djangoapps.student.toggles import should_send_enrollment_email
         from common.djangoapps.student.tasks import send_course_enrollment_email
+        from common.djangoapps.student.toggles import should_send_enrollment_email
+        from openedx.core.djangoapps.schedules.config import set_up_external_updates_for_enrollment
 
         segment_properties = {
             'category': 'conversion',
@@ -664,10 +664,13 @@ class CourseEnrollment(models.Model):
 
         except Exception:  # pylint: disable=broad-except
             if event_name and self.course_id:
+                user_identifier_for_log = (
+                    self.user.id if getattr(settings, 'SQUELCH_PII_IN_LOGS', False) else self.user.username
+                )
                 log.exception(
                     'Unable to emit event %s for user %s and course %s',
                     event_name,
-                    self.user.username,
+                    user_identifier_for_log,
                     self.course_id,
                 )
 
@@ -731,39 +734,55 @@ class CourseEnrollment(models.Model):
                 course_key=course.id,
                 display_name=course.display_name,
             )
-        except CourseOverview.DoesNotExist:
+        except CourseOverview.DoesNotExist as err:
             # This is here to preserve legacy behavior which allowed enrollment in courses
             # announced before the start of content creation.
             course_data = CourseData(
                 course_key=course_key,
             )
             if check_access:
-                log.warning("User %s failed to enroll in non-existent course %s", user.username, str(course_key))
-                raise NonExistentCourseError  # lint-amnesty, pylint: disable=raise-missing-from
+                user_identifier_for_log = (
+                    user.id if getattr(settings, 'SQUELCH_PII_IN_LOGS', False) else user.username
+                )
+                log.warning(
+                    "User %s failed to enroll in non-existent course %s",
+                    user_identifier_for_log,
+                    str(course_key),
+                )
+                raise NonExistentCourseError from err
 
         if check_access:
             if cls.is_enrollment_closed(user, course) and not can_upgrade:
+                user_identifier_for_log = (
+                    user.id if getattr(settings, 'SQUELCH_PII_IN_LOGS', False) else user.username
+                )
                 log.warning(
                     "User %s failed to enroll in course %s because enrollment is closed (can_upgrade=%s).",
-                    user.username,
+                    user_identifier_for_log,
                     str(course_key),
                     can_upgrade,
                 )
                 raise EnrollmentClosedError
 
             if cls.objects.is_course_full(course):
+                user_identifier_for_log = (
+                    user.id if getattr(settings, 'SQUELCH_PII_IN_LOGS', False) else user.username
+                )
                 log.warning(
                     "Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.",
                     str(course_key),
                     course.max_student_enrollments_allowed,
-                    user.username,
+                    user_identifier_for_log,
                 )
                 raise CourseFullError
         if cls.is_enrolled(user, course_key):
+            user_identifier_for_log = (
+                user.id if getattr(settings, 'SQUELCH_PII_IN_LOGS', False) else user.username
+            )
             log.warning(
                 "User %s attempted to enroll in %s, but they were already enrolled",
-                user.username,
-                str(course_key)
+                user_identifier_for_log,
+                str(course_key),
             )
             if check_access:
                 raise AlreadyEnrolledError
@@ -828,8 +847,8 @@ class CourseEnrollment(models.Model):
             user = User.objects.get(email=email)
             return cls.enroll(user, course_id, mode)
         except User.DoesNotExist:
-            err_msg = "Tried to enroll email {} into course {}, but user not found"
-            log.error(err_msg.format(email, course_id))
+            email_for_log = "[REDACTED]" if getattr(settings, 'SQUELCH_PII_IN_LOGS', False) else email
+            log.error("Tried to enroll email %s into course %s, but user not found", email_for_log, course_id)
             if ignore_errors:
                 return None
             raise
@@ -1316,9 +1335,9 @@ class CourseEnrollment(models.Model):
 
             log.debug(
                 'Schedules: Pulling upgrade deadline for CourseEnrollment %d from Schedule %d.',
-                self.id, self.schedule.id  # lint-amnesty, pylint: disable=no-member
+                self.id, self.schedule.id  # pylint: disable=no-member
             )
-            return self.schedule.upgrade_deadline  # lint-amnesty, pylint: disable=no-member
+            return self.schedule.upgrade_deadline  # pylint: disable=no-member
         except ObjectDoesNotExist:
             # NOTE: Schedule has a one-to-one mapping with CourseEnrollment. If no schedule is associated
             # with this enrollment, Django will raise an exception rather than return None.
@@ -1421,7 +1440,7 @@ class CourseEnrollment(models.Model):
         RequestCache(cls.MODE_CACHE_NAMESPACE).clear()
 
         records = cls.objects.filter(user__in=users, course_id=course_key).select_related('user')
-        cache = cls._get_mode_active_request_cache()  # lint-amnesty, pylint: disable=redefined-outer-name
+        cache = cls._get_mode_active_request_cache()  # pylint: disable=redefined-outer-name
         for record in records:
             enrollment_state = CourseEnrollmentState(record.mode, record.is_active)
             cls._update_enrollment_state_in_cache(cache, record.user.id, course_key, enrollment_state)
@@ -1451,7 +1470,7 @@ class CourseEnrollment(models.Model):
                                               user.id, course_key, enrollment_state)
 
     @classmethod
-    def _update_enrollment_state_in_cache(cls, cache, user_id, course_key, enrollment_state):  # lint-amnesty, pylint: disable=redefined-outer-name
+    def _update_enrollment_state_in_cache(cls, cache, user_id, course_key, enrollment_state):  # pylint: disable=redefined-outer-name
         """
         Updates the cached value for the user's enrollment in the
         given cache.
@@ -1515,7 +1534,7 @@ def update_expiry_email_date(sender, instance, **kwargs):  # pylint: disable=unu
         SoftwareSecurePhotoVerification.update_expiry_email_date_for_user(instance.user, email_config)
 
 
-class ManualEnrollmentAudit(models.Model):
+class ManualEnrollmentAudit(models.Model):  # noqa: DJ008
     """
     Table for tracking which enrollments were performed through manual enrollment.
 
@@ -1528,8 +1547,8 @@ class ManualEnrollmentAudit(models.Model):
     enrolled_email = models.CharField(max_length=255, db_index=True)
     time_stamp = models.DateTimeField(auto_now_add=True, null=True)
     state_transition = models.CharField(max_length=255, choices=TRANSITION_STATES)
-    reason = models.TextField(null=True)
-    role = models.CharField(blank=True, null=True, max_length=64)
+    reason = models.TextField(null=True)  # noqa: DJ001
+    role = models.CharField(blank=True, null=True, max_length=64)  # noqa: DJ001
     history = HistoricalRecords()
 
     @classmethod
@@ -1597,7 +1616,9 @@ class CourseEnrollmentAllowed(DeletableByUserValue, models.Model):
     the object is marked with the student who enrolled, to prevent students from changing e-mails and
     enrolling many accounts through the same e-mail.
 
-    .. no_pii:
+    .. pii: Contains email, redacted then deleted in AccountRetirementView
+    .. pii_types: email_address
+    .. pii_retirement: local_api
     """
     email = models.CharField(max_length=255, db_index=True)
     course_id = CourseKeyField(max_length=255, db_index=True)
@@ -1646,6 +1667,13 @@ class CourseEnrollmentAllowed(DeletableByUserValue, models.Model):
         """
         return CourseEnrollmentAllowed.objects.filter(course_id=course_id, user__isnull=True)
 
+    @classmethod
+    def redact_before_delete_fields(cls):
+        """
+        Redact email before deleting records for downstream soft-delete systems.
+        """
+        return {'email': 'redacted-before-delete@safe.com'}
+
 
 class CourseEnrollmentAttribute(models.Model):
     """
@@ -1669,7 +1697,7 @@ class CourseEnrollmentAttribute(models.Model):
 
     def __str__(self):
         """Unicode representation of the attribute. """
-        return "{namespace}:{name}, {value}".format(
+        return "{namespace}:{name}, {value}".format(  # noqa: UP032
             namespace=self.namespace,
             name=self.name,
             value=self.value,
@@ -1754,7 +1782,7 @@ class EnrollmentRefundConfiguration(ConfigurationModel):
         self.refund_window_microseconds = int(refund_window.total_seconds() * 1000000)
 
 
-class BulkUnenrollConfiguration(ConfigurationModel):  # lint-amnesty, pylint: disable=empty-docstring
+class BulkUnenrollConfiguration(ConfigurationModel):  # pylint: disable=empty-docstring
     """
     .. no_pii:
     """
@@ -1802,7 +1830,7 @@ class CourseEnrollmentCelebration(TimeStampedModel):
     celebrate_weekly_goal = models.BooleanField(default=False)
 
     def __str__(self):
-        return (
+        return (  # noqa: UP032
             '[CourseEnrollmentCelebration] course: {}; user: {}'
         ).format(self.enrollment.course.id, self.enrollment.user.username)
 

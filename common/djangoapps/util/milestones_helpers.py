@@ -13,8 +13,7 @@ from opaque_keys.edx.keys import CourseKey
 
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.lib.cache_utils import get_cache
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 NAMESPACE_CHOICES = {
     'ENTRANCE_EXAM': 'entrance_exams'
@@ -45,7 +44,7 @@ def is_prerequisite_courses_enabled():
     """
     Returns boolean indicating prerequisite courses enabled system wide or not.
     """
-    return settings.FEATURES.get('ENABLE_PREREQUISITE_COURSES') and ENABLE_MILESTONES_APP.is_enabled()
+    return settings.ENABLE_PREREQUISITE_COURSES and ENABLE_MILESTONES_APP.is_enabled()
 
 
 def add_prerequisite_course(course_key, prerequisite_course_key):
@@ -233,7 +232,7 @@ def get_required_content(course_key, user):
             # For each outstanding milestone, see if this content is one of its fulfillment paths
             for path_key in milestone_paths:
                 milestone_path = milestone_paths[path_key]
-                if milestone_path.get('content') and len(milestone_path['content']):  # lint-amnesty, pylint: disable=len-as-condition
+                if milestone_path.get('content') and len(milestone_path['content']):  # pylint: disable=len-as-condition
                     for content in milestone_path['content']:
                         required_content.append(content)
         else:
