@@ -273,6 +273,8 @@ class UserModifyView(APIView):
             for key in data:
                 if key not in allowed_fields:
                     raise ValidationError(f"Unexpected field: {key}")
+                if key in UserProfileSerializer.Meta.read_only_fields:
+                    raise ValidationError(f"Read-only field: {key}")
             serializer = UserProfileSerializer(data=data)
             serializer.is_valid(raise_exception=True)
             self._check_superuser(serializer, request)
@@ -365,6 +367,6 @@ class UserModifyView(APIView):
         else:
             message = str(e)
         return Response(
-            data={"error": message},
+            data={"error": [message]},
             status=status.HTTP_400_BAD_REQUEST,
         )
