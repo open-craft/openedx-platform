@@ -100,9 +100,7 @@ class UserProfileSerializerTest(TestCase):
         for field, value in invalid_values.items():
             serializer = UserProfileSerializer(data={field: value}, partial=True)
             assert not serializer.is_valid()
-            assert (
-                field in serializer.errors or "non_field_errors" in serializer.errors
-            ), serializer.errors
+            assert field in serializer.errors, serializer.errors
 
     def test_blank_user_fields_are_rejected(self):
         for field in ("email", "username", "password", "name"):
@@ -122,8 +120,8 @@ class UserProfileSerializerTest(TestCase):
             data.pop(field)
             serializer = UserProfileSerializer(data=data)
             assert not serializer.is_valid(), serializer.errors
-            assert "non_field_errors" in serializer.errors
-            assert message in serializer.errors["non_field_errors"]
+            assert field in serializer.errors
+            assert message in serializer.errors[field]
 
     def test_duplicate_email_and_username_are_rejected(self):
         existing = UserFactory.create(username="existing-user", email="existing@example.com")
@@ -138,8 +136,8 @@ class UserProfileSerializerTest(TestCase):
                 data={"email": "new@example.com", "username": "new-user", field: value}
             )
             assert not serializer.is_valid(), serializer.errors
-            assert "non_field_errors" in serializer.errors
-            assert message in serializer.errors["non_field_errors"]
+            assert field in serializer.errors
+            assert message in serializer.errors[field]
 
     def test_weak_password_is_rejected(self):
         serializer = UserProfileSerializer(data={
@@ -148,9 +146,7 @@ class UserProfileSerializerTest(TestCase):
             "password": "weak",
         })
         assert not serializer.is_valid()
-        assert (
-            "password" in serializer.errors or "non_field_errors" in serializer.errors
-        ), serializer.errors
+        assert "password" in serializer.errors, serializer.errors
 
     def test_no_password_is_accepted(self):
         serializer = UserProfileSerializer(data={

@@ -179,41 +179,56 @@ class UserProfileSerializer(serializers.Serializer):
 
         if self.instance is None:
             if "username" not in attrs:
-                raise ValidationError("Username is required.")
-
-            if "email" not in attrs:
-                raise ValidationError("Email is required.")
-
-        if "username" in attrs:
-            if self.instance is None or self.instance.username != attrs["username"]:
-                self._check_username_unique(attrs["username"])
-
-        if "email" in attrs:
-            if self.instance is None or self.instance.email != attrs["email"]:
-                self._check_email_unique(attrs["email"])
-
-        if "year_of_birth" in attrs:
-            if attrs["year_of_birth"] not in UserProfile.VALID_YEARS:
-                raise ValidationError(f"Year of birth must be within {UserProfile.VALID_YEARS}")
-
-        if "gender" in attrs:
-            if attrs["gender"] not in dict(UserProfile.GENDER_CHOICES):
-                raise ValidationError(f"Gender must be one of {list(dict(UserProfile.GENDER_CHOICES).keys())}")
-
-        if "level_of_education" in attrs:
-            if attrs["level_of_education"] not in dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES):
-                raise ValidationError(
-                    f"Level of education must be one of {list(dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES).keys())}"
+                raise serializers.ValidationError(
+                    {"username": "Username is required."}
                 )
 
-        if "country" in attrs:
-            if attrs["country"] not in dict(countries):
-                raise ValidationError("Invalid country.")
-
-        if "password" in attrs:
-            validate_password(attrs["password"])
+            if "email" not in attrs:
+                raise serializers.ValidationError(
+                    {"email": "Email is required."}
+                )
 
         return attrs
+
+    def validate_username(self, value: str) -> str:
+        if self.instance is None or self.instance.username != value:
+            self._check_username_unique(value)
+        return value
+
+    def validate_email(self, value: str) -> str:
+        if self.instance is None or self.instance.email != value:
+            self._check_email_unique(value)
+        return value
+
+    def validate_year_of_birth(self, value: int) -> int:
+        if value not in UserProfile.VALID_YEARS:
+            raise serializers.ValidationError(
+                f"Year of birth must be within {UserProfile.VALID_YEARS}"
+            )
+        return value
+
+    def validate_gender(self, value: str) -> str:
+        if value not in dict(UserProfile.GENDER_CHOICES):
+            choices = list(dict(UserProfile.GENDER_CHOICES).keys())
+            raise serializers.ValidationError(f"Gender must be one of {choices}")
+        return value
+
+    def validate_level_of_education(self, value: str) -> str:
+        if value not in dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES):
+            choices = list(dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES).keys())
+            raise serializers.ValidationError(
+                f"Level of education must be one of {choices}"
+            )
+        return value
+
+    def validate_country(self, value: str) -> str:
+        if value not in dict(countries):
+            raise serializers.ValidationError("Invalid country.")
+        return value
+
+    def validate_password(self, value: str) -> str:
+        validate_password(value)
+        return value
 
     def update(self, instance: User, validated_data: dict) -> User:
         """
@@ -265,12 +280,16 @@ class UserProfileSerializer(serializers.Serializer):
     @staticmethod
     def _check_email_unique(email):
         if email_exists_or_retired(email=email):
-            raise ValidationError("User already exists with this email")
+            raise serializers.ValidationError(
+                "User already exists with this email"
+            )
 
     @staticmethod
     def _check_username_unique(username):
         if username_exists_or_retired(username=username):
-            raise ValidationError("User already exists with this username")
+            raise serializers.ValidationError(
+                "User already exists with this username"
+            )
 
     class Meta:
         model = User
