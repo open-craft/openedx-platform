@@ -56,12 +56,13 @@ class PathwayCategoryGroupSerializer(serializers.Serializer):
 
 
 class PathwaysByCourseSerializer(serializers.BaseSerializer):
-    """Mapping from serialized CourseKeys to pathways containing the course run."""
+    """Mapping from each requested course run key to the pathways containing it."""
 
     def to_representation(self, instance):
-        # Keep CourseKeys as dynamic object keys while validating each pathway against the shared response schema.
+        # Keep course run keys as dynamic object keys while validating each pathway against the shared schema.
         return {
-            course_id: LearnerPathwaySerializer(pathways, many=True).data for course_id, pathways in instance.items()
+            course_run_key: LearnerPathwaySerializer(pathways, many=True).data
+            for course_run_key, pathways in instance.items()
         }
 
 
@@ -131,32 +132,39 @@ def _group_pathways_by_category(records):
     return list(categories.values())
 
 
-def _get_requested_course_ids(request):
-    """Parse the repeated ``course_ids`` query parameter as canonical CourseKeys."""
-    course_ids = request.query_params.getlist("course_ids")
+def _get_requested_course_run_keys(request):
+    """
+    Parse the repeated ``course_run_keys`` query parameter as canonical CourseKeys.
+
+    A Pathway contains course runs, not courses, so callers identify the runs by their own keys. Both MFEs that show
+    pathway membership happen to call this a "course id", but the value is always a specific run's key: learner home
+    serializes it from `CourseEnrollment.course_id`, and the learning MFE takes it from its own `/course/:courseId/`
+    route, which the LMS fills from a `CourseKey`.
+    """
+    course_run_keys = request.query_params.getlist("course_run_keys")
     try:
-        return list(dict.fromkeys(str(CourseKey.from_string(course_id)) for course_id in course_ids))
+        return list(dict.fromkeys(str(CourseKey.from_string(key)) for key in course_run_keys))
     except InvalidKeyError as error:
-        raise ValidationError({"course_ids": _("Each course_ids value must be a valid course key.")}) from error
+        raise ValidationError({"course_run_keys": _("Each course_run_keys value must be a valid course key.")}) from error
 
 
-def _pathways_by_course(records, course_ids):
+def _pathways_by_course(records, course_run_keys):
     """Return enrolled pathways containing each requested CourseRun via the published Content definitions."""
     enrolled_pathways = {record["catalog_pathway_id"]: record["data"] for record in records}
     pathways_by_course = {}
 
-    for course_id in course_ids:
+    for course_run_key in course_run_keys:
         try:
-            course_run = catalog_api.get_course_run(CourseKey.from_string(course_id))
+            course_run = catalog_api.get_course_run(CourseKey.from_string(course_run_key))
         except CourseRun.DoesNotExist:
-            pathways_by_course[course_id] = []
+            pathways_by_course[course_run_key] = []
             continue
 
         pathway_ids = {
             pathway.catalog_pathway_id
             for pathway in learning_api.get_pathways_containing_course_run(course_run, published=True)
         }
-        pathways_by_course[course_id] = [
+        pathways_by_course[course_run_key] = [
             pathway_data
             for catalog_pathway_id, pathway_data in enrolled_pathways.items()
             if catalog_pathway_id in pathway_ids
@@ -190,9 +198,9 @@ class LearnerPathwaysView(generics.GenericAPIView):
 class LearnerPathwaysByCourseView(generics.GenericAPIView):
     """List enrolled pathways that contain each requested course run.
 
-    GET ``/api/learner_home/v1/pathways/by_course/?course_ids=<course-key>``
+    GET ``/api/learner_home/v1/pathways/by_course/?course_run_keys=<course-key>``
 
-    ``course_ids`` may be repeated. Staff may pass ``user=<username-or-email>`` to use learner-home's existing
+    ``course_run_keys`` may be repeated. Staff may pass ``user=<username-or-email>`` to use learner-home's existing
     masquerade behavior.
     """
 
@@ -206,8 +214,8 @@ class LearnerPathwaysByCourseView(generics.GenericAPIView):
 
     def get(self, request):
         user = get_masquerade_user(request) or request.user
-        course_ids = _get_requested_course_ids(request)
-        if not course_ids:
+        course_run_keys = _get_requested_course_run_keys(request)
+        if not course_run_keys:
             return Response(self.get_serializer({}).data)
         records = _get_learner_pathway_records(user)
-        return Response(self.get_serializer(_pathways_by_course(records, course_ids)).data)
+        return Response(self.get_serializer(_pathways_by_course(records, course_run_keys)).data)
