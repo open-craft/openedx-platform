@@ -74,7 +74,7 @@ def _get_learner_pathway_records(user):
     and provider, while the published content definition supplies the ordered Items and fulfillment CourseRuns.
     """
     pathway_sources = []
-    course_keys = set()
+    course_keys_needing_grade_lookup = set()
 
     for enrollment in catalog_api.get_pathway_enrollments(user.id):
         catalog_pathway = enrollment.catalog_pathway
@@ -92,19 +92,24 @@ def _get_learner_pathway_records(user):
                 str(run_entry.course_run.course_key)
                 for run_entry in learning_api.get_course_runs_for_item(item_entry.pathway_item, published=True)
             }
-            item_course_keys.append(fulfilling_keys)
-            course_keys.update(fulfilling_keys)
+            item_course_keys.append((str(item_entry.pathway_item.id), fulfilling_keys))
 
         category = catalog_pathway.category
-        pathway_sources.append((catalog_pathway, category, item_course_keys))
+        completed_item_ids = _get_enrollment_completed_item_ids(enrollment)
+        if completed_item_ids is None:
+            course_keys_needing_grade_lookup.update(
+                course_key for _item_id, course_keys in item_course_keys for course_key in course_keys
+            )
+        pathway_sources.append((catalog_pathway, category, item_course_keys, completed_item_ids))
 
     # A learner can retain a passing grade after unenrolling from an individual course, so intentionally include
-    # inactive CourseEnrollment rows when calculating pathway progress.
+    # inactive CourseEnrollment rows when calculating fallback progress. Once Core exposes the provisional
+    # ``PathwayEnrollment.step_completions`` relation, that enrollment-owned state takes precedence.
     passing_course_keys = set()
-    if course_keys:
+    if course_keys_needing_grade_lookup:
         course_enrollments = CourseEnrollment.objects.filter(
             user=user,
-            course_id__in=course_keys,
+            course_id__in=course_keys_needing_grade_lookup,
         ).select_related("course")
         passing_course_keys = {
             str(course_enrollment.course_id)
@@ -113,8 +118,15 @@ def _get_learner_pathway_records(user):
         }
 
     records = []
-    for catalog_pathway, category, item_course_keys in pathway_sources:
+    for catalog_pathway, category, item_course_keys, completed_item_ids in pathway_sources:
         category_label = str(category.localized_name)
+        if completed_item_ids is None:
+            completed_course_count = sum(
+                bool(course_keys.intersection(passing_course_keys)) for _item_id, course_keys in item_course_keys
+            )
+        else:
+            completed_course_count = sum(item_id in completed_item_ids for item_id, _course_keys in item_course_keys)
+
         pathway_data = {
             "pathway": {
                 # Never expose the internal database primary key. key_str is the public catalog identifier currently
@@ -126,22 +138,36 @@ def _get_learner_pathway_records(user):
                 "categoryLabel": category_label,
             },
             "progress": {
-                "completedCourseCount": sum(
-                    bool(item_keys.intersection(passing_course_keys)) for item_keys in item_course_keys
-                ),
+                "completedCourseCount": completed_course_count,
             },
             "provider": {"name": str(catalog_pathway.org.name)},
         }
         records.append(
             {
                 "data": pathway_data,
-                "course_ids": set.union(*item_course_keys) if item_course_keys else set(),
+                "course_ids": {course_key for _item_id, course_keys in item_course_keys for course_key in course_keys},
                 "category_code": category.category_code,
                 "category_label": category_label,
             }
         )
 
     return records
+
+
+def _get_enrollment_completed_item_ids(enrollment):
+    """Return completed Pathway Item IDs recorded for this enrollment, when supported by Core.
+
+    Provisional Core contract for discussion: ``PathwayEnrollment.step_completions`` is a related manager whose rows
+    expose ``pathway_item_id`` and ``is_complete``. The pinned Core PR #820 doesn't include this relation yet, so return
+    ``None`` and preserve grade-derived progress until that model/API lands.
+    """
+    step_completions = getattr(enrollment, "step_completions", None)
+    if step_completions is None:
+        return None
+    return {
+        str(pathway_item_id)
+        for pathway_item_id in step_completions.filter(is_complete=True).values_list("pathway_item_id", flat=True)
+    }
 
 
 def _group_pathways_by_category(records):
