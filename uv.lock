@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -25,7 +25,7 @@ constraints = [
     { name = "libsass", specifier = "==0.10.0" },
     { name = "lxml", specifier = "==5.3.2" },
     { name = "numpy", specifier = "<2.0.0" },
-    { name = "openedx-core", git = "https://github.com/open-craft/openedx-core.git?rev=acbb129f466860bfcd1698b8e713f0618819d4f7" },
+    { name = "openedx-core", specifier = "<2" },
     { name = "path", specifier = "<16.12.0" },
     { name = "pip", specifier = "<26.2.1" },
     { name = "pymongo", specifier = "<4.4.1" },
@@ -4391,7 +4391,7 @@ wheels = [
 [[package]]
 name = "openedx-core"
 version = "1.4.0"
-source = { git = "https://github.com/open-craft/openedx-core.git?rev=acbb129f466860bfcd1698b8e713f0618819d4f7#acbb129f466860bfcd1698b8e713f0618819d4f7" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "celery" },
@@ -4403,6 +4403,10 @@ dependencies = [
     { name = "openedx-events" },
     { name = "rules" },
     { name = "tomlkit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4d/3e/ed8e012f309cea40ed2e95bf62e24437d61b78b985a653bad77eba28793e/openedx_core-1.4.0.tar.gz", hash = "sha256:b14a6dba9daf641d5b59cc6d96352c60f56960e620d57a48978762bfdb43db71", size = 235679, upload-time = "2026-09-11T18:52:40.51Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7e/53/51c7f89d7ce719aacf4f75d8a4b2dbda4cb7502f243606e25ea8daf5597e/openedx_core-1.4.0-py2.py3-none-any.whl", hash = "sha256:972471eb6f80250ce25f049fa56d6629f5c2a22a9c9382863c9d876462561183", size = 321965, upload-time = "2026-09-11T18:52:38.934Z" },
 ]
 
 [[package]]
@@ -4507,7 +4511,6 @@ wheels = [
 name = "openedx-platform"
 version = "0.13"
 source = { editable = "." }
-default-groups = []
 dependencies = [
     { name = "acid-xblock" },
     { name = "analytics-python" },
@@ -5010,7 +5013,7 @@ requires-dist = [
     { name = "openedx-atlas" },
     { name = "openedx-authz" },
     { name = "openedx-calc" },
-    { name = "openedx-core", git = "https://github.com/open-craft/openedx-core.git?rev=acbb129f466860bfcd1698b8e713f0618819d4f7" },
+    { name = "openedx-core" },
     { name = "openedx-django-require" },
     { name = "openedx-django-wiki" },
     { name = "openedx-events" },
