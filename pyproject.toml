@@ -415,6 +415,11 @@ uv_constraints = [
     "djangorestframework<3.18",
 ]
 
+[tool.uv.sources]
+# Pathway catalog/content models and APIs used by the learner-home REST endpoints.
+# This commit is the head of openedx-core#820 and includes openedx-core#819.
+openedx-core = { git = "https://github.com/open-craft/openedx-core.git", rev = "acbb129f466860bfcd1698b8e713f0618819d4f7" }
+
 [tool.setuptools]
 packages = ["cms", "common", "lms", "openedx", "xmodule"]
 

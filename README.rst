@@ -199,13 +199,16 @@ This will give you a mostly-headless Open edX platform. Most frontends have
 been migrated to "Micro-Frontends (MFEs)" which need to be installed and run
 separately. At a bare minimum, you will need to run the `Authoring MFE`_,
 `Learner Home MFE`_, and `Learning MFE`_ in order meaningfully navigate the UI.
-A full list of the MFEs expected to run by default are listed below.
+A full list of the MFEs expected to run by default are listed below. The
+learner pathways endpoints used by the Learner Home MFE are documented in the
+`Learner Pathways REST API`_.
 
 .. _Tutor: https://github.com/overhangio/tutor
 .. _Site Ops home on docs.openedx.org: https://docs.openedx.org/en/latest/site_ops/index.html
 .. _development mode: https://docs.tutor.edly.io/dev.html
 .. _building static assets: ./docs/references/static-assets.rst
 .. _Learner Home MFE: https://github.com/openedx/frontend-app-learner-dashboard
+.. _Learner Pathways REST API: ./lms/djangoapps/learner_home/PATHWAYS_API.rst
 .. _Learning MFE: https://github.com/openedx/frontend-app-learning/
 .. _Authoring MFE: https://github.com/openedx/frontend-app-authoring/
 .. _Using the development.py settings: ./docs/how-tos/using_development_settings.rst
