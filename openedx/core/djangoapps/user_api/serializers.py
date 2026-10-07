@@ -135,7 +135,7 @@ class IDVerificationDetailsSerializer(serializers.Serializer):  # pylint: disabl
 
 class UserProfileSerializer(serializers.Serializer):
     """
-    Serializer for the User model and related profile attributes.
+    Serializer used by the user modify endpoint to create or update a User and its related UserProfile.
     """
 
     email = serializers.EmailField(required=False, allow_blank=False)
