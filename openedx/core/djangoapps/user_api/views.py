@@ -369,7 +369,7 @@ class UserModifyView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         else:
-            message = str(e)
+            message = [str(e)]
         return Response(
             data={"error": message},
             status=status.HTTP_400_BAD_REQUEST,
