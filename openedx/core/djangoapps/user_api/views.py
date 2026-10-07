@@ -15,7 +15,7 @@ from opaque_keys.edx import locator
 from opaque_keys.edx.keys import CourseKey
 from rest_framework import generics, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -367,6 +367,6 @@ class UserModifyView(APIView):
         else:
             message = str(e)
         return Response(
-            data={"error": [message]},
+            data={"error": message},
             status=status.HTTP_400_BAD_REQUEST,
         )

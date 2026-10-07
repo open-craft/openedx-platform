@@ -191,16 +191,40 @@ class UserProfileSerializer(serializers.Serializer):
         return attrs
 
     def validate_username(self, value: str) -> str:
+        """Validate the username.
+
+        Ensures that the username is unique if it is being set for a new user or changed for an existing user.
+
+        :param value: Username to validate.
+        :return: Validated username.
+        :raises serializers.ValidationError: If the username is not unique.
+        """
         if self.instance is None or self.instance.username != value:
             self._check_username_unique(value)
         return value
 
     def validate_email(self, value: str) -> str:
+        """Validate the email.
+
+        Ensures that the email is unique if it is being set for a new user or changed for an existing user.
+
+        :param value: Email to validate.
+        :return: Validated email.
+        :raises serializers.ValidationError: If the email is not unique.
+        """
         if self.instance is None or self.instance.email != value:
             self._check_email_unique(value)
         return value
 
     def validate_year_of_birth(self, value: int) -> int:
+        """Validate the year of birth.
+
+        Ensures that the year of birth is within the valid range defined in UserProfile.VALID_YEARS.
+
+        :param value: Year of birth to validate.
+        :return: Validated year of birth.
+        :raises serializers.ValidationError: If the year of birth is not within the valid range.
+        """
         if value not in UserProfile.VALID_YEARS:
             raise serializers.ValidationError(
                 f"Year of birth must be within {UserProfile.VALID_YEARS}"
@@ -208,12 +232,29 @@ class UserProfileSerializer(serializers.Serializer):
         return value
 
     def validate_gender(self, value: str) -> str:
+        """Validate the gender.
+
+        Ensures that the gender is one of the valid choices defined in UserProfile.GENDER_CHOICES.
+
+        :param value: Gender to validate.
+        :return: Validated gender.
+        :raises serializers.ValidationError: If the gender is not one of the valid choices.
+        """
         if value not in dict(UserProfile.GENDER_CHOICES):
             choices = list(dict(UserProfile.GENDER_CHOICES).keys())
             raise serializers.ValidationError(f"Gender must be one of {choices}")
         return value
 
     def validate_level_of_education(self, value: str) -> str:
+        """Validate the level of education.
+
+        Ensures that the level of education is one of the valid choices defined in
+        UserProfile.LEVEL_OF_EDUCATION_CHOICES.
+
+        :param value: Level of education to validate.
+        :return: Validated level of education.
+        :raises serializers.ValidationError: If the level of education is not one of the valid choices.
+        """
         if value not in dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES):
             choices = list(dict(UserProfile.LEVEL_OF_EDUCATION_CHOICES).keys())
             raise serializers.ValidationError(
@@ -222,11 +263,27 @@ class UserProfileSerializer(serializers.Serializer):
         return value
 
     def validate_country(self, value: str) -> str:
+        """Validate the country.
+
+        Ensures that the country is one of the valid choices defined in the countries list.
+
+        :param value: Country to validate.
+        :return: Validated country.
+        :raises serializers.ValidationError: If the country is not valid.
+        """
         if value not in dict(countries):
             raise serializers.ValidationError("Invalid country.")
         return value
 
     def validate_password(self, value: str) -> str:
+        """Validate the password.
+
+        Ensures that the password meets the required strength and complexity criteria.
+
+        :param value: Password to validate.
+        :return: Validated password.
+        :raises serializers.ValidationError: If the password does not meet the required criteria.
+        """
         validate_password(value)
         return value
 
