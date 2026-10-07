@@ -9,14 +9,13 @@ from edx_rest_framework_extensions.permissions import NotJwtRestrictedApplicatio
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from openedx_catalog import api as catalog_api
+from openedx_catalog.models_api import CourseRun
 from openedx_learning import api as learning_api
 from rest_framework import generics, serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from common.djangoapps.student.helpers import user_has_passing_grade_in_course
-from common.djangoapps.student.models.course_enrollment import CourseEnrollment
 from lms.djangoapps.learner_home.utils import get_masquerade_user
 from openedx.core.lib.api.authentication import BearerAuthenticationAllowInactiveUser
 
@@ -67,14 +66,15 @@ class PathwaysByCourseSerializer(serializers.BaseSerializer):
 
 
 def _get_learner_pathway_records(user):
-    """Return display-ready pathway data and each pathway's fulfilling course IDs.
+    """Return display-ready data for the learner's active Pathway enrollments.
 
-    Only active catalog enrollments with a currently published content definition are included.
-    The Pathway content/catalog split is intentional: catalog metadata is used for the learner-facing title, category,
-    and provider, while the published content definition supplies the ordered Items and fulfillment CourseRuns.
+    Enrollment-owned item counts provide progress. The Content API is used only to check that the catalog pathway has a
+    published definition; course-to-pathway membership is resolved separately through Content's published definitions.
+
+    This design assumes the planned ``PathwayEnrollment.total_item_count`` and
+    ``PathwayEnrollment.completed_item_count`` fields, which are not in the current openedx-core#820 revision.
     """
-    pathway_sources = []
-    course_keys_needing_grade_lookup = set()
+    records = []
 
     for enrollment in catalog_api.get_pathway_enrollments(user.id):
         catalog_pathway = enrollment.catalog_pathway
@@ -86,88 +86,33 @@ def _get_learner_pathway_records(user):
         if published_version is None:
             continue
 
-        item_course_keys = []
-        for item_entry in learning_api.get_items_in_pathway(pathway, published=True):
-            fulfilling_keys = {
-                str(run_entry.course_run.course_key)
-                for run_entry in learning_api.get_course_runs_for_item(item_entry.pathway_item, published=True)
-            }
-            item_course_keys.append((str(item_entry.pathway_item.id), fulfilling_keys))
-
         category = catalog_pathway.category
-        completed_item_ids = _get_enrollment_completed_item_ids(enrollment)
-        if completed_item_ids is None:
-            course_keys_needing_grade_lookup.update(
-                course_key for _item_id, course_keys in item_course_keys for course_key in course_keys
-            )
-        pathway_sources.append((catalog_pathway, category, item_course_keys, completed_item_ids))
-
-    # A learner can retain a passing grade after unenrolling from an individual course, so intentionally include
-    # inactive CourseEnrollment rows when calculating fallback progress. Once Core exposes the provisional
-    # ``PathwayEnrollment.step_completions`` relation, that enrollment-owned state takes precedence.
-    passing_course_keys = set()
-    if course_keys_needing_grade_lookup:
-        course_enrollments = CourseEnrollment.objects.filter(
-            user=user,
-            course_id__in=course_keys_needing_grade_lookup,
-        ).select_related("course")
-        passing_course_keys = {
-            str(course_enrollment.course_id)
-            for course_enrollment in course_enrollments
-            if user_has_passing_grade_in_course(course_enrollment)
-        }
-
-    records = []
-    for catalog_pathway, category, item_course_keys, completed_item_ids in pathway_sources:
         category_label = str(category.localized_name)
-        if completed_item_ids is None:
-            completed_course_count = sum(
-                bool(course_keys.intersection(passing_course_keys)) for _item_id, course_keys in item_course_keys
-            )
-        else:
-            completed_course_count = sum(item_id in completed_item_ids for item_id, _course_keys in item_course_keys)
-
         pathway_data = {
             "pathway": {
                 # Never expose the internal database primary key. key_str is the public catalog identifier currently
                 # provided by openedx-core; replace it if that API adopts an OpaqueKey representation.
                 "id": catalog_pathway.key_str,
                 "content": {"displayName": str(catalog_pathway.title)},
-                "courseCount": len(item_course_keys),
+                "courseCount": enrollment.total_item_count,
                 "category": category.category_code,
                 "categoryLabel": category_label,
             },
             "progress": {
-                "completedCourseCount": completed_course_count,
+                "completedCourseCount": enrollment.completed_item_count,
             },
             "provider": {"name": str(catalog_pathway.org.name)},
         }
         records.append(
             {
                 "data": pathway_data,
-                "course_ids": {course_key for _item_id, course_keys in item_course_keys for course_key in course_keys},
+                "catalog_pathway_id": catalog_pathway.id,
                 "category_code": category.category_code,
                 "category_label": category_label,
             }
         )
 
     return records
-
-
-def _get_enrollment_completed_item_ids(enrollment):
-    """Return completed Pathway Item IDs recorded for this enrollment, when supported by Core.
-
-    Provisional Core contract for discussion: ``PathwayEnrollment.step_completions`` is a related manager whose rows
-    expose ``pathway_item_id`` and ``is_complete``. The pinned Core PR #820 doesn't include this relation yet, so return
-    ``None`` and preserve grade-derived progress until that model/API lands.
-    """
-    step_completions = getattr(enrollment, "step_completions", None)
-    if step_completions is None:
-        return None
-    return {
-        str(pathway_item_id)
-        for pathway_item_id in step_completions.filter(is_complete=True).values_list("pathway_item_id", flat=True)
-    }
 
 
 def _group_pathways_by_category(records):
@@ -196,11 +141,28 @@ def _get_requested_course_ids(request):
 
 
 def _pathways_by_course(records, course_ids):
-    """Return pathway data keyed by every requested course ID (including courses with no pathways)."""
-    return {
-        course_id: [record["data"] for record in records if course_id in record["course_ids"]]
-        for course_id in course_ids
-    }
+    """Return enrolled pathways containing each requested CourseRun via the published Content definitions."""
+    enrolled_pathways = {record["catalog_pathway_id"]: record["data"] for record in records}
+    pathways_by_course = {}
+
+    for course_id in course_ids:
+        try:
+            course_run = catalog_api.get_course_run(CourseKey.from_string(course_id))
+        except CourseRun.DoesNotExist:
+            pathways_by_course[course_id] = []
+            continue
+
+        pathway_ids = {
+            pathway.catalog_pathway_id
+            for pathway in learning_api.get_pathways_containing_course_run(course_run, published=True)
+        }
+        pathways_by_course[course_id] = [
+            pathway_data
+            for catalog_pathway_id, pathway_data in enrolled_pathways.items()
+            if catalog_pathway_id in pathway_ids
+        ]
+
+    return pathways_by_course
 
 
 class LearnerPathwaysView(generics.GenericAPIView):
