@@ -9,8 +9,11 @@ from typing import Optional
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from opaque_keys.edx.keys import CourseKey
+from openedx_catalog.models_api import CatalogPathway
+from openedx_content.api import signals as content_signals
 from openedx_events.content_authoring.data import (
     CourseCatalogData,
     CourseData,
@@ -29,6 +32,7 @@ from openedx_events.content_authoring.signals import (
     XBLOCK_DELETED,
     XBLOCK_UPDATED,
 )
+from openedx_learning.models_api import Pathway
 from pytz import UTC
 
 from cms.djangoapps.contentstore.courseware_index import (
@@ -333,3 +337,47 @@ def unlink_upstream_container_handler(**kwargs):
         return
 
     handle_unlink_upstream_container.delay(str(library_container.container_key))
+
+
+def _schedule_pathway_search_update(catalog_pathway_id=None, catalog_pathway_key=None):
+    """
+    Refresh the search document of one Catalog Pathway once the transaction has committed.
+
+    Exactly one of the two arguments is given: the ID when the Pathway still exists, or its key when it doesn't, so
+    that the document can be removed from the index.
+    """
+    from cms.djangoapps.contentstore.tasks import update_pathway_search_index
+
+    transaction.on_commit(lambda: update_pathway_search_index.delay(catalog_pathway_id, catalog_pathway_key))
+
+
+@receiver(post_save, sender=CatalogPathway)
+def catalog_pathway_saved(sender, instance, **kwargs):  # pylint: disable=unused-argument
+    """
+    Refresh public search data when the catalog half of a Pathway changes.
+
+    The content half of a Pathway is versioned, so publishing it emits ENTITIES_PUBLISHED instead, handled below.
+    """
+    _schedule_pathway_search_update(instance.id, instance.key_str)
+
+
+@receiver(post_delete, sender=CatalogPathway)
+def catalog_pathway_deleted(sender, instance, **kwargs):  # pylint: disable=unused-argument
+    """Remove a deleted Catalog Pathway from public search."""
+    _schedule_pathway_search_update(catalog_pathway_key=instance.key_str)
+
+
+@receiver(content_signals.ENTITIES_PUBLISHED)
+def pathway_content_published(learning_package, **kwargs):  # pylint: disable=unused-argument
+    """Refresh the search document when a Pathway, or one of the Items in it, is published."""
+    catalog_pathway_id = Pathway.objects.filter(learning_package_id=learning_package.id).values_list(
+        "catalog_pathway_id", flat=True
+    ).first()
+    if catalog_pathway_id is not None:
+        _schedule_pathway_search_update(catalog_pathway_id)
+
+
+@receiver(post_delete, sender=Pathway)
+def pathway_content_deleted(sender, instance, **kwargs):  # pylint: disable=unused-argument
+    """Remove the search document when the content half of a Pathway is deleted outright."""
+    _schedule_pathway_search_update(catalog_pathway_key=instance.catalog_pathway.key_str)

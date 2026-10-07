@@ -36,6 +36,7 @@ from lms.djangoapps.instructor_task import views as instructor_task_views
 from lms.djangoapps.mfe_config_api.urls import frontend_site_config_urls, mfe_config_urls
 from lms.djangoapps.static_template_view import views as static_template_view_views
 from lms.djangoapps.staticbook import views as staticbook_views
+from lms.lib.courseware_search.lms_catalog_search import course_list_search as catalog_course_list_search
 from openedx.core.apidocs import cached_schema_view
 from openedx.core.djangoapps.auth_exchange.views import LoginWithAccessTokenView
 from openedx.core.djangoapps.catalog.models import CatalogIntegration
@@ -132,6 +133,12 @@ urlpatterns = [
     ),
 
     # Courseware search endpoints
+    # Shadows the edx-search endpoint of the same name, to add Pathway category labels to the catalog response.
+    path(
+        'search/unstable/v0/course_list_search/',
+        catalog_course_list_search,
+        name='catalog-course-list-search',
+    ),
     path('search/', include('search.urls')),
 
     # Course API

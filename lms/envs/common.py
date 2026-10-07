@@ -529,7 +529,9 @@ ENABLE_COURSE_DISCOVERY = False
 ENABLE_COURSE_FILENAME_CCX_SUFFIX = False
 
 # Setting for overriding default filtering facets for Course discovery
-# COURSE_DISCOVERY_FILTERS = ["org", "language", "modes"]
+# "category" is the learner-facing Pathway category; courses are not categorized, so filtering by it
+# excludes them.
+COURSE_DISCOVERY_FILTERS = ["org", "language", "modes", "category"]
 
 # Software secure fake page feature flag
 ENABLE_SOFTWARE_SECURE_FAKE = False

@@ -569,6 +569,8 @@ class CourseAboutSearchIndexer(CoursewareSearchIndexer):
         course_info = {
             'id': course_id,
             'course': course_id,
+            # Pathways share this index and are grouped by their category, so courses need a value here too.
+            'category': 'course',
             'content': {},
             'image_url': course_image_url(course),
             'org_image_url': course_organization_image_url(course),

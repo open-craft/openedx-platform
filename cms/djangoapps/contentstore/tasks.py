@@ -280,6 +280,14 @@ def update_search_index(course_id, triggered_time_isoformat):
 
 
 @shared_task
+def update_pathway_search_index(catalog_pathway_id=None, catalog_pathway_key=None):
+    """Create/update or remove one Catalog Pathway document in the public search index."""
+    from cms.djangoapps.contentstore.pathway_search import PathwaySearchIndexer
+
+    PathwaySearchIndexer.reindex_catalog_pathway(catalog_pathway_id, catalog_pathway_key)
+
+
+@shared_task
 def update_special_exams_and_publish(course_key_str):
     """
     Registers special exams for a given course and calls publishing flow.
