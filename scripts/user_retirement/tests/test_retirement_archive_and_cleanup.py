@@ -21,7 +21,7 @@ from scripts.user_retirement.retirement_archive_and_cleanup import (
     ERR_NO_CONFIG,
     ERR_SETUP_FAILED,
     _upload_to_s3,
-    archive_and_cleanup
+    archive_and_cleanup,
 )
 from scripts.user_retirement.tests.retirement_helpers import fake_config_file, get_fake_user_retirement
 
@@ -63,11 +63,11 @@ def _fake_learner(ordinal):
     """
     return get_fake_user_retirement(
         user_id=ordinal,
-        original_username='test{}'.format(ordinal),
-        original_email='test{}@edx.invalid'.format(ordinal),
-        original_name='test {}'.format(ordinal),
-        retired_username='retired_{}'.format(ordinal),
-        retired_email='retired_test{}@edx.invalid'.format(ordinal),
+        original_username='test{}'.format(ordinal),  # noqa: UP032
+        original_email='test{}@edx.invalid'.format(ordinal),  # noqa: UP032
+        original_name='test {}'.format(ordinal),  # noqa: UP032
+        retired_username='retired_{}'.format(ordinal),  # noqa: UP032
+        retired_email='retired_test{}@edx.invalid'.format(ordinal),  # noqa: UP032
         last_state_name='COMPLETE'
     )
 
@@ -134,12 +134,16 @@ def test_successful_with_batching(*args, **kwargs):
     # Called once to get the LMS token
     assert mock_get_access_token.call_count == 1
     mock_get_learners.assert_called_once()
-    get_learner_calls = [call(['test1', 'test2']), call(['test3'])]
+    get_learner_calls = [call(['test1', 'test2']),
+                         call(['test3'])]
     mock_bulk_cleanup_retirements.assert_has_calls(get_learner_calls)
 
     assert result.exit_code == 0
     assert 'Archive and cleanup complete for batch #1' in result.output
     assert 'Archive and cleanup complete for batch #2' in result.output
+
+    assert result.exit_code == 0
+    assert 'Archive and cleanup complete' in result.output
 
 
 @patch('scripts.user_retirement.utils.edx_api.BaseApiClient.get_access_token', return_value=('THIS_IS_A_JWT', None))
@@ -216,7 +220,7 @@ def test_bad_fetch(*_):
 def test_bad_lms_deletion(*_):
     result = _call_script()
     assert result.exit_code == ERR_DELETING
-    assert 'Unexpected error occurred deleting retirements!' in result.output
+    assert 'Unexpected error occurred redacting/deleting retirements!' in result.output
 
 
 @patch('scripts.user_retirement.utils.edx_api.BaseApiClient.get_access_token', return_value=('THIS_IS_A_JWT', None))
@@ -264,7 +268,7 @@ def test_s3_upload_data():
     key = 'raw/' + datetime.datetime.now().strftime('%Y/%m/') + filename
 
     # first try dry run without uploading. Try to get object should raise error
-    with pytest.raises(ClientError) as exc_info:
+    with pytest.raises(ClientError) as exc_info:  # noqa: PT012
         _upload_to_s3(config, filename, True)
         s3.get_object(Bucket=FAKE_BUCKET_NAME, Key=key)
         assert exc_info.value.response['Error']['Code'] == 'NoSuchKey'

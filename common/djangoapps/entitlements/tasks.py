@@ -5,9 +5,8 @@ import logging
 
 from celery import shared_task
 from celery.utils.log import get_task_logger
-from django.conf import settings  # lint-amnesty, pylint: disable=unused-import
+from django.conf import settings  # pylint: disable=unused-import  # noqa: F401
 from django.contrib.auth import get_user_model
-from edx_django_utils.monitoring import set_code_owner_attribute
 
 from common.djangoapps.entitlements.models import CourseEntitlement, CourseEntitlementSupportDetail
 
@@ -24,7 +23,6 @@ User = get_user_model()
 
 
 @shared_task(bind=True, ignore_result=True)
-@set_code_owner_attribute
 def expire_old_entitlements(self, start, end, logid='...'):
     """
     This task is designed to be called to process a bundle of entitlements
@@ -63,13 +61,12 @@ def expire_old_entitlements(self, start, end, logid='...'):
     except Exception as exc:
         LOGGER.exception('Failed to expire entitlements [%s]', logid)
         # The call above is idempotent, so retry at will
-        raise self.retry(exc=exc, countdown=countdown, max_retries=MAX_RETRIES)
+        raise self.retry(exc=exc, countdown=countdown, max_retries=MAX_RETRIES)  # noqa: B904
 
-    LOGGER.info('Successfully completed the task expire_old_entitlements after examining %d entries [%s]', entitlements.count(), logid)  # lint-amnesty, pylint: disable=line-too-long
+    LOGGER.info('Successfully completed the task expire_old_entitlements after examining %d entries [%s]', entitlements.count(), logid)  # pylint: disable=line-too-long
 
 
 @shared_task(bind=True)
-@set_code_owner_attribute
 def expire_and_create_entitlements(self, entitlement_ids, support_username):
     """
     Expire entitlements older than one year.
@@ -143,7 +140,7 @@ def expire_and_create_entitlements(self, entitlement_ids, support_username):
                 self.request.id
             )
 
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception as exc:  # pylint: disable=broad-except  # noqa: F841
         log.exception('Failed to expire entitlements that reached their expiration period, task id :%s',
                       self.request.id)
 

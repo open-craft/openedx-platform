@@ -1,19 +1,100 @@
 """ API Views for course details """
 
-import edx_api_doc_tools as apidocs
 from django.core.exceptions import ValidationError
-from common.djangoapps.util.json_request import JsonResponseBadRequest
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from opaque_keys.edx.keys import CourseKey
+from openedx_authz.constants.permissions import (
+    COURSES_EDIT_DETAILS,
+    COURSES_EDIT_SCHEDULE,
+    COURSES_VIEW_SCHEDULE_AND_DETAILS,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from common.djangoapps.student.auth import has_studio_read_access
+
+from common.djangoapps.util.json_request import JsonResponseBadRequest
+from openedx.core.djangoapps.authz.constants import LegacyAuthoringPermission
+from openedx.core.djangoapps.authz.decorators import user_has_course_permission
 from openedx.core.djangoapps.models.course_details import CourseDetails
 from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, verify_course_exists, view_auth_classes
 from xmodule.modulestore.django import modulestore
 
-from ..serializers import CourseDetailsSerializer
 from ....utils import update_course_details
+from ..serializers import CourseDetailsSerializer
+
+
+def _classify_update(payload: dict, course_key: CourseKey) -> tuple[bool, bool]:
+    """
+    Determine whether the payload is updating schedule fields, detail fields, or both
+    for the course identified by course_key.
+
+    Returns:
+        (is_schedule_update, is_details_update)
+    """
+
+    # Define which fields are considered schedule fields.
+    # Any field not in this set that is being updated will be considered a details update.
+    schedule_fields = frozenset(
+        {"start_date", "end_date", "enrollment_start", "enrollment_end", "certificate_available_date"}
+    )
+
+    # Define which fields are date fields to ensure proper comparison after parsing.
+    # At this time, all schedule fields are also date fields, but this is defined separately for clarity
+    # and in case this changes in the future.
+    date_fields = frozenset(
+        {"start_date", "end_date", "enrollment_start", "enrollment_end", "certificate_available_date"}
+    )
+
+    course_details = CourseDetails.fetch(course_key)
+
+    is_schedule_update = False
+    is_details_update = False
+
+    serializer = CourseDetailsSerializer()
+
+    for field, payload_value in payload.items():
+        # Early exit for efficiency
+        if is_schedule_update and is_details_update:
+            break
+
+        # Ignore unknown fields if needed
+        if field not in serializer.fields:
+            continue
+
+        current_value = getattr(course_details, field, None)
+
+        if field in date_fields:
+            # For date fields, we need to parse the payload value to compare it with the current value.
+            # Treat empty string as None since it represents "no date" in the MFE payload.
+            if payload_value == "":
+                payload_value = None
+            try:
+                # Convert payload value to internal value for accurate comparison
+                # on date fields
+                if payload_value is not None:
+                    payload_value = serializer.fields[field].to_internal_value(payload_value)
+            except ValidationError as exc:
+                raise ValidationError(
+                    f"Invalid date format for field {field}: {payload_value}"
+                ) from exc
+
+        # Check schedule fields
+        if field in schedule_fields:
+            if is_schedule_update:
+                # Already classified as schedule update, no need to check again
+                continue
+            if payload_value != current_value:
+                is_schedule_update = True
+        else:
+            # Any non-schedule field counts as details update
+            if is_details_update:
+                # Already classified as details update, no need to check again
+                continue
+            if payload_value != current_value:
+                is_details_update = True
+
+    return is_schedule_update, is_details_update
 
 
 @view_auth_classes(is_authenticated=True)
@@ -21,15 +102,15 @@ class CourseDetailsView(DeveloperErrorViewMixin, APIView):
     """
     View for getting and setting the course details.
     """
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter("course_id", apidocs.ParameterLocation.PATH, description="Course ID"),
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course ID"),
         ],
         responses={
             200: CourseDetailsSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     @verify_course_exists()
@@ -98,23 +179,28 @@ class CourseDetailsView(DeveloperErrorViewMixin, APIView):
         ```
         """
         course_key = CourseKey.from_string(course_id)
-        if not has_studio_read_access(request.user, course_key):
+        if not user_has_course_permission(
+            request.user,
+            COURSES_VIEW_SCHEDULE_AND_DETAILS.identifier,
+            course_key,
+            LegacyAuthoringPermission.READ
+        ):
             self.permission_denied(request)
 
         course_details = CourseDetails.fetch(course_key)
         serializer = CourseDetailsSerializer(course_details)
         return Response(serializer.data)
 
-    @apidocs.schema(
-        body=CourseDetailsSerializer,
+    @extend_schema(
+        request=CourseDetailsSerializer,
         parameters=[
-            apidocs.string_parameter("course_id", apidocs.ParameterLocation.PATH, description="Course ID"),
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course ID"),
         ],
         responses={
             200: CourseDetailsSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     @verify_course_exists()
@@ -141,7 +227,26 @@ class CourseDetailsView(DeveloperErrorViewMixin, APIView):
         along with all the course's details similar to a ``GET`` request.
         """
         course_key = CourseKey.from_string(course_id)
-        if not has_studio_read_access(request.user, course_key):
+        is_schedule_update, is_details_update = _classify_update(request.data, course_key)
+
+        if not is_schedule_update and not is_details_update:
+            # No updatable fields provided in the request
+            is_details_update = True  # To trigger permission check and return 403 if user cannot edit details
+
+        if is_schedule_update and not user_has_course_permission(
+            request.user,
+            COURSES_EDIT_SCHEDULE.identifier,
+            course_key,
+            LegacyAuthoringPermission.READ
+        ):
+            self.permission_denied(request)
+
+        if is_details_update and not user_has_course_permission(
+            request.user,
+            COURSES_EDIT_DETAILS.identifier,
+            course_key,
+            LegacyAuthoringPermission.READ
+        ):
             self.permission_denied(request)
 
         course_block = modulestore().get_course(course_key)

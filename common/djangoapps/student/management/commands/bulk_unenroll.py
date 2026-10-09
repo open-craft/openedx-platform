@@ -7,7 +7,9 @@ import unicodecsv
 from django.core.management.base import BaseCommand
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
-from common.djangoapps.student.models import CourseEnrollment, BulkUnenrollConfiguration
+
+from common.djangoapps.student.models import BulkUnenrollConfiguration, CourseEnrollment
+from openedx.core.lib.log_utils import get_username_or_pii_safe_user_id_for_log
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -83,7 +85,7 @@ class Command(BaseCommand):
             for enrollment in enrollments:
                 enrollment.update_enrollment(is_active=False, skip_refund=True)
                 logger.info(
-                    "User [{}] have been successfully unenrolled from the course: {}".format(
-                        enrollment.user.username, course_key
+                    "User [{}] have been successfully unenrolled from the course: {}".format(  # noqa: UP032
+                        get_username_or_pii_safe_user_id_for_log(enrollment.user), course_key
                     )
                 )

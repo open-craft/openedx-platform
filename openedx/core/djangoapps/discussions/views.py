@@ -1,9 +1,10 @@
 """
 Handle view-logic for the discussions app.
 """
-from typing import Dict
+from typing import Dict  # noqa: UP035
 
-import edx_api_doc_tools as apidocs
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from edx_rest_framework_extensions.auth.session.authentication import SessionAuthenticationAllowInactiveUser
 from rest_framework.exceptions import ValidationError
@@ -18,7 +19,7 @@ from openedx.core.lib.api.view_utils import validate_course_key
 
 from .config.waffle import ENABLE_NEW_STRUCTURE_DISCUSSIONS
 from .models import AVAILABLE_PROVIDER_MAP, DiscussionsConfiguration, Features, Provider
-from .permissions import IsStaffOrCourseTeam, check_course_permissions
+from .permissions import HasPagesAndResourcesAccess, check_course_permissions
 from .serializers import DiscussionsConfigurationSerializer, DiscussionsProvidersSerializer
 from .tasks import update_discussions_settings_from_course_task
 
@@ -32,27 +33,29 @@ class DiscussionsConfigurationSettingsView(APIView):
         BearerAuthenticationAllowInactiveUser,
         SessionAuthenticationAllowInactiveUser
     )
-    permission_classes = (IsStaffOrCourseTeam,)
+    permission_classes = (HasPagesAndResourcesAccess,)
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter(
+            OpenApiParameter(
                 'course_id',
-                apidocs.ParameterLocation.PATH,
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
                 description="The course for which to get provider list",
             ),
-            apidocs.string_parameter(
+            OpenApiParameter(
                 'provider_id',
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 description="The provider_id to fetch data for"
             )
         ],
         responses={
             200: DiscussionsConfigurationSerializer,
-            400: "Invalid provider ID",
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            400: OpenApiResponse(description="Invalid provider ID"),
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     def get(self, request: Request, course_key_string: str, **_kwargs) -> Response:
@@ -63,7 +66,7 @@ class DiscussionsConfigurationSettingsView(APIView):
         return Response(data)
 
     @staticmethod
-    def get_configuration_data(request: Request, course_key_string: str) -> Dict:
+    def get_configuration_data(request: Request, course_key_string: str) -> Dict:  # noqa: UP006
         """
         Get discussions configuration data for the course
         Args:
@@ -134,21 +137,22 @@ class DiscussionsProvidersView(APIView):
         BearerAuthenticationAllowInactiveUser,
         SessionAuthenticationAllowInactiveUser
     )
-    permission_classes = (IsStaffOrCourseTeam,)
+    permission_classes = (HasPagesAndResourcesAccess,)
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter(
+            OpenApiParameter(
                 'course_id',
-                apidocs.ParameterLocation.PATH,
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
                 description="The course for which to get provider list",
             )
         ],
         responses={
             200: DiscussionsProvidersSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     def get(self, request, course_key_string: str, **_kwargs) -> Response:
@@ -160,7 +164,7 @@ class DiscussionsProvidersView(APIView):
         return Response(data)
 
     @staticmethod
-    def get_provider_data(course_key_string: str, show_all: bool = False) -> Dict:
+    def get_provider_data(course_key_string: str, show_all: bool = False) -> Dict:  # noqa: UP006
         """
         Get provider data for specified course
         Args:
@@ -258,7 +262,7 @@ class SyncDiscussionTopicsView(APIView):
     View for syncing discussion topics for a course.
     """
     authentication_classes = (BearerAuthenticationAllowInactiveUser, SessionAuthenticationAllowInactiveUser)
-    permission_classes = (IsAuthenticated, IsStaffOrCourseTeam)
+    permission_classes = (IsAuthenticated, HasPagesAndResourcesAccess)
 
     def post(self, request, course_key_string):
         """

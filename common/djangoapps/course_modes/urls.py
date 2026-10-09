@@ -2,8 +2,8 @@
 
 
 from django.conf import settings
-
 from django.urls import re_path
+
 from common.djangoapps.course_modes import views
 
 urlpatterns = [
@@ -11,7 +11,7 @@ urlpatterns = [
 ]
 
 # Enable verified mode creation
-if settings.FEATURES.get('MODE_CREATION_FOR_TESTING'):
+if getattr(settings, 'MODE_CREATION_FOR_TESTING', False):
     urlpatterns.append(
         re_path(fr'^create_mode/{settings.COURSE_ID_PATTERN}/$',
                 views.create_mode,

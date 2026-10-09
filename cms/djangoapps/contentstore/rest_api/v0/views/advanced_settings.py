@@ -1,20 +1,22 @@
 """ API Views for course advanced settings """
 
 from django import forms
-import edx_api_doc_tools as apidocs
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from opaque_keys.edx.keys import CourseKey
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from cms.djangoapps.contentstore.api.views.utils import get_bool_param
+from cms.djangoapps.models.settings.course_metadata import CourseMetadata
+from common.djangoapps.student.auth import check_course_advanced_settings_access
+from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, verify_course_exists, view_auth_classes
 from xmodule.modulestore.django import modulestore
 
-from cms.djangoapps.models.settings.course_metadata import CourseMetadata
-from cms.djangoapps.contentstore.api.views.utils import get_bool_param
-from common.djangoapps.student.auth import has_studio_read_access, has_studio_write_access
-from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, verify_course_exists, view_auth_classes
-from ..serializers import CourseAdvancedSettingsSerializer
 from ....views.course import update_course_advanced_settings
+from ..serializers import CourseAdvancedSettingsSerializer
 
 
 @view_auth_classes(is_authenticated=True)
@@ -35,25 +37,27 @@ class AdvancedCourseSettingsView(DeveloperErrorViewMixin, APIView):
                 return set(self.cleaned_data['filter_fields'].split(','))
             return None
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter("course_id", apidocs.ParameterLocation.PATH, description="Course ID"),
-            apidocs.string_parameter(
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course ID"),
+            OpenApiParameter(
                 "filter_fields",
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 description="Comma separated list of fields to filter",
             ),
-            apidocs.string_parameter(
+            OpenApiParameter(
                 "fetch_all",
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 description="Specifies whether to fetch all settings or only enabled ones",
             ),
         ],
         responses={
             200: CourseAdvancedSettingsSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     @verify_course_exists()
@@ -115,7 +119,7 @@ class AdvancedCourseSettingsView(DeveloperErrorViewMixin, APIView):
         if not filter_query_data.is_valid():
             raise ValidationError(filter_query_data.errors)
         course_key = CourseKey.from_string(course_id)
-        if not has_studio_read_access(request.user, course_key):
+        if not check_course_advanced_settings_access(request.user, course_key, access_type='read'):
             self.permission_denied(request)
         course_block = modulestore().get_course(course_key)
         fetch_all = get_bool_param(request, 'fetch_all', True)
@@ -129,14 +133,14 @@ class AdvancedCourseSettingsView(DeveloperErrorViewMixin, APIView):
             filter_fields=filter_query_data.cleaned_data['filter_fields'],
         ))
 
-    @apidocs.schema(
-        body=CourseAdvancedSettingsSerializer,
-        parameters=[apidocs.string_parameter("course_id", apidocs.ParameterLocation.PATH, description="Course ID")],
+    @extend_schema(
+        request=CourseAdvancedSettingsSerializer,
+        parameters=[OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course ID")],
         responses={
             200: CourseAdvancedSettingsSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     @verify_course_exists()
@@ -184,7 +188,7 @@ class AdvancedCourseSettingsView(DeveloperErrorViewMixin, APIView):
         along with all the course's settings similar to a ``GET`` request.
         """
         course_key = CourseKey.from_string(course_id)
-        if not has_studio_write_access(request.user, course_key):
+        if not check_course_advanced_settings_access(request.user, course_key, access_type='write'):
             self.permission_denied(request)
         course_block = modulestore().get_course(course_key)
         updated_data = update_course_advanced_settings(course_block, request.data, request.user)

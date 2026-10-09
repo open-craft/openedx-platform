@@ -4,12 +4,12 @@ Signal handlers for the bulk_email app
 import logging
 
 from django.dispatch import receiver
+from edx_ace.signals import ACE_MESSAGE_SENT
 from eventtracking import tracker
 
 from common.djangoapps.student.models import CourseEnrollment
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.user_api.accounts.signals import USER_RETIRE_MAILINGS
-from edx_ace.signals import ACE_MESSAGE_SENT
 
 from .models import Optout
 
@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 
 @receiver(USER_RETIRE_MAILINGS)
-def force_optout_all(sender, **kwargs):  # lint-amnesty, pylint: disable=unused-argument
+def force_optout_all(sender, **kwargs):  # pylint: disable=unused-argument
     """
     When a user is retired from all mailings this method will create an Optout
     row for any courses they may be enrolled in.

@@ -2,16 +2,17 @@
 Urls of Studio.
 """
 
+from auth_backends.urls import oauth2_urlpatterns
 from django.conf import settings
 from django.conf.urls.static import static
-from django.contrib.admin import autodiscover as django_autodiscover
-from django.urls import include
-from django.urls import path, re_path
-from django.utils.translation import gettext_lazy as _
 from django.contrib import admin
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
-from auth_backends.urls import oauth2_urlpatterns
-from edx_api_doc_tools import make_docs_urls
+from django.contrib.admin import autodiscover as django_autodiscover
+from django.shortcuts import redirect
+from django.urls import include, path, re_path
+from django.utils.translation import gettext_lazy as _
+from django.views.generic import RedirectView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from edx_rest_framework_extensions.url_converters import register_url_converters
 
 import openedx.core.djangoapps.common_views.xblock
 import openedx.core.djangoapps.debug.views
@@ -20,13 +21,16 @@ from cms.djangoapps.contentstore import toggles
 from cms.djangoapps.contentstore import views as contentstore_views
 from cms.djangoapps.contentstore.views.block import xblock_edit_view
 from cms.djangoapps.contentstore.views.organization import OrganizationListView
-from openedx.core.apidocs import api_info
+from openedx.core import toggles as core_toggles
+from openedx.core.apidocs import cached_schema_view
 from openedx.core.djangoapps.password_policy import compliance as password_policy_compliance
 from openedx.core.djangoapps.password_policy.forms import PasswordPolicyAwareAdminAuthForm
-from openedx.core import toggles as core_toggles
-
 
 django_autodiscover()
+
+# Must run before any pattern below that uses <course_key:...> or <usage_key:...>.
+register_url_converters()
+
 admin.site.site_header = _('Studio Administration')
 admin.site.site_title = admin.site.site_header
 
@@ -87,15 +91,15 @@ urlpatterns = oauth2_urlpatterns + [
          ),
 
     # Darklang View to change the preview language (or dark language)
-    path('update_lang/', include('openedx.core.djangoapps.dark_lang.urls', namespace='dark_lang')),
+    path('update_lang/', lambda request: redirect(f'{settings.LMS_ROOT_URL}/update_lang/')),
 
     # For redirecting to help pages.
     path('help_token/', include('help_tokens.urls')),
     path('api/', include('cms.djangoapps.api.urls', namespace='api')),
 
     # restful api
-    path('', contentstore_views.howitworks, name='homepage'),
-    path('howitworks', contentstore_views.howitworks, name='howitworks'),
+    path('', RedirectView.as_view(url='/home/', permanent=True), name='homepage'),
+    path('howitworks', RedirectView.as_view(url='/home/', permanent=True), name='howitworks'),
     path('signin_redirect_to_lms', contentstore_views.login_redirect_to_lms, name='login_redirect_to_lms'),
     path('request_course_creator', contentstore_views.request_course_creator, name='request_course_creator'),
     re_path(fr'^course_team/{COURSELIKE_KEY_PATTERN}(?:/(?P<email>.+))?$',
@@ -167,6 +171,9 @@ urlpatterns = oauth2_urlpatterns + [
             contentstore_views.grading_handler, name='grading_handler'),
     re_path(fr'^settings/advanced/{settings.COURSE_KEY_PATTERN}$', contentstore_views.advanced_settings_handler,
             name='advanced_settings_handler'),
+    # Backward-compat redirect: old /settings/<course_key> URL now unconditionally goes to MFE.
+    # Must come after all other ^settings/... patterns so it doesn't shadow them.
+    re_path(fr'^settings/{settings.COURSE_KEY_PATTERN}$', contentstore_views.settings_handler),
     re_path(fr'^textbooks/{settings.COURSE_KEY_PATTERN}$', contentstore_views.textbooks_list_handler,
             name='textbooks_list_handler'),
     re_path(fr'^textbooks/{settings.COURSE_KEY_PATTERN}/(?P<textbook_id>\d[^/]*)$',
@@ -186,7 +193,7 @@ urlpatterns = oauth2_urlpatterns + [
             contentstore_views.transcript_credentials_handler, name='transcript_credentials_handler'),
     path('transcript_download/', contentstore_views.transcript_download_handler, name='transcript_download_handler'),
     path('transcript_upload/', contentstore_views.transcript_upload_handler, name='transcript_upload_handler'),
-    re_path(r'^transcript_delete/{}(?:/(?P<edx_video_id>[-\w]+))?(?:/(?P<language_code>[^/]*))?$'.format(
+    re_path(r'^transcript_delete/{}(?:/(?P<edx_video_id>[-\w]+))?(?:/(?P<language_code>[^/]*))?$'.format(  # noqa: UP032
         settings.COURSE_KEY_PATTERN
     ), contentstore_views.transcript_delete_handler, name='transcript_delete_handler'),
     path('transcript_upload_api/', contentstore_views.transcript_upload_api, name='transcript_upload_api'),
@@ -195,7 +202,7 @@ urlpatterns = oauth2_urlpatterns + [
     re_path(fr'^group_configurations/{settings.COURSE_KEY_PATTERN}$',
             contentstore_views.group_configurations_list_handler,
             name='group_configurations_list_handler'),
-    re_path(r'^group_configurations/{}/(?P<group_configuration_id>\d+)(/)?(?P<group_id>\d+)?$'.format(
+    re_path(r'^group_configurations/{}/(?P<group_configuration_id>\d+)(/)?(?P<group_id>\d+)?$'.format(  # noqa: UP032
         settings.COURSE_KEY_PATTERN), contentstore_views.group_configurations_detail_handler,
         name='group_configurations_detail_handler'),
     path('api/val/v0/', include('edxval.urls')),
@@ -234,8 +241,6 @@ if toggles.ENABLE_CONTENT_LIBRARIES:
     urlpatterns += [
         re_path(fr'^library/{LIBRARY_KEY_PATTERN}?$',
                 contentstore_views.library_handler, name='library_handler'),
-        re_path(fr'^library/{LIBRARY_KEY_PATTERN}/team/$',
-                contentstore_views.manage_library_users, name='manage_library_users'),
     ]
 
 if toggles.EXPORT_GIT.is_enabled():
@@ -245,12 +250,12 @@ if toggles.EXPORT_GIT.is_enabled():
                 name='export_git')
     ]
 
-if settings.FEATURES.get('ENABLE_SERVICE_STATUS'):
+if settings.ENABLE_SERVICE_STATUS:
     urlpatterns.append(path('status/', include('openedx.core.djangoapps.service_status.urls')))
 
 # The password pages in the admin tool are disabled so that all password
 # changes go through our user portal and follow complexity requirements.
-if not settings.FEATURES.get('ENABLE_CHANGE_USER_PASSWORD_ADMIN'):
+if not settings.ENABLE_CHANGE_USER_PASSWORD_ADMIN:
     urlpatterns.append(re_path(r'^admin/auth/user/\d+/password/$', handler404))
 urlpatterns.append(path('admin/password_change/', handler404))
 urlpatterns.append(
@@ -264,19 +269,19 @@ if core_toggles.ENTRANCE_EXAMS.is_enabled():
                        contentstore_views.entrance_exam))
 
 # Enable Web/HTML Certificates
-if settings.FEATURES.get('CERTIFICATES_HTML_VIEW'):
-    from cms.djangoapps.contentstore.views.certificates import (
+if settings.CERTIFICATES_HTML_VIEW:
+    from cms.djangoapps.contentstore.views.certificates import (  # noqa: I001 - conditional import inside if block
         CertificateActivationAPIView,
         CertificateDetailAPIView,
         certificates_list_handler,
-        signatory_detail_handler,
+        signatory_detail_handler
     )
 
     urlpatterns += [
         re_path(fr'^certificates/activation/{settings.COURSE_KEY_PATTERN}/',
                 CertificateActivationAPIView.as_view(),
                 name='certificate_activation_handler'),
-        re_path(r'^certificates/{}/(?P<certificate_id>\d+)/signatories/(?P<signatory_id>\d+)?$'.format(
+        re_path(r'^certificates/{}/(?P<certificate_id>\d+)/signatories/(?P<signatory_id>\d+)?$'.format(  # noqa: UP032
             settings.COURSE_KEY_PATTERN), signatory_detail_handler, name='signatory_detail_handler'),
         re_path(fr'^certificates/{settings.COURSE_KEY_PATTERN}/(?P<certificate_id>\d+)?$',
                 CertificateDetailAPIView.as_view(), name='certificates_detail_handler'),
@@ -330,8 +335,57 @@ urlpatterns += [
     path('500', handler500),
 ]
 
-# API docs.
-urlpatterns += make_docs_urls(api_info)
+# API docs, served by drf-spectacular.
+#
+# Route names and paths are preserved from the edx-api-doc-tools implementation
+# these replaced, since reverse() calls and existing links depend on them.
+#
+# ``swagger.json`` / ``swagger.yaml`` serve the schema. drf-spectacular picks
+# the renderer by content negotiation, so the extension is passed through as
+# DRF's standard ``format`` suffix kwarg (without the leading dot) to select
+# JSON or YAML explicitly.
+#
+# These use ``custom_settings`` for the full API surface. SPECTACULAR_SETTINGS
+# is reserved for the narrower Authoring API schema at ``/authoring-api/``
+# registered below.
+#
+# The Swagger and ReDoc views reverse their schema URL with no arguments, so
+# ``api-docs/schema/`` exists alongside the format-suffixed routes for them to
+# point at.
+#
+# Schema generation is expensive and these endpoints are public, so both schema
+# routes are cached for OPENAPI_CACHE_TIMEOUT, as edx-api-doc-tools did via
+# SchemaView.as_cached_view. The document is too large for cache_page to store
+# -- see cached_schema_view() for why it caches the compressed body instead.
+_apidocs_schema_view = cached_schema_view()
+
+urlpatterns += [
+    re_path(
+        r'^swagger\.(?P<format>json|yaml)$',
+        _apidocs_schema_view,
+        name='apidocs-data',
+    ),
+    path(
+        'api-docs/schema/',
+        _apidocs_schema_view,
+        name='apidocs-schema',
+    ),
+    path(
+        'api-docs/',
+        SpectacularSwaggerView.as_view(url_name='apidocs-schema'),
+        name='apidocs-ui',
+    ),
+    path(
+        'api-docs/redoc/',
+        SpectacularRedocView.as_view(url_name='apidocs-schema'),
+        name='apidocs-ui-redoc',
+    ),
+    path(
+        'swagger/',
+        RedirectView.as_view(pattern_name='apidocs-ui', permanent=False),
+        name='apidocs-ui-swagger',
+    ),
+]
 
 # edx-drf-extensions csrf app
 urlpatterns += [
@@ -344,15 +398,22 @@ if 'openedx.testing.coverage_context_listener' in settings.INSTALLED_APPS:
     ]
 
 # pylint: disable=wrong-import-position, wrong-import-order
-from edx_django_utils.plugins import get_plugin_url_patterns  # isort:skip
+from edx_django_utils.plugins import get_plugin_url_patterns  # noqa: I001 - must be after urlpatterns are built
 # pylint: disable=wrong-import-position
-from openedx.core.djangoapps.plugins.constants import ProjectType  # isort:skip
+from openedx.core.djangoapps.plugins.constants import ProjectType  # noqa: I001 - must be after urlpatterns are built
 
 urlpatterns.extend(get_plugin_url_patterns(ProjectType.CMS))
 
 # Contentstore REST APIs
 urlpatterns += [
     path('api/contentstore/', include('cms.djangoapps.contentstore.rest_api.urls'))
+]
+
+# Conforming addresses, mounted beside their legacy /api/contentstore/ routes
+# for the deprecation window.
+urlpatterns += [
+    path('api/authoring/v1/', include('cms.djangoapps.contentstore.rest_api.v1.authoring_urls')),
+    path('api/authoring/v2/', include('cms.djangoapps.contentstore.rest_api.v2.authoring_urls')),
 ]
 
 # Content tagging

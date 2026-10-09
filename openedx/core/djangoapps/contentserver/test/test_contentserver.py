@@ -15,10 +15,13 @@ from django.conf import settings
 from django.test import RequestFactory
 from django.test.client import Client
 from django.test.utils import override_settings
+from edx_toggles.toggles.testutils import override_waffle_flag
 from opaque_keys import InvalidKeyError
+from opaque_keys.edx.keys import CourseKey
 
 from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.student.tests.factories import AdminFactory, UserFactory
+from openedx.core.djangoapps.waffle_utils.models import WaffleFlagCourseOverrideModel
 from xmodule.assetstore.assetmgr import AssetManager
 from xmodule.contentstore.content import VERSIONED_ASSETS_PREFIX, StaticContent
 from xmodule.contentstore.django import contentstore
@@ -32,7 +35,7 @@ from .. import views
 log = logging.getLogger(__name__)
 
 TEST_DATA_CONTENTSTORE = copy.deepcopy(settings.CONTENTSTORE)
-TEST_DATA_CONTENTSTORE['DOC_STORE_CONFIG']['db'] = 'test_xcontent_%s' % uuid4().hex
+TEST_DATA_CONTENTSTORE['DOC_STORE_CONFIG']['db'] = 'test_xcontent_%s' % uuid4().hex  # noqa: UP031
 TEST_DATA_DIR = settings.COMMON_TEST_DATA_ROOT
 
 FAKE_MD5_HASH = 'ffffffffffffffffffffffffffffffff'
@@ -300,7 +303,7 @@ class ContentStoreToyCourseTest(SharedModuleStoreTestCase):
         assert resp.status_code == 206
         # HTTP_206_PARTIAL_CONTENT
         assert resp['Content-Range'] ==\
-               'bytes {first}-{last}/{length}'.format(first=0, last=(self.length_unlocked - 1),
+               'bytes {first}-{last}/{length}'.format(first=0, last=(self.length_unlocked - 1),  # noqa: UP032
                                                       length=self.length_unlocked)
         assert resp['Content-Length'] == str(self.length_unlocked)
 
@@ -312,12 +315,12 @@ class ContentStoreToyCourseTest(SharedModuleStoreTestCase):
         """
         first_byte = self.length_unlocked // 4
         last_byte = self.length_unlocked // 2
-        resp = self.client.get(self.url_unlocked, HTTP_RANGE='bytes={first}-{last}'.format(
+        resp = self.client.get(self.url_unlocked, HTTP_RANGE='bytes={first}-{last}'.format(  # noqa: UP032
             first=first_byte, last=last_byte))
 
         assert resp.status_code == 206
         # HTTP_206_PARTIAL_CONTENT
-        assert resp['Content-Range'] == 'bytes {first}-{last}/{length}'.format(first=first_byte,
+        assert resp['Content-Range'] == 'bytes {first}-{last}/{length}'.format(first=first_byte,  # noqa: UP032
                                                                                last=last_byte,
                                                                                length=self.length_unlocked)
         assert resp['Content-Length'] == str((last_byte - first_byte) + 1)
@@ -328,7 +331,7 @@ class ContentStoreToyCourseTest(SharedModuleStoreTestCase):
         """
         first_byte = self.length_unlocked / 4
         last_byte = self.length_unlocked / 2
-        resp = self.client.get(self.url_unlocked, HTTP_RANGE='bytes={first}-{last}, -100'.format(
+        resp = self.client.get(self.url_unlocked, HTTP_RANGE='bytes={first}-{last}, -100'.format(  # noqa: UP032
             first=first_byte, last=last_byte))
 
         assert resp.status_code == 200
@@ -354,7 +357,7 @@ class ContentStoreToyCourseTest(SharedModuleStoreTestCase):
         Test that a range request with malformed Range (first_byte > last_byte) outputs
         416 Requested Range Not Satisfiable.
         """
-        resp = self.client.get(self.url_unlocked, HTTP_RANGE='bytes={first}-{last}'.format(
+        resp = self.client.get(self.url_unlocked, HTTP_RANGE='bytes={first}-{last}'.format(  # noqa: UP032
             first=(self.length_unlocked // 2), last=(self.length_unlocked // 4)))
         assert resp.status_code == 416
 
@@ -363,7 +366,7 @@ class ContentStoreToyCourseTest(SharedModuleStoreTestCase):
         Test that a range request with malformed Range (first_byte, last_byte == totalLength, offset by 1 error)
         outputs 416 Requested Range Not Satisfiable.
         """
-        resp = self.client.get(self.url_unlocked, HTTP_RANGE='bytes={first}-{last}'.format(
+        resp = self.client.get(self.url_unlocked, HTTP_RANGE='bytes={first}-{last}'.format(  # noqa: UP032
             first=(self.length_unlocked), last=(self.length_unlocked)))
         assert resp.status_code == 416
 
@@ -375,6 +378,57 @@ class ContentStoreToyCourseTest(SharedModuleStoreTestCase):
         resp = self.client.get(self.url_unlocked)
         assert resp.status_code == 200
         assert 'Origin' == resp['Vary']
+
+    def test_asset_served_with_csp_sandbox(self):
+        """
+        By default the contentserver sends ``Content-Security-Policy: sandbox`` on
+        course asset responses, so an uploaded asset (e.g. an HTML or SVG file) is
+        loaded in an opaque origin and cannot run JavaScript against the Studio/LMS
+        session.
+        """
+        resp = self.client.get(self.url_unlocked)
+        assert resp.status_code == 200
+        assert resp['Content-Security-Policy'] == 'sandbox'
+
+    @override_waffle_flag(views.ALLOW_UNSAFE_ASSET_RENDERING, active=True)
+    def test_asset_sandbox_disabled_when_flag_enabled_globally(self):
+        """
+        Enabling the ``course_assets.allow_unsafe_asset_rendering`` opt-out flag
+        globally removes the sandbox header from asset responses.
+        """
+        resp = self.client.get(self.url_unlocked)
+        assert resp.status_code == 200
+        assert 'Content-Security-Policy' not in resp
+
+    @staticmethod
+    def _enable_unsafe_asset_rendering_for(course_key):
+        """Add an enabled per-course opt-out override for the sandbox flag."""
+        WaffleFlagCourseOverrideModel.objects.create(
+            waffle_flag=views.ALLOW_UNSAFE_ASSET_RENDERING.name,
+            course_id=course_key,
+            override_choice=WaffleFlagCourseOverrideModel.ALL_CHOICES.on,
+            enabled=True,
+        )
+
+    def test_asset_sandbox_disabled_by_per_course_override(self):
+        """
+        A per-course opt-out override for THIS course removes the sandbox header
+        from its assets.
+        """
+        self._enable_unsafe_asset_rendering_for(self.course_key)
+        resp = self.client.get(self.url_unlocked)
+        assert resp.status_code == 200
+        assert 'Content-Security-Policy' not in resp
+
+    def test_asset_sandbox_unaffected_by_other_course_override(self):
+        """
+        A per-course opt-out for a DIFFERENT course must not disable sandboxing
+        here -- this course's assets are still served with the sandbox header.
+        """
+        self._enable_unsafe_asset_rendering_for(CourseKey.from_string('course-v1:Other+Other+Other'))
+        resp = self.client.get(self.url_unlocked)
+        assert resp.status_code == 200
+        assert resp['Content-Security-Policy'] == 'sandbox'
 
     @patch('openedx.core.djangoapps.contentserver.models.CourseAssetCacheTtlConfig.get_cache_ttl')
     def test_cache_headers_with_ttl_unlocked(self, mock_get_cache_ttl):
@@ -526,6 +580,6 @@ class ParseRangeHeaderTestCase(unittest.TestCase):
     )
     @ddt.unpack
     def test_invalid_syntax(self, header_value, exception_class, exception_message_regex):
-        self.assertRaisesRegex(
+        self.assertRaisesRegex(  # noqa: PT027
             exception_class, exception_message_regex, views.parse_range_header, header_value, self.content_length
         )

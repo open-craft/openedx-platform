@@ -4,15 +4,14 @@ Additional utilities for Learner Home
 
 import logging
 
-from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.core.exceptions import MultipleObjectsReturned
-from rest_framework.exceptions import PermissionDenied, NotFound
+from django.urls import reverse
+from rest_framework.exceptions import NotFound, PermissionDenied
 
-from common.djangoapps.student.models import (
-    get_user_by_username_or_email,
-)
+from common.djangoapps.student.models import get_user_by_username_or_email
 from lms.djangoapps.course_home_api.toggles import course_home_mfe_progress_tab_is_active
+from openedx.core.lib.log_utils import get_username_or_pii_safe_user_id_for_log
 from openedx.features.course_experience.url_helpers import get_learning_mfe_home_url
 
 log = logging.getLogger(__name__)
@@ -34,7 +33,8 @@ def get_masquerade_user(request):
     if request.GET.get("user"):
         if not request.user.is_staff:
             log.info(
-                f"[Learner Home] {request.user.username} attempted to masquerade but is not staff"
+                f"[Learner Home] {get_username_or_pii_safe_user_id_for_log(request.user)} "
+                "attempted to masquerade but is not staff"
             )
             raise PermissionDenied()
 
@@ -42,7 +42,7 @@ def get_masquerade_user(request):
         try:
             masquerade_user = get_user_by_username_or_email(masquerade_identifier)
         except User.DoesNotExist:
-            raise NotFound()  # pylint: disable=raise-missing-from
+            raise NotFound()  # pylint: disable=raise-missing-from  # noqa: B904
         except MultipleObjectsReturned:
             msg = (
                 f"[Learner Home] {masquerade_identifier} could refer to multiple learners. "
