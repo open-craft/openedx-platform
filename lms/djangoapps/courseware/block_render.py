@@ -788,14 +788,13 @@ def handle_xblock_callback(request, course_id, usage_id, handler, suffix=None):
                     break
 
     # NOTE (CCB): Allow anonymous GET calls (e.g. for transcripts). Modifying this view is simpler than updating
-    # the XBlocks to use `handle_xblock_callback_noauth`, which is practically identical to this view.
+    # the XBlocks to use `handle_xblock_callback_noauth`. Anonymous GET calls still go through the block's
+    # access checks, so they only reach blocks that an anonymous user is allowed to load.
     # Block all request types coming from restricted applications.
     if (
         request.method != 'GET' and not (request.user and request.user.is_authenticated)
     ) or JwtRestrictedApplication().has_permission(request, None):  # type: ignore
         return HttpResponseForbidden('Unauthenticated')
-
-    request.user.known = request.user.is_authenticated
 
     try:
         course_key = CourseKey.from_string(course_id)
