@@ -918,10 +918,11 @@ if settings.DEBUG:
     )
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
-# UX reference templates
-urlpatterns += [
-    path('template/<path:template>', openedx_debug_views.show_reference_template),
-]
+    # UX reference templates: development only. The view renders any template with
+    # request.GET as its context, so it must never be routed in production.
+    urlpatterns += [
+        path('template/<path:template>', openedx_debug_views.show_reference_template),
+    ]
 
 if 'debug_toolbar' in settings.INSTALLED_APPS:
     import debug_toolbar
