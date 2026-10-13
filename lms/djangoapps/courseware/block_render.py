@@ -739,8 +739,11 @@ def handle_xblock_callback_noauth(request, course_id, usage_id, handler, suffix=
     """
     Entry point for unauthenticated XBlock handlers.
 
-    Only the handlers listed in ``settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST`` can be called here.
+    Only the handlers listed in ``settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST`` can be called here. This view is
+    exempt from CSRF checks, so the handler always runs as an anonymous user, even if the request carries a
+    session, and the block's access checks are skipped.
     """
+    request.user = AnonymousUser()
     request.user.known = False
 
     course_key = CourseKey.from_string(course_id)
