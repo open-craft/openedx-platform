@@ -12,28 +12,37 @@ import pytest
 import ddt
 import pytz
 from bson import ObjectId
-from completion.waffle import ENABLE_COMPLETION_TRACKING_SWITCH  # lint-amnesty, pylint: disable=wrong-import-order
-from completion.models import BlockCompletion  # lint-amnesty, pylint: disable=wrong-import-order
-from django.conf import settings  # lint-amnesty, pylint: disable=wrong-import-order
-from django.contrib.auth.models import AnonymousUser  # lint-amnesty, pylint: disable=wrong-import-order
-from django.http import Http404, HttpResponse  # lint-amnesty, pylint: disable=wrong-import-order
-from django.middleware.csrf import get_token  # lint-amnesty, pylint: disable=wrong-import-order
-from django.test.client import RequestFactory  # lint-amnesty, pylint: disable=wrong-import-order
-from django.test.utils import override_settings  # lint-amnesty, pylint: disable=wrong-import-order
-from django.urls import reverse  # lint-amnesty, pylint: disable=wrong-import-order
-from edx_proctoring.api import create_exam, create_exam_attempt, update_attempt_status  # lint-amnesty, pylint: disable=wrong-import-order
-from edx_proctoring.runtime import set_runtime_service  # lint-amnesty, pylint: disable=wrong-import-order
-from edx_proctoring.tests.test_services import MockCertificateService, MockCreditService, MockGradesService  # lint-amnesty, pylint: disable=wrong-import-order
-from edx_toggles.toggles.testutils import override_waffle_switch  # lint-amnesty, pylint: disable=wrong-import-order
-from edx_when.field_data import DateLookupFieldData  # lint-amnesty, pylint: disable=wrong-import-order
-from freezegun import freeze_time  # lint-amnesty, pylint: disable=wrong-import-order
-from milestones.tests.utils import MilestonesTestCaseMixin  # lint-amnesty, pylint: disable=wrong-import-order
-from opaque_keys.edx.asides import AsideUsageKeyV2  # lint-amnesty, pylint: disable=wrong-import-order
-from opaque_keys.edx.keys import CourseKey, UsageKey  # lint-amnesty, pylint: disable=wrong-import-order
-from pyquery import PyQuery  # lint-amnesty, pylint: disable=wrong-import-order
-from web_fragments.fragment import Fragment  # lint-amnesty, pylint: disable=wrong-import-order
-from xblock.completable import CompletableXBlockMixin  # lint-amnesty, pylint: disable=wrong-import-order
-from xblock.core import XBlock, XBlockAside  # lint-amnesty, pylint: disable=wrong-import-order
+from completion.models import BlockCompletion  # pylint: disable=wrong-import-order
+from completion.waffle import ENABLE_COMPLETION_TRACKING_SWITCH  # pylint: disable=wrong-import-order
+from django.conf import settings  # pylint: disable=wrong-import-order
+from django.contrib.auth.models import AnonymousUser  # pylint: disable=wrong-import-order
+from django.http import Http404, HttpResponse  # pylint: disable=wrong-import-order
+from django.middleware.csrf import get_token  # pylint: disable=wrong-import-order
+from django.test.client import RequestFactory  # pylint: disable=wrong-import-order
+from django.test.utils import override_settings  # pylint: disable=wrong-import-order
+from django.urls import reverse  # pylint: disable=wrong-import-order
+from edx_proctoring.api import (  # pylint: disable=wrong-import-order
+    create_exam,
+    create_exam_attempt,
+    update_attempt_status,
+)
+from edx_proctoring.runtime import set_runtime_service  # pylint: disable=wrong-import-order
+from edx_proctoring.tests.test_services import (  # pylint: disable=wrong-import-order
+    MockCertificateService,
+    MockCreditService,
+    MockGradesService,
+)
+from edx_toggles.toggles.testutils import override_waffle_switch  # pylint: disable=wrong-import-order
+from edx_when.field_data import DateLookupFieldData  # pylint: disable=wrong-import-order
+from freezegun import freeze_time  # pylint: disable=wrong-import-order
+from milestones.tests.utils import MilestonesTestCaseMixin  # pylint: disable=wrong-import-order
+from opaque_keys.edx.asides import AsideUsageKeyV2  # pylint: disable=wrong-import-order
+from opaque_keys.edx.keys import CourseKey, UsageKey  # pylint: disable=wrong-import-order
+from pyquery import PyQuery  # pylint: disable=wrong-import-order
+from web_fragments.fragment import Fragment  # pylint: disable=wrong-import-order
+from webob import Response
+from xblock.completable import CompletableXBlockMixin  # pylint: disable=wrong-import-order
+from xblock.core import XBlock, XBlockAside  # pylint: disable=wrong-import-order
 from xblock.exceptions import NoSuchServiceError
 from xblock.field_data import FieldData  # lint-amnesty, pylint: disable=wrong-import-order
 from xblock.fields import ScopeIds  # lint-amnesty, pylint: disable=wrong-import-order
@@ -196,6 +205,29 @@ class XBlockWithoutCompletionAPI(XBlock):
         New code should use the completion event instead.
         """
         return self.runtime.publish(self, 'progress', {})
+
+
+class NoauthHandlerXBlock(XBlock):
+    """
+    XBlock with two handlers that report which user they ran as, for testing the noauth handler URL.
+    """
+
+    @XBlock.handler
+    def allowed_handler(self, request, suffix=''):  # pylint: disable=unused-argument
+        """
+        Handler that the tests put on XBLOCK_NOAUTH_HANDLER_ALLOWLIST.
+        """
+        return Response(json_body={'user_id': self.scope_ids.user_id})
+
+    @XBlock.handler
+    def other_handler(self, request, suffix=''):  # pylint: disable=unused-argument
+        """
+        Handler that is never on XBLOCK_NOAUTH_HANDLER_ALLOWLIST.
+        """
+        return Response(json_body={'user_id': self.scope_ids.user_id})
+
+
+NOAUTH_TEST_ALLOWLIST = [f'{__name__}.NoauthHandlerXBlock.allowed_handler']
 
 
 @ddt.ddt
@@ -969,6 +1001,65 @@ class TestHandleXBlockCallback(SharedModuleStoreTestCase, LoginEnrollmentTestCas
         render.handle_xblock_callback(request, str(course.id), usage_id, handler)
         assert mock_get_block.call_count == 2
         assert mock_get_block.call_args[1]['will_recheck_access'] == will_recheck_access
+
+
+@override_settings(XBLOCK_NOAUTH_HANDLER_ALLOWLIST=NOAUTH_TEST_ALLOWLIST)
+class TestNoauthXBlockHandler(ModuleStoreTestCase):
+    """
+    Test which handlers can be called without authentication, and as which user.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.course = CourseFactory.create()
+        self.chapter = BlockFactory.create(parent=self.course, category='chapter')
+
+    def _create_block(self, **kwargs):
+        return BlockFactory.create(parent=self.chapter, category='noauth_test', **kwargs)
+
+    def _handler_url(self, block, handler, url_name='xblock_handler_noauth'):
+        return reverse(url_name, kwargs={
+            'course_id': str(self.course.id),
+            'usage_id': quote_slashes(str(block.location)),
+            'handler': handler,
+        })
+
+    @XBlock.register_temp_plugin(NoauthHandlerXBlock, identifier='noauth_test')
+    def test_handler_not_on_allowlist(self):
+        block = self._create_block()
+
+        response = self.client.post(self._handler_url(block, 'other_handler'))
+
+        assert response.status_code == 404
+
+    @override_settings(XBLOCK_NOAUTH_HANDLER_ALLOWLIST=['no_such_module.NoSuchBlock.handler'] + NOAUTH_TEST_ALLOWLIST)
+    @XBlock.register_temp_plugin(NoauthHandlerXBlock, identifier='noauth_test')
+    def test_unimportable_allowlist_entry_is_skipped(self):
+        block = self._create_block()
+
+        with self.assertLogs('lms.djangoapps.courseware.block_render', level='WARNING') as logs:
+            response = self.client.post(self._handler_url(block, 'allowed_handler'))
+
+        assert response.status_code == 200
+        assert 'no_such_module.NoSuchBlock.handler' in logs.output[0]
+
+    @override_settings(XBLOCK_NOAUTH_HANDLER_ALLOWLIST=settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST)
+    def test_default_allowlist_blocks_problem_handler(self):
+        problem = BlockFactory.create(parent=self.chapter, category='problem')
+
+        response = self.client.post(self._handler_url(problem, 'xmodule_handler') + '/problem_get')
+
+        assert response.status_code == 404
+
+    @override_settings(XBLOCK_NOAUTH_HANDLER_ALLOWLIST=settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST)
+    def test_default_allowlist_entries_import(self):
+        """
+        Every handler on the default allowlist exists, so a rename upstream doesn't silently drop it.
+        """
+        handlers = render._get_noauth_handlers(tuple(settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST))  # pylint: disable=protected-access
+
+        assert len(handlers) == len(settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST)
+
 
 
 @ddt.ddt
