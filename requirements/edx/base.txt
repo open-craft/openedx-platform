@@ -867,7 +867,7 @@ openedx-filters==3.4.1
     #   edx-enterprise
     #   lti-consumer-xblock
     #   ora2
-openedx-forum==0.4.2
+openedx-forum==0.4.2.post1
     # via -r requirements/edx/kernel.in
 optimizely-sdk==5.4.0
     # via -r requirements/edx/bundled.in
@@ -1308,7 +1308,7 @@ xblock[django]==6.1.0
     #   xblock-google-drive
     #   xblock-utils
     #   xblocks-contrib
-xblock-drag-and-drop-v2==5.0.6
+xblock-drag-and-drop-v2==5.1.1
     # via -r requirements/edx/bundled.in
 xblock-google-drive==0.8.2
     # via -r requirements/edx/bundled.in
