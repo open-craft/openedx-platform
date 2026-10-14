@@ -252,6 +252,17 @@ ENABLE_HIDE_FROM_TOC_UI = False
 # .. toggle_creation_date: 2024-09-02
 IN_CONTEXT_DISCUSSION_ENABLED_DEFAULT = True
 
+# .. toggle_name: settings.ENABLE_LEGACY_MD5_HASH_FOR_ANONYMOUS_USER_ID
+# .. toggle_implementation: DjangoSetting
+# .. toggle_default: False
+# .. toggle_description: Whether to enable the legacy MD5 hashing algorithm to generate anonymous user id
+#   instead of the newer SHAKE128 hashing algorithm
+# .. toggle_use_cases: open_edx
+# .. toggle_creation_date: 2022-08-08
+# .. toggle_target_removal_date: None
+# .. toggle_tickets: 'https://github.com/openedx/edx-platform/pull/30832'
+ENABLE_LEGACY_MD5_HASH_FOR_ANONYMOUS_USER_ID = False
+
 # .. toggle_name: ENABLE_COPPA_COMPLIANCE
 # .. toggle_implementation: DjangoSetting
 # .. toggle_default: False
@@ -261,6 +272,15 @@ IN_CONTEXT_DISCUSSION_ENABLED_DEFAULT = True
 # .. toggle_creation_date: 2021-10-27
 # .. toggle_tickets: 'https://openedx.atlassian.net/browse/VAN-622'
 ENABLE_COPPA_COMPLIANCE = False
+
+# .. toggle_name: ENABLE_DATES_COURSE_APP
+# .. toggle_implementation: DjangoSetting
+# .. toggle_default: False
+# .. toggle_description: Controls whether the Dates course app is surfaced via the course apps API/UI.
+# .. toggle_use_cases: open_edx
+# .. toggle_creation_date: 2026-02-02
+# .. toggle_tickets: https://github.com/openedx/platform-roadmap/issues/392
+ENABLE_DATES_COURSE_APP = False
 
 ENABLE_JASMINE = False
 

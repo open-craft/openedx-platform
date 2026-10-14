@@ -19,6 +19,8 @@ from common.djangoapps.student.roles import (
     CourseInstructorRole,
     CourseLimitedStaffRole,
     CourseStaffRole,
+    eSHEInstructorRole,
+    TeachingAssistantRole,
 )
 from lms.djangoapps.instructor.enrollment import enroll_email, get_email_params
 from openedx.core.djangoapps.django_comment_common.models import Role
@@ -30,6 +32,8 @@ ROLES = {
     'instructor': CourseInstructorRole,
     'staff': CourseStaffRole,
     'limited_staff': CourseLimitedStaffRole,
+    'eshe_instructor': eSHEInstructorRole,
+    'teaching_assistant': TeachingAssistantRole,
     'ccx_coach': CourseCcxCoachRole,
     'data_researcher': CourseDataResearcherRole,
 }

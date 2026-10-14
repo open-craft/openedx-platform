@@ -412,6 +412,10 @@ def index_course(course_key: CourseKey, index_name: str | None = None) -> list:
         index_name = STUDIO_INDEX_NAME
     # Pre-fetch the course with all of its children:
     course = store.get_course(course_key, depth=None)
+    if not course:
+        # Might happen if the entry is a deleted course.
+        log.error("Course not found with key: %s", course_key)
+        return docs
 
     def add_with_children(block):
         """ Recursively index the given XBlock/component """

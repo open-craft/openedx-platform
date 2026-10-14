@@ -7,7 +7,7 @@ import copy
 
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, Mock, call, patch
-from opaque_keys.edx.keys import UsageKey
+from opaque_keys.edx.keys import CourseKey, UsageKey
 from opaque_keys.edx.locator import LibraryCollectionLocator, LibraryContainerLocator
 
 import ddt
@@ -1202,7 +1202,7 @@ class TestSearchApi(ModuleStoreTestCase):
         )
 
     @override_settings(MEILISEARCH_ENABLED=True)
-    def test_section_in_usbsections(self, mock_meilisearch) -> None:
+    def test_section_in_subsections(self, mock_meilisearch) -> None:
         with freeze_time(self.created_date):
             library_api.update_container_children(
                 LibraryContainerLocator.from_string(self.section_key),
@@ -1233,3 +1233,10 @@ class TestSearchApi(ModuleStoreTestCase):
             ],
             any_order=True,
         )
+
+    @override_settings(MEILISEARCH_ENABLED=True)
+    @patch('openedx.core.djangoapps.content.search.api.log')
+    def test_graceful_handling_of_missing_course(self, mock_log, _mock_meilisearch) -> None:
+        key = CourseKey.from_string('course-v1:Bogus+CourseX+BogoCourse')
+        assert api.index_course(key) == []  # pylint: disable=use-implicit-booleaness-not-comparison
+        mock_log.error.assert_called_with("Course not found with key: %s", key)

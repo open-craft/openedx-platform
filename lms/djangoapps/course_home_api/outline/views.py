@@ -42,6 +42,7 @@ from lms.djangoapps.courseware.context_processor import user_timezone_locale_pre
 from lms.djangoapps.courseware.courses import get_course_date_blocks, get_course_info_section
 from lms.djangoapps.courseware.date_summary import TodaysDate
 from lms.djangoapps.courseware.masquerade import is_masquerading, setup_masquerade
+from lms.djangoapps.courseware.tabs import DatesTab
 from lms.djangoapps.courseware.toggles import courseware_disable_navigation_sidebar_blocks_caching
 from lms.djangoapps.courseware.views.views import get_cert_data
 from lms.djangoapps.grades.course_grade_factory import CourseGradeFactory
@@ -250,7 +251,12 @@ class OutlineTabView(RetrieveAPIView):
         if show_enrolled:
             course_blocks = get_course_outline_block_tree(request, course_key_string, request.user)
             date_blocks = get_course_date_blocks(course, request.user, request, num_assignments=1)
-            dates_widget['course_date_blocks'] = [block for block in date_blocks if not isinstance(block, TodaysDate)]
+            course_date_blocks = (
+                [block for block in date_blocks if not isinstance(block, TodaysDate)]
+                if DatesTab.is_enabled(course, request.user)
+                else []
+            )
+            dates_widget['course_date_blocks'] = course_date_blocks
 
             handouts_html = get_course_info_section(request, request.user, course, 'handouts')
             welcome_message_html = get_current_update_for_user(request, course)
@@ -603,6 +609,11 @@ class CourseNavigationBlocksView(RetrieveAPIView):
         Dictionary keys are block keys and values are int values
         representing the completion status of the block.
         """
+        # Anonymous users have no completion rows; return empty data to avoid
+        # querying BlockCompletion with AnonymousUser for public course navigation.
+        if self.request.user.is_anonymous:
+            return {}
+
         course_key_string = self.kwargs.get('course_key_string')
         course_key = CourseKey.from_string(course_key_string)
         completions = BlockCompletion.objects.filter(user=self.request.user, context_key=course_key).values_list(

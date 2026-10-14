@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import ddt
 from completion.models import BlockCompletion
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.test import override_settings
 from django.urls import reverse
 from edx_toggles.toggles.testutils import override_waffle_flag
@@ -20,8 +21,9 @@ from common.djangoapps.course_modes.tests.factories import CourseModeFactory
 from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.student.roles import CourseInstructorRole
 from common.djangoapps.student.tests.factories import UserFactory
-from lms.djangoapps.course_home_api.toggles import COURSE_HOME_SEND_COURSE_PROGRESS_ANALYTICS_FOR_STUDENT
+from lms.djangoapps.course_home_api.outline.views import CourseNavigationBlocksView
 from lms.djangoapps.course_home_api.tests.utils import BaseCourseHomeTests
+from lms.djangoapps.course_home_api.toggles import COURSE_HOME_SEND_COURSE_PROGRESS_ANALYTICS_FOR_STUDENT
 from lms.djangoapps.grades.course_grade_factory import CourseGradeFactory
 from openedx.core.djangoapps.content.block_structure.api import update_course_in_cache
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -31,19 +33,10 @@ from openedx.core.djangoapps.course_date_signals.utils import MIN_DURATION
 from openedx.core.djangoapps.user_api.preferences.api import set_user_preference
 from openedx.core.djangoapps.user_api.tests.factories import UserCourseTagFactory
 from openedx.features.course_duration_limits.models import CourseDurationLimitConfig
-from openedx.features.course_experience import (
-    COURSE_ENABLE_UNENROLLED_ACCESS_FLAG,
-    ENABLE_COURSE_GOALS
-)
+from openedx.features.course_experience import COURSE_ENABLE_UNENROLLED_ACCESS_FLAG, ENABLE_COURSE_GOALS
 from openedx.features.discounts.applicability import DISCOUNT_APPLICABILITY_FLAG, FIRST_PURCHASE_DISCOUNT_OVERRIDE_FLAG
-from xmodule.course_block import (
-    COURSE_VISIBILITY_PUBLIC,
-    COURSE_VISIBILITY_PUBLIC_OUTLINE
-)
-from xmodule.modulestore.tests.factories import (
-    BlockFactory,
-    CourseFactory
-)
+from xmodule.course_block import COURSE_VISIBILITY_PUBLIC, COURSE_VISIBILITY_PUBLIC_OUTLINE
+from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
 
 @ddt.ddt
@@ -451,12 +444,12 @@ class OutlineTabTestViews(BaseCourseHomeTests):
         self.assert_can_enroll(False)
 
     def test_cannot_enroll_before_enrollment(self):
-        self.course.enrollment_start = datetime.now(timezone.utc) + timedelta(days=1)
+        self.course.enrollment_start = datetime.now(timezone.utc) + timedelta(days=1)  # noqa: UP017
         self.update_course_and_overview()
         self.assert_can_enroll(False)
 
     def test_cannot_enroll_after_enrollment(self):
-        self.course.enrollment_end = datetime.now(timezone.utc) - timedelta(days=1)
+        self.course.enrollment_end = datetime.now(timezone.utc) - timedelta(days=1)  # noqa: UP017
         self.update_course_and_overview()
         self.assert_can_enroll(False)
 
@@ -593,6 +586,20 @@ class SidebarBlocksTestViews(BaseCourseHomeTests):
 
         assert response.status_code == 200
         assert response.data.get('blocks') is None
+
+    def test_anonymous_user_completion_dict_does_not_lookup_completions(self):
+        """
+        Test that anonymous users do not query completion data.
+        """
+        view = CourseNavigationBlocksView()
+        view.request = Mock(user=AnonymousUser())
+        view.kwargs = {'course_key_string': str(self.course.id)}
+
+        with patch('lms.djangoapps.course_home_api.outline.views.BlockCompletion.objects.filter') as mock_filter:
+            completions = view.completions_dict
+
+        assert completions == {}
+        mock_filter.assert_not_called()
 
     def test_course_staff_can_see_non_user_specific_content_in_masquerade(self):
         """
