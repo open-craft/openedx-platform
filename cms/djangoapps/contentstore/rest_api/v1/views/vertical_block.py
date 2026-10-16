@@ -2,24 +2,21 @@
 
 import logging
 
-import edx_api_doc_tools as apidocs
 from django.http import HttpResponseBadRequest, HttpResponsePermanentRedirect
 from django.urls import reverse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from cms.djangoapps.contentstore.rest_api.v1.mixins import ContainerHandlerMixin
-from cms.djangoapps.contentstore.rest_api.v1.serializers import (
-    ContainerHandlerSerializer,
-)
-from cms.djangoapps.contentstore.utils import (
-    get_container_handler_context,
-)
+from cms.djangoapps.contentstore.rest_api.v1.serializers import ContainerHandlerSerializer
+from cms.djangoapps.contentstore.utils import get_container_handler_context
 from cms.djangoapps.contentstore.views.component import _get_item_in_course
 from openedx.core.lib.api.view_utils import view_auth_classes
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.exceptions import ItemNotFoundError  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.exceptions import ItemNotFoundError  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 
@@ -30,18 +27,19 @@ class ContainerHandlerView(APIView, ContainerHandlerMixin):
     View for container xblock requests to get vertical data.
     """
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter(
+            OpenApiParameter(
                 "usage_key_string",
-                apidocs.ParameterLocation.PATH,
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
                 description="Container usage key",
             ),
         ],
         responses={
             200: ContainerHandlerSerializer,
-            401: "The requester is not authenticated.",
-            404: "The requested locator does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            404: OpenApiResponse(description="The requested locator does not exist."),
         },
     )
     def get(self, request: Request, usage_key_string: str):

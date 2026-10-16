@@ -7,13 +7,12 @@ from unittest import mock
 import ddt
 import six
 from django.conf import settings
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
-from django.test import override_settings, TestCase
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from common.djangoapps.student.tests.factories import UserFactory
 from lms.djangoapps.branding.models import BrandingApiConfig
-
 from openedx.core.djangoapps.dark_lang.models import DarkLangConfig
 from openedx.core.djangoapps.lang_pref.api import released_languages
 from openedx.core.djangoapps.site_configuration.tests.mixins import SiteMixin
@@ -46,7 +45,7 @@ class TestFooter(CacheIsolationTestCase):
         assert resp['Content-Type'] == content_type
         self.assertContains(resp, content)
 
-    @mock.patch.dict(settings.FEATURES, {'ENABLE_FOOTER_MOBILE_APP_LINKS': True})
+    @override_settings(ENABLE_FOOTER_MOBILE_APP_LINKS=True)
     def test_footer_json(self):
         self._set_feature_flag(True)
         with with_comprehensive_theme_context(None):
@@ -227,7 +226,7 @@ class TestFooter(CacheIsolationTestCase):
         url = reverse("branding_footer")
 
         if params is not None:
-            url = "{url}?{params}".format(
+            url = "{url}?{params}".format(  # noqa: UP032
                 url=url,
                 params=six.moves.urllib.parse.urlencode(params)
             )
@@ -269,14 +268,12 @@ class TestIndex(SiteMixin, TestCase):
         response = self.client.get(reverse("root"))
         assert response.status_code == 200
 
-    @override_settings(ENABLE_MKTG_SITE=True)
     @override_settings(MKTG_URLS={'ROOT': 'https://foo.bar/'})
     @override_settings(LMS_ROOT_URL='https://foo.bar/')
     def test_index_wont_redirect_to_marketing_root_if_it_matches_lms_root(self):
         response = self.client.get(reverse("root"))
         assert response.status_code == 200
 
-    @override_settings(ENABLE_MKTG_SITE=True)
     @override_settings(MKTG_URLS={'ROOT': 'https://home.foo.bar/'})
     @override_settings(LMS_ROOT_URL='https://foo.bar/')
     def test_index_will_redirect_to_new_root_if_mktg_site_is_enabled(self):

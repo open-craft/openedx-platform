@@ -12,9 +12,12 @@ import typing as t
 from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext_lazy as _
 from opaque_keys.edx.locator import LibraryUsageLocatorV2
+from openedx_authz.constants.permissions import COURSES_MANAGE_LIBRARY_UPDATES
 from rest_framework.exceptions import NotFound
 from xblock.core import XBlock
 from xblock.fields import Scope
+
+from openedx.core.djangoapps.authz.decorators import user_has_course_permission
 
 from .upstream_sync import BadDownstream, BadUpstream, UpstreamLink
 
@@ -90,18 +93,38 @@ def _load_upstream_block(downstream: XBlock, user: User) -> XBlock:
     """
     Load the upstream metadata and content for a downstream block.
 
-    Assumes that the upstream content is an XBlock in an LC-backed content libraries. This assumption may need to be
-    relaxed in the future (see module docstring).
+    Assumes that the upstream content is an XBlock in an openedx_content-backed
+    library. This assumption may need to be relaxed in the future (see module docstring).
 
     If `downstream` lacks a valid+supported upstream link, this raises an UpstreamLinkException.
+
+    If the user holds ``courses.manage_library_updates`` for the course that
+    owns ``downstream``, the library-level permission check is bypassed.
+    Otherwise the default ``CAN_READ_AS_AUTHOR`` check is applied.
     """
     # We import load_block here b/c UpstreamSyncMixin is used by cms/envs, which loads before the djangoapps are ready.
-    from openedx.core.djangoapps.xblock.api import load_block, CheckPerm, LatestVersion  # pylint: disable=wrong-import-order
+    from openedx.core.djangoapps.xblock.api import (  # pylint: disable=wrong-import-order
+        CheckPerm,
+        LatestVersion,
+        load_block,
+    )
+
+    # Try course-level permission first; fall back to library-level check.
+    course_key = downstream.usage_key.context_key
+    if course_key and user_has_course_permission(
+        user,
+        COURSES_MANAGE_LIBRARY_UPDATES.identifier,
+        course_key,
+    ):
+        check_perm = None
+    else:
+        check_perm = CheckPerm.CAN_READ_AS_AUTHOR
+
     try:
         lib_block: XBlock = load_block(
             LibraryUsageLocatorV2.from_string(downstream.upstream),
             user,
-            check_permission=CheckPerm.CAN_READ_AS_AUTHOR,
+            check_permission=check_perm,
             version=LatestVersion.PUBLISHED,
         )
     except (NotFound, PermissionDenied) as exc:
@@ -190,11 +213,12 @@ def _update_tags(*, upstream: XBlock, downstream: XBlock) -> None:
     Update tags from `upstream` to `downstream`
     """
     from openedx.core.djangoapps.content_tagging.api import copy_tags_as_read_only
+
     # For any block synced with an upstream, copy the tags as read_only
     # This keeps tags added locally.
     copy_tags_as_read_only(
-        str(upstream.location),
-        str(downstream.location),
+        str(upstream.scope_ids.usage_id),
+        str(downstream.scope_ids.usage_id),
     )
 
 

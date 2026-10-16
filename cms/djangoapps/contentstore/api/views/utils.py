@@ -3,10 +3,13 @@ Common utilities for Contentstore APIs.
 """
 
 
+import re
 from contextlib import contextmanager
+from datetime import datetime
 
+from django.utils.dateparse import parse_datetime
 from opaque_keys.edx.keys import CourseKey
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.generics import GenericAPIView
 
 from common.djangoapps.student.auth import has_course_author_access
@@ -14,7 +17,7 @@ from openedx.core.djangoapps.util.forms import to_bool
 from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, view_auth_classes
 from openedx.core.lib.cache_utils import request_cached
 from xmodule.library_content_block import LegacyLibraryContentBlock
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 
 @view_auth_classes()
@@ -109,6 +112,35 @@ def get_bool_param(request, param_name, default):
         return bool_value
 
 
+def get_datetime_param(request, param_name, default=None) -> datetime | None:
+    """
+    Returns a timezone-aware ``datetime`` parsed from the query param, or the default
+    if the param wasn't provided. A space directly before a trailing ``HH:MM``/``HHMM`` offset
+    is read as ``+``, since an unencoded ``+`` in a query string decodes to a space.
+
+    Raises:
+        rest_framework.exceptions.ValidationError: If the param isn't an ISO 8601 datetime
+            that carries a UTC offset or ``Z``.
+    """
+    param_value = request.GET.get(param_name, None)
+    if param_value is None:
+        return default
+    # "2024-01-01T10:00:00 04:00" -> "2024-01-01T10:00:00+04:00"; a space before a trailing offset was an unencoded '+'.
+    normalized = re.sub(r'(?<=\d) (\d{2}:?\d{2})$', r'+\1', param_value)
+    try:
+        value = parse_datetime(normalized)
+    except ValueError:
+        value = None
+    if value is None or value.tzinfo is None:
+        raise serializers.ValidationError({
+            param_name: (
+                f"{param_value!r} is not an ISO 8601 datetime with a UTC offset or 'Z', "
+                "e.g. 2024-01-01T00:00:00+04:00."
+            ),
+        })
+    return value
+
+
 def course_author_access_required(view):
     """
     Ensure the user making the API request has course author access to the given course.
@@ -120,7 +152,7 @@ def course_author_access_required(view):
     Usage::
         @course_author_access_required
         def my_view(request, course_key):
-            # Some functionality ...
+            # Some functionality...
     """
     def _wrapper_view(self, request, course_id, *args, **kwargs):
         """

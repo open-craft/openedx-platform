@@ -2,23 +2,20 @@
 Celery task for course enrollment email
 """
 import logging
+
 from celery import shared_task
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from edx_django_utils.monitoring import set_code_owner_attribute
 from opaque_keys.edx.keys import CourseKey
 
-from common.djangoapps.track import segment
 from common.djangoapps.course_modes.models import CourseMode
-from common.djangoapps.student.helpers import (
-    get_course_dates_for_email,
-    get_instructors,
-)
+from common.djangoapps.student.helpers import get_course_dates_for_email, get_instructors
+from common.djangoapps.track import segment
 from lms.djangoapps.utils import get_email_client
 from openedx.core.djangoapps.catalog.utils import (
+    get_course_run_details,
     get_course_uuid_for_course,
     get_owners_for_course,
-    get_course_run_details,
 )
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from openedx.features.course_experience import ENABLE_COURSE_GOALS
@@ -30,7 +27,6 @@ MAX_RETRIES = 3
 
 
 @shared_task(bind=True, ignore_result=True)
-@set_code_owner_attribute
 def send_course_enrollment_email(
     self, user_id, course_id, course_title, short_description, course_ended, pacing_type, track_mode
 ):
@@ -110,7 +106,7 @@ def send_course_enrollment_email(
                 "min_effort": course_run.get("min_effort"),
                 "max_effort": course_run.get("max_effort"),
                 "weeks_to_complete": course_run.get("weeks_to_complete"),
-                "learners_count": "{:,}".format(enrollment_count) if enrollment_count > 100 else "",
+                "learners_count": "{:,}".format(enrollment_count) if enrollment_count > 100 else "",  # noqa: UP032
                 "banner_image_url": course_run.get("image").get("src", "") if course_run.get("image") else "",
                 "course_title": course_run.get("title"),
                 "short_description": course_run.get("short_description"),
@@ -143,4 +139,4 @@ def send_course_enrollment_email(
     except Exception as exc:  # pylint: disable=broad-except
         log.error(f"[Course Enrollment] Email sending failed with exception: {exc}")
         countdown = 60 * (self.request.retries + 1)
-        raise self.retry(exc=exc, countdown=countdown, max_retries=MAX_RETRIES)
+        raise self.retry(exc=exc, countdown=countdown, max_retries=MAX_RETRIES)  # noqa: B904

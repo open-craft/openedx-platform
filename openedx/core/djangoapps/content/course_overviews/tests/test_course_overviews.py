@@ -1,18 +1,17 @@
 """
 Tests for course_overviews app.
 """
+import datetime  # pylint: disable=wrong-import-order
+import itertools  # pylint: disable=wrong-import-order
 import json
+import math  # pylint: disable=wrong-import-order
 import os
 from io import BytesIO
 from unittest import mock
-
-import pytest
-import datetime  # lint-amnesty, pylint: disable=wrong-import-order
-import itertools  # lint-amnesty, pylint: disable=wrong-import-order
-import math  # lint-amnesty, pylint: disable=wrong-import-order
 from zoneinfo import ZoneInfo
 
 import ddt
+import pytest
 from django.conf import settings
 from django.db.utils import IntegrityError
 from django.test.utils import override_settings
@@ -20,27 +19,32 @@ from django.utils import timezone
 from opaque_keys.edx.keys import CourseKey
 from PIL import Image
 
+from common.djangoapps.static_replace.models import AssetBaseUrlConfig
 from lms.djangoapps.certificates.api import get_active_web_certificate
 from openedx.core.djangoapps.catalog.tests.mixins import CatalogIntegrationMixin
 from openedx.core.djangoapps.dark_lang.models import DarkLangConfig
 from openedx.core.djangoapps.models.course_details import CourseDetails
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase
 from openedx.core.lib.courses import course_image_url
-from common.djangoapps.static_replace.models import AssetBaseUrlConfig
-from xmodule.assetstore.assetmgr import AssetManager  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.contentstore.content import StaticContent  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.contentstore.django import contentstore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.course_metadata_utils import DEFAULT_START_DATE  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.course_block import (  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.assetstore.assetmgr import AssetManager  # pylint: disable=wrong-import-order
+from xmodule.contentstore.content import StaticContent  # pylint: disable=wrong-import-order
+from xmodule.contentstore.django import contentstore  # pylint: disable=wrong-import-order
+from xmodule.course_block import (  # pylint: disable=wrong-import-order
     CATALOG_VISIBILITY_ABOUT,
     CATALOG_VISIBILITY_CATALOG_AND_ABOUT,
-    CATALOG_VISIBILITY_NONE
+    CATALOG_VISIBILITY_NONE,
 )
-from xmodule.error_block import ErrorBlock  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore import ModuleStoreEnum  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory, check_mongo_calls_range  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.course_metadata_utils import DEFAULT_START_DATE  # pylint: disable=wrong-import-order
+from xmodule.error_block import ErrorBlock  # pylint: disable=wrong-import-order
+from xmodule.modulestore import ModuleStoreEnum  # pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import (  # pylint: disable=wrong-import-order
+    CourseFactory,
+    check_mongo_calls_range,
+)
 
 from ..models import CourseOverview, CourseOverviewImageConfig, CourseOverviewImageSet, CourseOverviewTab
 from .factories import CourseOverviewFactory
@@ -358,7 +362,7 @@ class CourseOverviewTestCase(CatalogIntegrationMixin, ModuleStoreTestCase, Cache
             # This mock makes it so when the module store tries to load course data,
             # an exception is thrown, which causes get_course to return an ErrorBlock,
             # which causes get_from_id to raise an IOError.
-            with pytest.raises(IOError):
+            with pytest.raises(IOError):  # noqa: PT011
                 CourseOverview.load_from_module_store(self.store.make_course_key('Non', 'Existent', 'Course'))
 
     def test_malformed_grading_policy(self):
@@ -371,7 +375,7 @@ class CourseOverviewTestCase(CatalogIntegrationMixin, ModuleStoreTestCase, Cache
         """
         course = CourseFactory.create()
         course._grading_policy['GRADE_CUTOFFS'] = {}  # pylint: disable=protected-access
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011
             __ = course.lowest_passing_grade
         course_overview = CourseOverview._create_or_update(course)  # pylint: disable=protected-access
         assert course_overview.lowest_passing_grade is None
@@ -562,6 +566,164 @@ class CourseOverviewTestCase(CatalogIntegrationMixin, ModuleStoreTestCase, Cache
         assert inactive_course.id not in output_ids
         assert {active_course.id, missing_end_date.id} == output_ids
 
+    def test_get_all_courses_by_start_date_range(self):
+        """
+        Verify only courses starting within the given range are returned.
+        """
+        in_range_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.NEXT_WEEK])
+        out_of_range_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.NEXT_MONTH])
+        no_start_date_course = CourseFactory.create(emit_signals=True, start=None)
+
+        output_ids = {
+            course.id for course in CourseOverview.get_all_courses(
+                start_date_on_or_after=self.DATES[self.LAST_WEEK],
+                start_date_on_or_before=self.DATES[self.NEXT_MONTH] - datetime.timedelta(days=1),
+            )
+        }
+
+        assert out_of_range_course.id not in output_ids
+        assert no_start_date_course.id not in output_ids
+        assert {in_range_course.id} == output_ids
+
+    def test_get_all_courses_by_start_date_on_or_after_only(self):
+        """
+        Verify start_date_on_or_after alone includes courses starting on or after it, with no upper bound.
+        """
+        in_range_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.NEXT_WEEK])
+        far_in_range_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.NEXT_MONTH])
+        out_of_range_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.LAST_MONTH])
+        no_start_date_course = CourseFactory.create(emit_signals=True, start=None)
+
+        output_ids = {
+            course.id for course in CourseOverview.get_all_courses(
+                start_date_on_or_after=self.DATES[self.LAST_WEEK],
+            )
+        }
+
+        assert out_of_range_course.id not in output_ids
+        assert no_start_date_course.id not in output_ids
+        assert {in_range_course.id, far_in_range_course.id} == output_ids
+
+    def test_get_all_courses_by_start_date_on_or_before_only(self):
+        """
+        Verify start_date_on_or_before alone includes courses starting on or before it, with no lower bound.
+        """
+        in_range_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.LAST_WEEK])
+        far_in_range_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.LAST_MONTH])
+        out_of_range_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.NEXT_MONTH])
+        no_start_date_course = CourseFactory.create(emit_signals=True, start=None)
+
+        output_ids = {
+            course.id for course in CourseOverview.get_all_courses(
+                start_date_on_or_before=self.DATES[self.NEXT_WEEK],
+            )
+        }
+
+        assert out_of_range_course.id not in output_ids
+        assert no_start_date_course.id not in output_ids
+        assert {in_range_course.id, far_in_range_course.id} == output_ids
+
+    def test_get_all_courses_by_start_date_excludes_no_start_date_course(self):
+        """
+        Verify a course with no start date is excluded whenever either date bound is set.
+        """
+        no_start_date_course = CourseFactory.create(emit_signals=True, start=None)
+
+        after_only_ids = {
+            course.id for course in CourseOverview.get_all_courses(
+                start_date_on_or_after=self.DATES[self.LAST_WEEK],
+            )
+        }
+        before_only_ids = {
+            course.id for course in CourseOverview.get_all_courses(
+                start_date_on_or_before=self.DATES[self.NEXT_WEEK],
+            )
+        }
+
+        assert no_start_date_course.id not in after_only_ids
+        assert no_start_date_course.id not in before_only_ids
+
+    def test_get_all_courses_by_start_date_boundary_inclusive(self):
+        """
+        Verify both bounds include a course starting at the exact instant and exclude one a microsecond outside.
+        """
+        boundary = datetime.datetime(2027, 7, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
+        one_microsecond = datetime.timedelta(microseconds=1)
+        at_boundary = CourseFactory.create(emit_signals=True, start=boundary)
+        just_before = CourseFactory.create(emit_signals=True, start=boundary - one_microsecond)
+        just_after = CourseFactory.create(emit_signals=True, start=boundary + one_microsecond)
+
+        after_ids = {
+            course.id for course in CourseOverview.get_all_courses(
+                filter_={"id__in": [at_boundary.id, just_before.id, just_after.id]},
+                start_date_on_or_after=boundary,
+            )
+        }
+        before_ids = {
+            course.id for course in CourseOverview.get_all_courses(
+                filter_={"id__in": [at_boundary.id, just_before.id, just_after.id]},
+                start_date_on_or_before=boundary,
+            )
+        }
+
+        assert after_ids == {at_boundary.id, just_after.id}
+        assert before_ids == {at_boundary.id, just_before.id}
+
+    def test_get_all_courses_by_start_date_offset_instants(self):
+        """
+        Verify a course starting late on June 30 UTC is found by a July 1 UTC+4 day range, not the same
+        wall-clock range in UTC.
+        """
+        course = CourseFactory.create(
+            emit_signals=True, start=datetime.datetime(2027, 6, 30, 22, 0, tzinfo=ZoneInfo("UTC"))
+        )
+        utc_plus_4 = datetime.timezone(datetime.timedelta(hours=4))
+
+        local_day_ids = {
+            course_overview.id for course_overview in CourseOverview.get_all_courses(
+                start_date_on_or_after=datetime.datetime(2027, 7, 1, 0, 0, tzinfo=utc_plus_4),
+                start_date_on_or_before=datetime.datetime(2027, 7, 1, 23, 59, 59, 999999, tzinfo=utc_plus_4),
+            )
+        }
+        utc_day_ids = {
+            course_overview.id for course_overview in CourseOverview.get_all_courses(
+                start_date_on_or_after=datetime.datetime(2027, 7, 1, 0, 0, tzinfo=ZoneInfo("UTC")),
+                start_date_on_or_before=datetime.datetime(2027, 7, 1, 23, 59, 59, 999999, tzinfo=ZoneInfo("UTC")),
+            )
+        }
+
+        assert course.id in local_day_ids
+        assert course.id not in utc_day_ids
+
+    def test_get_all_courses_by_start_date_us_timezone(self):
+        """
+        Verify a course starting early on July 1 UTC is found by a June 30 UTC-4 day range.
+        """
+        course = CourseFactory.create(
+            emit_signals=True, start=datetime.datetime(2027, 7, 1, 2, 0, tzinfo=ZoneInfo("UTC"))
+        )
+        utc_minus_4 = datetime.timezone(datetime.timedelta(hours=-4))
+
+        output_ids = {
+            course_overview.id for course_overview in CourseOverview.get_all_courses(
+                start_date_on_or_after=datetime.datetime(2027, 6, 30, 0, 0, tzinfo=utc_minus_4),
+                start_date_on_or_before=datetime.datetime(2027, 6, 30, 23, 59, 59, 999999, tzinfo=utc_minus_4),
+            )
+        }
+
+        assert course.id in output_ids
+
+    def test_get_all_courses_by_start_date_params_absent(self):
+        """
+        Verify get_all_courses returns courses unfiltered by start date when neither param is given.
+        """
+        course = CourseFactory.create(emit_signals=True, start=self.DATES[self.NEXT_WEEK])
+        other_course = CourseFactory.create(emit_signals=True, start=self.DATES[self.NEXT_MONTH])
+
+        output_ids = {course_overview.id for course_overview in CourseOverview.get_all_courses()}
+
+        assert {course.id, other_course.id} == output_ids
+
     def test_get_from_ids(self):
         """
         Assert that CourseOverviews.get_from_ids works as expected.
@@ -609,7 +771,7 @@ class CourseOverviewTestCase(CatalogIntegrationMixin, ModuleStoreTestCase, Cache
         """
         Tests that course_overview can be generated for old Mongo course.
         """
-        store = modulestore()._get_modulestore_by_type(ModuleStoreEnum.Type.mongo)  # lint-amnesty, pylint: disable=protected-access
+        store = modulestore()._get_modulestore_by_type(ModuleStoreEnum.Type.mongo)  # pylint: disable=protected-access
         file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data/mongo_course.json')
         with open(file_path) as file:
             course_structure = json.load(file)

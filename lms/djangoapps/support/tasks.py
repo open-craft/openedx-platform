@@ -1,27 +1,27 @@
 """ Celery Tasks for the Instructor App. """
 
-from datetime import datetime
 import logging
+from datetime import datetime
+
 from celery import shared_task
 from completion.models import BlockCompletion
-from edx_django_utils.monitoring import set_code_owner_attribute
+from django.contrib.sites.models import Site
+from edx_ace import ace
+from edx_ace.recipient import Recipient
 
 from common.djangoapps.student.models.course_enrollment import CourseEnrollment
 from common.djangoapps.student.models.user import get_user_by_username_or_email
 from lms.djangoapps.courseware.courses import get_course
 from lms.djangoapps.courseware.models import StudentModule
-from lms.djangoapps.instructor.enrollment import reset_student_attempts
-from lms.djangoapps.support.models import CourseResetAudit
 from lms.djangoapps.grades.api import clear_user_course_grades
+from lms.djangoapps.instructor.enrollment import reset_student_attempts
+from lms.djangoapps.support.message_types import WholeCourseReset
+from lms.djangoapps.support.models import CourseResetAudit
 from openedx.core.djangoapps.ace_common.template_context import get_base_template_context
-
-from edx_ace import ace
-from django.contrib.sites.models import Site
-from edx_ace.recipient import Recipient
-from openedx.core.lib.celery.task_utils import emulate_http_request
 from openedx.core.djangoapps.lang_pref import LANGUAGE_KEY
 from openedx.core.djangoapps.user_api.preferences.api import get_user_preference
-from lms.djangoapps.support.message_types import WholeCourseReset
+from openedx.core.lib.celery.task_utils import emulate_http_request
+from openedx.core.lib.log_utils import get_email_or_pii_safe_user_id_for_log
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,6 @@ def get_blocks(course):
 
 
 @shared_task
-@set_code_owner_attribute
 def send_reset_course_completion_email(course, user):
     """
     Sends email to a learner when whole course reset is complete.
@@ -57,9 +56,11 @@ def send_reset_course_completion_email(course, user):
         'course_title': course.display_name,
     })
 
+    user_identifier_for_log = get_email_or_pii_safe_user_id_for_log(user)
+
     try:
         log.info(
-            f"Sending whole course reset email to {user.profile.name} (Email: {user.email}) "
+            f"Sending whole course reset email to user {user_identifier_for_log} "
             f"from course {course.display_name} (CourseId: {course.id})"
         )
         with emulate_http_request(site=site, user=user):
@@ -71,21 +72,20 @@ def send_reset_course_completion_email(course, user):
             ace.send(msg)
     except Exception as exc:  # pylint: disable=broad-except
         log.exception(
-            f"Whole course reset email to {user.profile.name} (Email: {user.email}) "
+            f"Whole course reset email to user {user_identifier_for_log} "
             f"from course {course.display_name} (CourseId: {course.id}) failed."
             f"Error: {exc.response['Error']['Code']}"
         )
         return False
     else:
         log.info(
-            f"Whole course reset email sent successfully to {user.profile.name} (Email: {user.email}) "
+            f"Whole course reset email sent successfully to user {user_identifier_for_log} "
             f"from course {course.display_name} (CourseId: {course.id})"
         )
         return True
 
 
 @shared_task
-@set_code_owner_attribute
 def reset_student_course(course_id, learner_email, reset_by_user_email):
     """
     Resets a learner's course progress
