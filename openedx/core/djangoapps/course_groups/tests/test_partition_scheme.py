@@ -5,16 +5,25 @@ Test the partitions and partitions service
 
 
 from unittest.mock import patch
-import django.test
 
+import django.test
+from django.test.utils import override_settings
+
+from common.djangoapps.student.tests.factories import UserFactory
 from lms.djangoapps.courseware.tests.test_masquerade import StaffMasqueradeTestCase
 from openedx.core.djangoapps.user_api.partition_schemes import RandomUserPartitionScheme
 from openedx.core.djangolib.testing.utils import skip_unless_lms
-from common.djangoapps.student.tests.factories import UserFactory
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.django_utils import TEST_DATA_SPLIT_MODULESTORE, ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import ToyCourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.partitions.partitions import Group, UserPartition, UserPartitionError  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (  # pylint: disable=wrong-import-order
+    TEST_DATA_SPLIT_MODULESTORE,
+    ModuleStoreTestCase,
+)
+from xmodule.modulestore.tests.factories import ToyCourseFactory  # pylint: disable=wrong-import-order
+from xmodule.partitions.partitions import (  # pylint: disable=wrong-import-order
+    Group,
+    UserPartition,
+    UserPartitionError,
+)
 
 from ..cohorts import add_user_to_cohort, get_course_cohorts, remove_user_from_cohort
 from ..models import CourseUserGroupPartitionGroup
@@ -223,7 +232,7 @@ class TestCohortPartitionScheme(ModuleStoreTestCase):
         with patch('openedx.core.djangoapps.course_groups.partition_scheme.log') as mock_log:
             self.assert_student_in_group(None, new_user_partition)
             assert mock_log.warning.called
-            self.assertRegex(mock_log.warning.call_args[0][0], 'group not found')
+            self.assertRegex(mock_log.warning.call_args[0][0], 'group not found')  # noqa: PT009
 
     def test_missing_partition(self):
         """
@@ -248,18 +257,18 @@ class TestCohortPartitionScheme(ModuleStoreTestCase):
         with patch('openedx.core.djangoapps.course_groups.partition_scheme.log') as mock_log:
             self.assert_student_in_group(None, new_user_partition)
             assert mock_log.warning.called
-            self.assertRegex(mock_log.warning.call_args[0][0], 'partition mismatch')
+            self.assertRegex(mock_log.warning.call_args[0][0], 'partition mismatch')  # noqa: PT009
 
 
 class TestExtension(django.test.TestCase):
     """
     Ensure that the scheme extension is correctly plugged in (via entry point
-    in setup.py)
+    in pyproject.toml)
     """
 
     def test_get_scheme(self):
         assert UserPartition.get_scheme('cohort') == CohortPartitionScheme
-        with self.assertRaisesRegex(UserPartitionError, 'Unrecognized scheme'):
+        with self.assertRaisesRegex(UserPartitionError, 'Unrecognized scheme'):  # noqa: PT027
             UserPartition.get_scheme('other')
 
 
@@ -356,7 +365,7 @@ class TestMasqueradedGroup(StaffMasqueradeTestCase):
         self._verify_masquerade_for_group(None)
 
     @skip_unless_lms
-    @patch.dict('django.conf.settings.FEATURES', {'DISABLE_START_DATES': False})
+    @override_settings(DISABLE_START_DATES=False)
     def test_group_masquerade(self):
         """
         Tests that a staff member can masquerade as being in a particular group.
@@ -364,7 +373,7 @@ class TestMasqueradedGroup(StaffMasqueradeTestCase):
         self._verify_masquerade_for_all_groups()
 
     @skip_unless_lms
-    @patch.dict('django.conf.settings.FEATURES', {'DISABLE_START_DATES': False})
+    @override_settings(DISABLE_START_DATES=False)
     def test_group_masquerade_with_cohort(self):
         """
         Tests that a staff member can masquerade as being in a particular group

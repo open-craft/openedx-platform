@@ -4,10 +4,9 @@ Tests for the certificates models.
 
 
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
 from ddt import data, ddt, unpack
-from django.conf import settings
+from django.test.utils import override_settings
 from milestones.tests.utils import MilestonesTestCaseMixin
 from pytz import UTC
 
@@ -15,13 +14,12 @@ from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.student.tests.factories import UserFactory
 from common.djangoapps.util.milestones_helpers import milestones_achieved_by_user, set_prerequisite_courses
 from lms.djangoapps.certificates.api import certificate_info_for_user, certificate_status_for_student
-from lms.djangoapps.certificates.models import (
-    CertificateStatuses,
-    GeneratedCertificate,
-)
+from lms.djangoapps.certificates.models import CertificateStatuses, GeneratedCertificate
 from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 
 @ddt
@@ -172,17 +170,17 @@ class CertificatesModelTest(ModuleStoreTestCase, MilestonesTestCaseMixin):
         )
 
         # User with no certs should return an empty set.
-        self.assertSetEqual(
+        self.assertSetEqual(  # noqa: PT009
             GeneratedCertificate.course_ids_with_certs_for_user(student_no_certs),
             set()
         )
         # User with certs should return a set with the two course_ids
-        self.assertSetEqual(
+        self.assertSetEqual(  # noqa: PT009
             GeneratedCertificate.course_ids_with_certs_for_user(student_with_certs),
             {course_1.id, course_2.id}
         )
 
-    @patch.dict(settings.FEATURES, {'ENABLE_PREREQUISITE_COURSES': True})
+    @override_settings(ENABLE_PREREQUISITE_COURSES=True)
     def test_course_milestone_collected(self):
         student = UserFactory()
         course = CourseFactory.create(org='edx', number='998', display_name='Test Course')

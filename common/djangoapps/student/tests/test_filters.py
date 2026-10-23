@@ -6,14 +6,20 @@ from django.http import HttpResponse
 from django.test import override_settings
 from django.urls import reverse
 from openedx_filters import PipelineStep
-from openedx_filters.learning.filters import DashboardRenderStarted, CourseEnrollmentStarted, CourseUnenrollmentStarted
+from openedx_filters.learning.filters import CourseEnrollmentStarted, CourseUnenrollmentStarted, DashboardRenderStarted
 from rest_framework import status
+
+from common.djangoapps.student.models import (
+    CourseEnrollment,
+    EnrollmentNotAllowed,
+    Registration,
+    UnenrollmentNotAllowed,
+)
+from common.djangoapps.student.tests.factories import UserFactory, UserProfileFactory
+from common.djangoapps.student.views.management import compose_activation_email
+from openedx.core.djangolib.testing.utils import skip_unless_lms
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import CourseFactory
-
-from common.djangoapps.student.models import CourseEnrollment, EnrollmentNotAllowed, UnenrollmentNotAllowed
-from common.djangoapps.student.tests.factories import UserFactory, UserProfileFactory
-from openedx.core.djangolib.testing.utils import skip_unless_lms
 
 
 class TestEnrollmentPipelineStep(PipelineStep):
@@ -111,6 +117,18 @@ class TestRenderCustomResponse(PipelineStep):
         )
 
 
+class ActivationEmailWaldoEnricher(PipelineStep):
+    """
+    Test pipeline step for the AccountActivationEmailContextGenerated filter
+    which adds a `show_waldo` context key.
+    """
+
+    def run_filter(self, user, message_context):  # pylint: disable=arguments-differ
+        """Pipeline step that stamps a fake show_waldo flag onto the activation email context."""
+        message_context["show_waldo"] = True
+        return {"user": user, "message_context": message_context}
+
+
 @skip_unless_lms
 class EnrollmentFiltersTest(ModuleStoreTestCase):
     """
@@ -153,7 +171,7 @@ class EnrollmentFiltersTest(ModuleStoreTestCase):
         """
         enrollment = CourseEnrollment.enroll(self.user, self.course.id, mode='audit')
 
-        self.assertEqual('honor', enrollment.mode)
+        self.assertEqual('honor', enrollment.mode)  # noqa: PT009
 
     @override_settings(
         OPEN_EDX_FILTERS_CONFIG={
@@ -173,7 +191,7 @@ class EnrollmentFiltersTest(ModuleStoreTestCase):
             - CourseEnrollmentStarted is triggered and executes TestEnrollmentPipelineStep.
             - The user can't enroll.
         """
-        with self.assertRaises(EnrollmentNotAllowed):
+        with self.assertRaises(EnrollmentNotAllowed):  # noqa: PT027
             CourseEnrollment.enroll(self.user, self.course.id, mode='no-id-professional')
 
     @override_settings(OPEN_EDX_FILTERS_CONFIG={})
@@ -187,8 +205,8 @@ class EnrollmentFiltersTest(ModuleStoreTestCase):
         """
         enrollment = CourseEnrollment.enroll(self.user, self.course.id, mode='audit')
 
-        self.assertEqual('audit', enrollment.mode)
-        self.assertTrue(CourseEnrollment.is_enrolled(self.user, self.course.id))
+        self.assertEqual('audit', enrollment.mode)  # noqa: PT009
+        self.assertTrue(CourseEnrollment.is_enrolled(self.user, self.course.id))  # noqa: PT009
 
 
 @skip_unless_lms
@@ -234,7 +252,7 @@ class UnenrollmentFiltersTest(ModuleStoreTestCase):
 
         CourseEnrollment.unenroll(self.user, self.course.id)
 
-        self.assertFalse(CourseEnrollment.is_enrolled(self.user, self.course.id))
+        self.assertFalse(CourseEnrollment.is_enrolled(self.user, self.course.id))  # noqa: PT009
 
     @override_settings(
         OPEN_EDX_FILTERS_CONFIG={
@@ -256,7 +274,7 @@ class UnenrollmentFiltersTest(ModuleStoreTestCase):
         """
         CourseEnrollment.enroll(self.user, self.course.id, mode="no-id-professional")
 
-        with self.assertRaises(UnenrollmentNotAllowed):
+        with self.assertRaises(UnenrollmentNotAllowed):  # noqa: PT027
             CourseEnrollment.unenroll(self.user, self.course.id)
 
     @override_settings(OPEN_EDX_FILTERS_CONFIG={})
@@ -272,7 +290,7 @@ class UnenrollmentFiltersTest(ModuleStoreTestCase):
 
         CourseEnrollment.unenroll(self.user, self.course.id)
 
-        self.assertFalse(CourseEnrollment.is_enrolled(self.user, self.course.id))
+        self.assertFalse(CourseEnrollment.is_enrolled(self.user, self.course.id))  # noqa: PT009
 
     @override_settings(
         OPEN_EDX_FILTERS_CONFIG={
@@ -301,8 +319,8 @@ class UnenrollmentFiltersTest(ModuleStoreTestCase):
 
         response = self.client.post(reverse("change_enrollment"), params)
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertEqual("You can't un-enroll from this site.", response.content.decode("utf-8"))
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)  # noqa: PT009
+        self.assertEqual("You can't un-enroll from this site.", response.content.decode("utf-8"))  # noqa: PT009
 
 
 @skip_unless_lms
@@ -397,8 +415,8 @@ class StudentDashboardFiltersTest(ModuleStoreTestCase):
         """
         response = self.client.get(self.dashboard_url)
 
-        self.assertEqual(status.HTTP_302_FOUND, response.status_code)
-        self.assertEqual("https://custom-dashboard.com", response.url)
+        self.assertEqual(status.HTTP_302_FOUND, response.status_code)  # noqa: PT009
+        self.assertEqual("https://custom-dashboard.com", response.url)  # noqa: PT009
 
     @override_settings(
         OPEN_EDX_FILTERS_CONFIG={
@@ -421,8 +439,8 @@ class StudentDashboardFiltersTest(ModuleStoreTestCase):
         """
         response = self.client.get(self.dashboard_url)
 
-        self.assertEqual(status.HTTP_302_FOUND, response.status_code)
-        self.assertEqual(settings.ACCOUNT_MICROFRONTEND_URL, response.url)
+        self.assertEqual(status.HTTP_302_FOUND, response.status_code)  # noqa: PT009
+        self.assertEqual(settings.ACCOUNT_MICROFRONTEND_URL, response.url)  # noqa: PT009
 
     @override_settings(
         OPEN_EDX_FILTERS_CONFIG={
@@ -444,7 +462,7 @@ class StudentDashboardFiltersTest(ModuleStoreTestCase):
         """
         response = self.client.get(self.dashboard_url)
 
-        self.assertEqual("This is a custom response.", response.content.decode("utf-8"))
+        self.assertEqual("This is a custom response.", response.content.decode("utf-8"))  # noqa: PT009
 
     @override_settings(OPEN_EDX_FILTERS_CONFIG={})
     def test_dashboard_render_without_filter_config(self):
@@ -464,3 +482,58 @@ class StudentDashboardFiltersTest(ModuleStoreTestCase):
 
         self.assertContains(response, self.first_course.id)
         self.assertContains(response, self.second_course.id)
+
+
+@skip_unless_lms
+class AccountActivationEmailFiltersTest(ModuleStoreTestCase):
+    """
+    Tests for the Open edX Filters associated with the account activation email context.
+
+    This class guarantees that the following filter is triggered when the activation email
+    context is generated:
+    - AccountActivationEmailContextGenerated
+    """
+
+    def setUp(self):  # pylint: disable=arguments-differ
+        super().setUp()
+        self.user = UserFactory()
+        self.registration = Registration()
+        self.registration.register(self.user)
+        self.registration.save()
+
+    @override_settings(
+        OPEN_EDX_FILTERS_CONFIG={
+            "org.openedx.authentication.account_activation.email.context.generated.v1": {
+                "pipeline": [
+                    "common.djangoapps.student.tests.test_filters.ActivationEmailWaldoEnricher",
+                ],
+                "fail_silently": False,
+            },
+        },
+    )
+    def test_activation_email_context_generated_filter_executed(self):
+        """
+        Test whether the activation email context filter is triggered before the
+        activation email message context is finalized.
+
+        Expected result:
+            - AccountActivationEmailContextGenerated is triggered and executes
+              ActivationEmailWaldoEnricher.
+            - The composed message's context contains the pipeline step's modification.
+        """
+        message = compose_activation_email(self.user, self.registration)
+
+        assert message.context["show_waldo"] is True
+
+    @override_settings(OPEN_EDX_FILTERS_CONFIG={})
+    def test_activation_email_context_generated_without_filter_config(self):
+        """
+        Test that compose_activation_email succeeds with no pipeline steps configured.
+
+        Expected result:
+            - AccountActivationEmailContextGenerated executes a noop (empty pipeline).
+            - No 'show_waldo' key is injected into the message context.
+        """
+        message = compose_activation_email(self.user, self.registration)
+
+        assert "show_waldo" not in message.context

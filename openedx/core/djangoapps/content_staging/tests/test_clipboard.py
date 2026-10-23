@@ -3,15 +3,20 @@
 Tests for the clipboard functionality
 """
 from textwrap import dedent
+from typing import cast
 from xml.etree import ElementTree
 
+import ddt
+from openedx_authz.constants.roles import COURSE_ADMIN, COURSE_AUDITOR, COURSE_EDITOR, COURSE_STAFF
 from rest_framework.test import APIClient
+
+from common.djangoapps.student.tests.factories import UserFactory
+from openedx.core.djangoapps.authz.tests.mixins import CourseAuthoringAuthzTestMixin
+from openedx.core.djangoapps.content_staging import api as python_api
+from openedx.core.djangoapps.content_staging.models import StagedContent
 from xmodule.contentstore.django import contentstore
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase, upload_file_to_course
 from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory, ToyCourseFactory
-
-from openedx.core.djangoapps.content_staging import api as python_api
-
 
 CLIPBOARD_ENDPOINT = "/api/content-staging/v1/clipboard/"
 
@@ -35,7 +40,7 @@ class ClipboardTestCase(ModuleStoreTestCase):
     Test Clipboard functionality
     """
 
-    def test_empty_clipboard(self):
+    def test_empty_clipboard(self) -> None:
         """
         When a user has no content on their clipboard, we get an empty 200 response
         """
@@ -70,7 +75,7 @@ class ClipboardTestCase(ModuleStoreTestCase):
 
         return (course_key, client)
 
-    def test_copy_video(self):
+    def test_copy_video(self) -> None:
         """
         Test copying a video from the course, and retrieve it using the REST API
         """
@@ -103,7 +108,7 @@ class ClipboardTestCase(ModuleStoreTestCase):
         # Now if we GET the clipboard again, the GET response should exactly equal the last POST response:
         assert client.get(CLIPBOARD_ENDPOINT).json() == response_data
 
-    def test_copy_video_python_get(self):
+    def test_copy_video_python_get(self) -> None:
         """
         Test copying a video from the course, and retrieve it using the python API
         """
@@ -126,9 +131,38 @@ class ClipboardTestCase(ModuleStoreTestCase):
         assert clipboard_data.content.display_name == "default"
         # Test the actual OLX in the clipboard:
         olx_data = python_api.get_staged_content_olx(clipboard_data.content.id)
+        assert olx_data is not None
         self.assertXmlEqual(olx_data, SAMPLE_VIDEO_OLX)
 
-    def test_copy_html(self):
+    def test_uninstalled_xblock_in_clipboard(self) -> None:
+        """
+        A clipboard may hold a *copy* of a block whose XBlock plugin is no longer installed.  Reading the
+        clipboard must still work (it is embedded in the course index response for every course), falling
+        back to the raw block type for the display name.
+        """
+        course_key, client = self._setup_course()
+
+        # Copy the video to the clipboard:
+        video_key = course_key.make_usage_key("video", "sample_video")
+        response = client.post(CLIPBOARD_ENDPOINT, {"usage_key": str(video_key)}, format="json")
+        assert response.status_code == 200
+        staged_content_id = response.json()["content"]["id"]
+        assert response.json()["content"]["block_type_display"] == "Video"
+
+        # Pretend the plugin for this block type was uninstalled after the content was copied:
+        StagedContent.objects.filter(pk=staged_content_id).update(block_type="an_uninstalled_xblock")
+
+        # The REST API should answer 200, using the raw block type as the display name:
+        response = client.get(CLIPBOARD_ENDPOINT)
+        assert response.status_code == 200
+        response_data = response.json()
+        assert response_data["content"]["block_type"] == "an_uninstalled_xblock"
+        assert response_data["content"]["block_type_display"] == "an_uninstalled_xblock"
+
+        # ...and so should the python API, which is what the course index response uses:
+        assert python_api.get_user_clipboard_json(self.user.id, response.wsgi_request) == response_data
+
+    def test_copy_html(self) -> None:
         """
         Test copying an HTML XBlock from the course
         """
@@ -166,7 +200,7 @@ class ClipboardTestCase(ModuleStoreTestCase):
         # Now if we GET the clipboard again, the GET response should exactly equal the last POST response:
         assert client.get(CLIPBOARD_ENDPOINT).json() == response_data
 
-    def test_copy_unit(self):
+    def test_copy_unit(self) -> None:
         """
         Test copying a unit (vertical block) from the course
         """
@@ -242,7 +276,7 @@ class ClipboardTestCase(ModuleStoreTestCase):
         # Now if we GET the clipboard again, the GET response should exactly equal the last POST response:
         assert client.get(CLIPBOARD_ENDPOINT).json() == response_data
 
-    def test_copy_several_things(self):
+    def test_copy_several_things(self) -> None:
         """
         Test that the clipboard only holds one thing at a time.
         """
@@ -275,7 +309,7 @@ class ClipboardTestCase(ModuleStoreTestCase):
         # The OLX link from the video will no longer work:
         assert client.get(old_olx_url).status_code == 404
 
-    def test_copy_static_assets(self):
+    def test_copy_static_assets(self) -> None:
         """
         Test copying an HTML from the course that references a static asset file.
         """
@@ -295,8 +329,9 @@ class ClipboardTestCase(ModuleStoreTestCase):
         # Validate the response:
         assert response.status_code == 200
         response_data = response.json()
-        staged_content_id = response_data["content"]["id"]
+        staged_content_id = cast(python_api.StagedContentID, response_data["content"]["id"])
         olx_str = python_api.get_staged_content_olx(staged_content_id)
+        assert olx_str is not None
         assert '<img src="/static/foo_bar.jpg" />' in olx_str
         static_assets = python_api.get_staged_content_static_files(staged_content_id)
 
@@ -307,7 +342,7 @@ class ClipboardTestCase(ModuleStoreTestCase):
             data=None,
         )]
 
-    def test_copy_static_assets_nonexistent(self):
+    def test_copy_static_assets_nonexistent(self) -> None:
         """
         Test copying a HTML block which references non-existent static assets.
         """
@@ -332,11 +367,12 @@ class ClipboardTestCase(ModuleStoreTestCase):
         response_data = response.json()
         staged_content_id = response_data["content"]["id"]
         olx_str = python_api.get_staged_content_olx(staged_content_id)
+        assert olx_str is not None
         assert '<a href="/static/nonexistent1.jpg">' in olx_str
         static_assets = python_api.get_staged_content_static_files(staged_content_id)
         assert static_assets == []
 
-    def test_no_course_permission(self):
+    def test_no_course_permission(self) -> None:
         """
         Test that a user without read access cannot copy items in a course
         """
@@ -353,7 +389,7 @@ class ClipboardTestCase(ModuleStoreTestCase):
         response = nonstaff_client.get(CLIPBOARD_ENDPOINT)
         assert response.json()["content"] is None
 
-    def test_no_stealing_clipboard_content(self):
+    def test_no_stealing_clipboard_content(self) -> None:
         """
         Test that a user cannot see another user's clipboard
         """
@@ -370,8 +406,45 @@ class ClipboardTestCase(ModuleStoreTestCase):
         response = nonstaff_client.get(olx_url)
         assert response.status_code == 403
 
-    def assertXmlEqual(self, xml_str_a: str, xml_str_b: str):
+    def assertXmlEqual(self, xml_str_a: str, xml_str_b: str) -> None:
         """ Assert that the given XML strings are equal, ignoring attribute order and some whitespace variations. """
         a = ElementTree.canonicalize(xml_str_a, strip_text=True)
         b = ElementTree.canonicalize(xml_str_b, strip_text=True)
         assert a == b
+
+
+@ddt.ddt
+class ClipboardAuthzTest(CourseAuthoringAuthzTestMixin, ModuleStoreTestCase):
+    """
+    Regression test for openedx-authz#403: ClipboardEndpoint.post() required legacy read
+    access via has_studio_read_access(), so AuthZ-native roles with no legacy equivalent
+    (course_auditor, course_editor) got a 403 when copying a unit to the clipboard despite
+    holding COURSES_VIEW_COURSE.
+    """
+
+    @ddt.data(
+        COURSE_STAFF.external_key,
+        COURSE_ADMIN.external_key,
+        COURSE_AUDITOR.external_key,
+        COURSE_EDITOR.external_key,
+    )
+    def test_course_roles_can_copy_unit_to_clipboard(self, role_key):
+        course_key = ToyCourseFactory.create().id
+        html_key = course_key.make_usage_key("html", "toyhtml")
+
+        role_user = UserFactory(password=self.password)
+        self.add_user_to_role_in_course(role_user, role_key, course_key)
+
+        client = APIClient()
+        client.force_authenticate(user=role_user)
+        response = client.post(CLIPBOARD_ENDPOINT, {"usage_key": str(html_key)}, format="json")
+
+        assert response.status_code == 200
+
+    def test_unauthorized_user_gets_permission_denied(self):
+        course_key = ToyCourseFactory.create().id
+        html_key = course_key.make_usage_key("html", "toyhtml")
+
+        with self.allow_transaction_exception():
+            response = self.unauthorized_client.post(CLIPBOARD_ENDPOINT, {"usage_key": str(html_key)}, format="json")
+            assert response.status_code == 403

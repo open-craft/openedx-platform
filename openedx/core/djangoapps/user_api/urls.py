@@ -8,24 +8,22 @@ from django.urls import include, path, re_path
 from rest_framework import routers
 
 from ..profile_images.views import ProfileImageView
+from . import views as user_api_views
 from .accounts.views import (
     AccountDeactivationView,
     AccountRetirementPartnerReportView,
     AccountRetirementStatusView,
     AccountRetirementView,
     AccountViewSet,
+    CancelAccountRetirementStatusView,
     DeactivateLogoutView,
     LMSAccountRetirementView,
     NameChangeView,
-    UsernameReplacementView, CancelAccountRetirementStatusView
+    UsernameReplacementView,
 )
-from . import views as user_api_views
 from .models import UserPreference
 from .preferences.views import PreferencesDetailView, PreferencesView
-from .verification_api.views import (
-    IDVerificationStatusView,
-    IDVerificationStatusDetailsView,
-)
+from .verification_api.views import IDVerificationStatusDetailsView, IDVerificationStatusView
 
 ME = AccountViewSet.as_view({
     'get': 'get',
@@ -116,6 +114,11 @@ urlpatterns = [
         fr'^v1/accounts/{settings.USERNAME_PATTERN}/image$',
         ProfileImageView.as_view(),
         name='accounts_profile_image_api'
+    ),
+    path(
+        'v1/accounts/third_party_auth_error/',
+        user_api_views.ThirdPartyAuthErrorMessageView.as_view(),
+        name='third_party_auth_error_message'
     ),
     re_path(
         fr'^v1/accounts/{settings.USERNAME_PATTERN}/deactivate/$',

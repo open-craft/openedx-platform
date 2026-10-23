@@ -4,23 +4,21 @@ Tasks for discussions
 import logging
 
 from celery import shared_task
-from edx_django_utils.monitoring import set_code_owner_attribute
 from opaque_keys.edx.keys import CourseKey
 from openedx_events.learning.data import CourseDiscussionConfigurationData, DiscussionTopicContext
 from openedx_events.learning.signals import COURSE_DISCUSSIONS_CHANGED
 
 from xmodule.modulestore import ModuleStoreEnum
 from xmodule.modulestore.django import modulestore
-from .config.waffle import ENABLE_NEW_STRUCTURE_DISCUSSIONS
 
-from .models import DiscussionsConfiguration, Provider, DiscussionTopicLink
+from .config.waffle import ENABLE_NEW_STRUCTURE_DISCUSSIONS
+from .models import DiscussionsConfiguration, DiscussionTopicLink, Provider
 from .utils import get_accessible_discussion_xblocks_by_course_id
 
 log = logging.getLogger(__name__)
 
 
 @shared_task
-@set_code_owner_attribute
 def update_discussions_settings_from_course_task(course_key_str: str, discussable_units=None):
     """
     Celery task that creates or updates discussions settings for a course.
@@ -88,8 +86,20 @@ def update_discussions_settings_from_course(
                 )
                 contexts.extend(list(discussable_units))
 
+        # Derive enabled from the discussion tab's is_hidden state.
+        # When a course is imported or rerun, course.tabs are copied verbatim
+        # from the source but DiscussionsConfiguration is not, so we pass the
+        # tab state through config_data for the handler to reconcile.
+        enabled = True
+        if course:
+            for tab in course.tabs:
+                if getattr(tab, 'tab_id', None) == 'discussion':
+                    enabled = not tab.is_hidden
+                    break
+
         config_data = CourseDiscussionConfigurationData(
             course_key=course_key,
+            enabled=enabled,
             enable_in_context=enable_in_context,
             enable_graded_units=enable_graded_units,
             unit_level_visibility=unit_level_visibility,

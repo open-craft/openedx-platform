@@ -18,7 +18,10 @@ from common.djangoapps.student.tests.factories import UserFactory
 from common.djangoapps.third_party_auth.tests.utils import ThirdPartyOAuthTestMixin, ThirdPartyOAuthTestMixinGoogle
 from openedx.core.djangoapps.oauth_dispatch.toggles import DISABLE_JWT_FOR_MOBILE
 from openedx.core.djangolib.testing.utils import skip_unless_lms
+
+from .. import adapters, models, views
 from . import mixins
+from .constants import DUMMY_REDIRECT_URL
 
 # NOTE (CCB): We use this feature flag in a roundabout way to determine if the oauth_dispatch app is installed
 # in the current service--LMS or Studio. Normally we would check if settings.ROOT_URLCONF == 'lms.urls'; however,
@@ -29,10 +32,6 @@ from . import mixins
 # these imports conditional except mixins, which doesn't currently import forbidden models, and is needed at test
 # discovery time.
 
-from .constants import DUMMY_REDIRECT_URL
-from .. import adapters
-from .. import models
-from .. import views
 
 
 class AccessTokenLoginMixin:
@@ -56,7 +55,7 @@ class AccessTokenLoginMixin:
 
         return self.client.post(
             self.login_with_access_token_url,
-            HTTP_AUTHORIZATION=f"Bearer {access_token if access_token else self.access_token}".encode('utf-8')
+            HTTP_AUTHORIZATION=f"Bearer {access_token if access_token else self.access_token}".encode('utf-8')  # noqa: UP012  # pylint: disable=line-too-long
         )
 
     def _assert_access_token_is_valid(self, access_token=None):
@@ -241,7 +240,25 @@ class TestAccessTokenView(AccessTokenLoginMixin, mixins.AccessTokenMixin, _Dispa
             'grant_type': grant_type.replace('-', '_'),
         }
         bad_response = self.client.post(self.url, invalid_body)
+        assert bad_response.status_code == 400
+        assert bad_response.json()['error'] == 'invalid_request'
+        expected_calls = [
+            call('oauth_token_type', 'no_token_type_supplied'),
+            call('oauth_grant_type', 'password'),
+        ]
+        mock_set_custom_attribute.assert_has_calls(expected_calls, any_order=True)
+
+    @patch('edx_django_utils.monitoring.set_custom_attribute')
+    def test_access_token_attributes_for_unauthenticated_client(self, mock_set_custom_attribute):
+        grant_type = dot_models.Application.GRANT_PASSWORD
+        invalid_body = {
+            'grant_type': grant_type.replace('-', '_'),
+            'username': self.user.username,
+            'password': self.TEST_PASSWORD,
+        }
+        bad_response = self.client.post(self.url, invalid_body)
         assert bad_response.status_code == 401
+        assert bad_response.json()['error'] == 'invalid_client'
         expected_calls = [
             call('oauth_token_type', 'no_token_type_supplied'),
             call('oauth_grant_type', 'password'),
@@ -710,7 +727,7 @@ class TestViewDispatch(TestCase):
         _msg_base = '{view} is not a view: {reason}'
         msg_not_callable = _msg_base.format(view=view_candidate, reason='it is not callable')
         msg_no_request = _msg_base.format(view=view_candidate, reason='it has no request argument')
-        assert hasattr(view_candidate, '__call__'), msg_not_callable
+        assert hasattr(view_candidate, '__call__'), msg_not_callable  # noqa: B004
         args = view_candidate.__code__.co_varnames
         assert args, msg_no_request
         assert args[0] == 'request'
@@ -749,7 +766,7 @@ class TestViewDispatch(TestCase):
 
     def test_get_view_for_no_backend(self):
         view_object = views.AccessTokenView()
-        self.assertRaises(KeyError, view_object.get_view_for_backend, None)
+        self.assertRaises(KeyError, view_object.get_view_for_backend, None)  # noqa: PT027
 
 
 class TestRevokeTokenView(AccessTokenLoginMixin, _DispatchingViewTestCase):  # pylint: disable=abstract-method

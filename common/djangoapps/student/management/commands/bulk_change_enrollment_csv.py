@@ -6,17 +6,21 @@ csv file.
 
 import logging
 from os import path
-import unicodecsv
 
+import unicodecsv
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 
-from common.djangoapps.student.models import CourseEnrollment, CourseEnrollmentAttribute, User
-
-from common.djangoapps.student.models import BulkChangeEnrollmentConfiguration
+from common.djangoapps.student.models import (
+    BulkChangeEnrollmentConfiguration,
+    CourseEnrollment,
+    CourseEnrollmentAttribute,
+    User,
+)
+from openedx.core.lib.log_utils import get_username_or_pii_safe_user_id_for_log
 
 logger = logging.getLogger('common.djangoapps.student.management.commands.bulk_change_enrollment_csv')
 
@@ -146,7 +150,8 @@ class Command(BaseCommand):
         """
         # if student already had a enrollment and its mode is same as the provided one
         if course_enrollment.mode == mode:
-            logger.info("Student [%s] is already enrolled in Course [%s] in mode [%s].", user.username,
+            logger.info("Student [%s] is already enrolled in Course [%s] in mode [%s].",
+                        get_username_or_pii_safe_user_id_for_log(user),
                         course_key, course_enrollment.mode)
             # set the enrollment to active if its not already active.
             if not course_enrollment.is_active:

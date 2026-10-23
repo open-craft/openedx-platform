@@ -14,7 +14,7 @@ from django.http import (
     HttpResponseForbidden,
     HttpResponseNotFound,
     HttpResponseNotModified,
-    HttpResponsePermanentRedirect
+    HttpResponsePermanentRedirect,
 )
 from django.views.decorators.http import require_safe
 from edx_django_utils.monitoring import set_custom_attribute
@@ -169,7 +169,7 @@ def process_request(request):
                     if 0 <= first <= last < content.length:
                         # If the byte range is satisfiable
                         response = HttpResponse(content.stream_data_in_range(first, last))
-                        response['Content-Range'] = 'bytes {first}-{last}/{length}'.format(
+                        response['Content-Range'] = 'bytes {first}-{last}/{length}'.format(  # noqa: UP032
                             first=first, last=last, length=content.length
                         )
                         response['Content-Length'] = str(last - first + 1)
@@ -195,6 +195,18 @@ def process_request(request):
         response['Accept-Ranges'] = 'bytes'
         response['Content-Type'] = content.content_type
         response['X-Frame-Options'] = 'ALLOW'
+
+        # Serve every course asset under a Content-Security-Policy sandbox.
+        # ``sandbox`` is a document directive: it only takes effect when the asset
+        # is loaded as a document -- a top-level navigation to the asset URL, or an
+        # <iframe>/<object>/<embed> -- which are exactly the contexts where an
+        # uploaded HTML or SVG file would otherwise execute script in the Studio/LMS
+        # origin. There the asset is placed in an opaque origin with scripting
+        # disabled, so it cannot script against the session. The
+        # ``course_assets.allow_unsafe_asset_rendering`` flag disables this
+        # per-course for content that must be migrated first.
+        if not ALLOW_UNSAFE_ASSET_RENDERING.is_enabled(safe_course_key):
+            response['Content-Security-Policy'] = 'sandbox'
 
         # Set any caching headers, and do any response cleanup needed.  Based on how much
         # middleware we have in place, there's no easy way to use the built-in Django
@@ -226,7 +238,7 @@ def set_caching_headers(content, location, response):
         set_custom_attribute('contentserver.cacheable', True)
 
         response['Expires'] = get_expiration_value(datetime.datetime.utcnow(), cache_ttl)
-        response['Cache-Control'] = "public, max-age={ttl}, s-maxage={ttl}".format(ttl=cache_ttl)
+        response['Cache-Control'] = "public, max-age={ttl}, s-maxage={ttl}".format(ttl=cache_ttl)  # noqa: UP032
     elif is_restricted:
         set_custom_attribute('contentserver.cacheable', False)
 
@@ -288,6 +300,27 @@ def is_content_locked(content):
 # .. toggle_target_removal_date: 2025-10-01
 COURSE_CODE_LIBRARY_DOWNLOAD_ALLOWED = CourseWaffleFlag(
     'course_assets.allow_download_code_library', module_name=__name__,
+)
+
+
+# .. toggle_name: course_assets.allow_unsafe_asset_rendering
+# .. toggle_implementation: CourseWaffleFlag
+# .. toggle_default: False
+# .. toggle_description: When enabled for a course, allows that course's uploaded
+#   assets to be served WITHOUT the ``Content-Security-Policy: sandbox`` header.
+#   By default (flag off) the contentserver sandboxes every course asset response,
+#   so an uploaded asset (for example an HTML or SVG file with embedded scripts) is
+#   loaded in an opaque origin and cannot execute JavaScript against the Studio/LMS
+#   session, preventing stored XSS and privilege escalation via uploaded assets.
+#   Enable this flag for a specific course only as a temporary measure if that
+#   course has legitimate asset content that breaks under sandboxing, until the
+#   content can be migrated to a safer authoring mechanism.
+# .. toggle_warning: Enabling this re-exposes the course to stored XSS via
+#   uploaded assets. Prefer migrating the offending content over enabling it.
+# .. toggle_use_cases: open_edx
+# .. toggle_creation_date: 2026-09-02
+ALLOW_UNSAFE_ASSET_RENDERING = CourseWaffleFlag(
+    'course_assets.allow_unsafe_asset_rendering', module_name=__name__,
 )
 
 
@@ -365,7 +398,7 @@ def parse_range_header(header_value, content_length):
         for byte_range_string in byte_ranges_string.split(','):
             byte_range_string = byte_range_string.strip()
             # Case 0:
-            if '-' not in byte_range_string:  # Invalid syntax of header value.  # lint-amnesty, pylint: disable=no-else-raise
+            if '-' not in byte_range_string:  # Invalid syntax of header value.  # pylint: disable=no-else-raise
                 raise ValueError('Invalid syntax.')
             # Case 1: -500
             elif byte_range_string.startswith('-'):
