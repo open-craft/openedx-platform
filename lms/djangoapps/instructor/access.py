@@ -12,6 +12,7 @@ TO DO sync instructor and staff flags
 
 import logging
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 
@@ -46,6 +47,12 @@ ROLES = {
     'ccx_coach': CourseCcxCoachRole,
     'data_researcher': CourseDataResearcherRole,
 }
+
+if settings.FEATURES.get('ENABLE_ESHE_INSTRUCTOR_ROLE', None):
+    ROLES['eshe_instructor'] = eSHEInstructorRole
+
+if settings.FEATURES.get('ENABLE_TEACHING_ASSISTANT_ROLE', None):
+    ROLES['teaching_assistant'] = TeachingAssistantRole
 
 #: Forum/discussion roles managed through :func:`update_forum_role`.
 #: Stored separately from :data:`ROLES` because they use a different

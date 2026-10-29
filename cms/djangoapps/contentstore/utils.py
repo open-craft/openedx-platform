@@ -62,7 +62,12 @@ from common.djangoapps.edxmako.services import MakoService
 from common.djangoapps.student import auth
 from common.djangoapps.student.auth import STUDIO_EDIT_ROLES, has_studio_read_access, has_studio_write_access
 from common.djangoapps.student.models import CourseEnrollment
-from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole, GlobalStaff
+from common.djangoapps.student.roles import (
+    CourseInstructorRole,
+    CourseStaffRole,
+    GlobalStaff,
+    eSHEInstructorRole,
+)
 from common.djangoapps.track import contexts
 from common.djangoapps.util.course import get_link_for_about_page
 from common.djangoapps.util.date_utils import get_default_time_display
@@ -1904,7 +1909,7 @@ def _get_course_index_context(request, course_key, course_block):
     lms_link = get_lms_link_for_item(course_block.location)
     reindex_link = None
     if settings.FEATURES.get('ENABLE_COURSEWARE_INDEX', False):
-        if GlobalStaff().has_user(request.user):
+        if GlobalStaff().has_user(request.user) or eSHEInstructorRole(course_key).has_user(request.user):
             reindex_link = f"/course/{str(course_key)}/search_reindex"
     sections = course_block.get_children()
     course_structure = _course_outline_json(request, course_block)
