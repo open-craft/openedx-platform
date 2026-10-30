@@ -11,20 +11,22 @@ from django.http import HttpResponse, HttpResponseNotFound
 from django.utils.translation import gettext as _
 from edxval.api import (
     create_or_update_video_transcript,
-    delete_video_transcript as delete_video_transcript_source_function,
     get_3rd_party_transcription_plans,
     get_available_transcript_languages,
+    get_video_transcript,
     get_video_transcript_data,
     update_transcript_credentials_state_for_org,
-    get_video_transcript
 )
+from edxval.api import delete_video_transcript as delete_video_transcript_source_function
 from opaque_keys.edx.keys import CourseKey
+from xblocks_contrib.video.exceptions import TranscriptsGenerationException
 
 from common.djangoapps.util.json_request import JsonResponse
 from openedx.core.djangoapps.video_config.models import VideoTranscriptEnabledFlag
+from openedx.core.djangoapps.video_config.transcripts_utils import (
+    Transcript,  # pylint: disable=wrong-import-order
+)
 from openedx.core.djangoapps.video_pipeline.api import update_3rd_party_transcription_service_credentials
-from openedx.core.djangoapps.video_config.transcripts_utils import Transcript  # lint-amnesty, pylint: disable=wrong-import-order
-from xblocks_contrib.video.exceptions import TranscriptsGenerationException
 
 from .toggles import use_mock_video_uploads
 from .video_storage_handlers import TranscriptProvider
@@ -62,7 +64,7 @@ def validate_transcript_credentials(provider, **credentials):
             must_have_props = ['api_key', 'username']
 
         missing = [
-            must_have_prop for must_have_prop in must_have_props if must_have_prop not in list(credentials.keys())   # lint-amnesty, pylint: disable=consider-iterating-dictionary
+            must_have_prop for must_have_prop in must_have_props if must_have_prop not in list(credentials.keys())   # pylint: disable=consider-iterating-dictionary
         ]
         if missing:
             error_message = '{missing} must be specified.'.format(missing=' and '.join(missing))
@@ -170,18 +172,28 @@ def _create_or_update_video_transcript(**kwargs):
 
 def upload_transcript(request):
     """
-    Upload a transcript file
+    Upload a transcript file for a video, creating or replacing the transcript
+    for ``new_language_code``.
 
     Arguments:
-        request: A WSGI request object
+        request: A WSGI request object. ``request.POST`` must contain
+            ``edx_video_id``, ``language_code`` (the language of the transcript
+            being replaced, if any) and ``new_language_code``; ``request.FILES``
+            must contain the transcript ``file`` in SRT (SubRip) format.
 
-        Transcript file in SRT format
+    Returns:
+        - 201 Created if no transcript existed for ``new_language_code`` yet.
+        - 200 OK if an existing transcript for ``new_language_code`` was replaced.
+        - 400 Bad Request if the file could not be parsed as SRT or decoded as UTF-8.
     """
     edx_video_id = request.POST['edx_video_id']
     language_code = request.POST['language_code']
     new_language_code = request.POST['new_language_code']
     transcript_file = request.FILES['file']
     try:
+        # Determine whether this upload replaces an existing transcript
+        # (return 200) or creates a new one (return 201).
+        is_replace = new_language_code in get_available_transcript_languages(video_id=edx_video_id)
         # Convert SRT transcript into an SJSON format
         # and upload it to S3.
         sjson_subs = Transcript.convert(
@@ -199,7 +211,7 @@ def upload_transcript(request):
             },
             file_data=ContentFile(sjson_subs),
         )
-        response = JsonResponse(status=201)
+        response = JsonResponse(status=200 if is_replace else 201)
     except (TranscriptsGenerationException, UnicodeDecodeError):
         LOGGER.error("Unable to update transcript on edX video %s for language %s", edx_video_id, new_language_code)
         response = JsonResponse(
@@ -231,7 +243,7 @@ def validate_transcript_upload_data(data, files):
         data['language_code'] != data['new_language_code'] and
         data['new_language_code'] in get_available_transcript_languages(video_id=data['edx_video_id'])
     ):
-        error = _('A transcript with the "{language_code}" language code already exists.'.format(  # lint-amnesty, pylint: disable=translation-of-non-string
+        error = _('A transcript with the "{language_code}" language code already exists.'.format(  # pylint: disable=translation-of-non-string
             language_code=data['new_language_code']
         ))
     elif 'file' not in files:

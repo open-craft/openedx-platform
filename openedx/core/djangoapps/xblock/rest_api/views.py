@@ -4,7 +4,7 @@ Views that implement a RESTful API for interacting with XBlocks.
 import json
 from pathlib import Path
 
-from common.djangoapps.util.json_request import JsonResponse
+import openassessment
 from corsheaders.signals import check_request_enabled
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -14,33 +14,29 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from opaque_keys.edx.keys import UsageKeyV2
+from openedx_authz.constants.permissions import COURSES_VIEW_LIBRARY_UPDATES
 from rest_framework import permissions, serializers
-from rest_framework.decorators import api_view, permission_classes  # lint-amnesty, pylint: disable=unused-import
-from rest_framework.exceptions import PermissionDenied, AuthenticationFailed, NotFound
-from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes  # pylint: disable=unused-import
+from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.fields import BooleanField
+from rest_framework.response import Response
 from rest_framework.views import APIView
 from xblock.django.request import DjangoWebobRequest, webob_to_django_response
 from xblock.exceptions import NoSuchUsage
 from xblock.fields import Scope
-import openassessment
 
 import openedx.core.djangoapps.site_configuration.helpers as configuration_helpers
+from common.djangoapps.util.json_request import JsonResponse
+from openedx.core.djangoapps.authz.decorators import user_has_course_permission_for_upstream
 from openedx.core.djangoapps.xblock.learning_context.manager import get_learning_context_impl
 from openedx.core.lib.api.view_utils import view_auth_classes
-from ..api import (
-    CheckPerm,
-    LatestVersion,
-    get_block_metadata,
-    get_block_display_name,
-    get_handler_url as _get_handler_url,
-    load_block,
-    render_block_view as _render_block_view,
-    get_block_olx,
-)
+
+from ..api import CheckPerm, LatestVersion, get_block_display_name, get_block_metadata, get_block_olx, load_block
+from ..api import get_handler_url as _get_handler_url
+from ..api import render_block_view as _render_block_view
 from ..utils import validate_secure_token_for_xblock_handler
-from .url_converters import VersionConverter
 from .serializers import XBlockOlxSerializer
+from .url_converters import VersionConverter
 
 User = get_user_model()
 
@@ -110,8 +106,18 @@ def embed_block_view(request, usage_key: UsageKeyV2, view_name: str):
     except ValueError as exc:
         raise serializers.ValidationError("Invalid version specifier") from exc
 
+    # A user reviewing a library's pending changes from within a course (e.g. a Course
+    # Auditor with courses.view_library_updates) may not have direct access to the
+    # upstream library. That course-level permission substitutes for the regular
+    # library-level check below.
+    check_permission: CheckPerm | None = CheckPerm.CAN_LEARN
+    if user_has_course_permission_for_upstream(
+        request, COURSES_VIEW_LIBRARY_UPDATES.identifier, usage_key
+    ):
+        check_permission = None
+
     try:
-        block = load_block(usage_key, request.user, check_permission=CheckPerm.CAN_LEARN, version=version)
+        block = load_block(usage_key, request.user, check_permission=check_permission, version=version)
     except NoSuchUsage as exc:
         raise NotFound(f"{usage_key} not found") from exc
 
@@ -131,7 +137,7 @@ def embed_block_view(request, usage_key: UsageKeyV2, view_name: str):
 
     new_oa_manifest = {}
     if oa_manifest_path.exists():
-        with open(oa_manifest_path, "r") as f:
+        with open(oa_manifest_path, "r") as f:  # noqa: UP015
             oa_manifest = json.load(f)
             new_oa_manifest = {
                 # When we add the RTL style, it automatically applies that style (right-to-left reading) regardless
@@ -263,7 +269,7 @@ def get_block_olx_view(
     return Response(XBlockOlxSerializer({"olx": olx}).data)
 
 
-def cors_allow_xblock_handler(sender, request, **kwargs):  # lint-amnesty, pylint: disable=unused-argument
+def cors_allow_xblock_handler(sender, request, **kwargs):  # pylint: disable=unused-argument
     """
     Sandboxed XBlocks need to be able to call XBlock handlers via POST,
     from a different domain. See 'xblock_handler' method for details and how security is
@@ -369,7 +375,7 @@ class BlockFieldsView(APIView):
         (Including any set to None.)
         """
         result = {}
-        for field in block.fields.values():  # lint-amnesty, pylint: disable=no-member
+        for field in block.fields.values():  # pylint: disable=no-member
             if field.scope == scope and field.is_set_on(block):
                 try:
                     result[field.name] = field.read_json(block)

@@ -5,11 +5,11 @@ import logging
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
-from edx_django_utils.monitoring import set_code_owner_attribute
-from opaque_keys.edx.locator import CourseKey
 from eventtracking import tracker
+from forum import api as forum_api
+from opaque_keys.edx.locator import CourseKey
 
-from common.djangoapps.student.roles import CourseStaffRole, CourseInstructorRole
+from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole
 from common.djangoapps.track import segment
 from lms.djangoapps.courseware.courses import get_course_with_access
 from lms.djangoapps.discussion.django_comment_client.utils import get_user_role_names
@@ -17,21 +17,19 @@ from lms.djangoapps.discussion.rest_api.discussions_notifications import Discuss
 from lms.djangoapps.discussion.rest_api.utils import can_user_notify_all_learners
 from openedx.core.djangoapps.django_comment_common.comment_client import Comment
 from openedx.core.djangoapps.django_comment_common.comment_client.thread import Thread
-from openedx.core.djangoapps.notifications.config.waffle import ENABLE_NOTIFICATIONS
-
+from openedx.core.djangoapps.notifications.config.waffle import DISABLE_NOTIFICATIONS
 
 User = get_user_model()
 log = logging.getLogger(__name__)
 
 
 @shared_task
-@set_code_owner_attribute
 def send_thread_created_notification(thread_id, course_key_str, user_id, notify_all_learners=False):
     """
     Send notification when a new thread is created
     """
     course_key = CourseKey.from_string(course_key_str)
-    if not ENABLE_NOTIFICATIONS.is_enabled():
+    if DISABLE_NOTIFICATIONS.is_enabled():
         return
     thread = Thread(id=thread_id).retrieve()
     user = User.objects.get(id=user_id)
@@ -49,13 +47,12 @@ def send_thread_created_notification(thread_id, course_key_str, user_id, notify_
 
 
 @shared_task
-@set_code_owner_attribute
 def send_response_notifications(thread_id, course_key_str, user_id, comment_id, parent_id=None):
     """
     Send notifications to users who are subscribed to the thread.
     """
     course_key = CourseKey.from_string(course_key_str)
-    if not ENABLE_NOTIFICATIONS.is_enabled():
+    if DISABLE_NOTIFICATIONS.is_enabled():
         return
     thread = Thread(id=thread_id).retrieve()
     user = User.objects.get(id=user_id)
@@ -68,13 +65,12 @@ def send_response_notifications(thread_id, course_key_str, user_id, comment_id, 
 
 
 @shared_task
-@set_code_owner_attribute
 def send_response_endorsed_notifications(thread_id, response_id, course_key_str, endorsed_by):
     """
     Send notifications when a response is marked answered/ endorsed
     """
     course_key = CourseKey.from_string(course_key_str)
-    if not ENABLE_NOTIFICATIONS.is_enabled():
+    if DISABLE_NOTIFICATIONS.is_enabled():
         return
     thread = Thread(id=thread_id).retrieve()
     response = Comment(id=response_id).retrieve()
@@ -93,15 +89,18 @@ def send_response_endorsed_notifications(thread_id, response_id, course_key_str,
 
 
 @shared_task
-@set_code_owner_attribute
 def delete_course_post_for_user(user_id, username, course_ids, event_data=None):
     """
     Deletes all posts for user in a course.
     """
     event_data = event_data or {}
     log.info(f"<<Bulk Delete>> Deleting all posts for {username} in course {course_ids}")
-    threads_deleted = Thread.delete_user_threads(user_id, course_ids)
-    comments_deleted = Comment.delete_user_comments(user_id, course_ids)
+    threads_deleted = 0
+    comments_deleted = 0
+    for course_id in course_ids:
+        result = forum_api.delete_user_posts(user_id=str(user_id), course_id=course_id)
+        threads_deleted += result.get("thread_count", 0)
+        comments_deleted += result.get("comment_count", 0)
     log.info(f"<<Bulk Delete>> Deleted {threads_deleted} posts and {comments_deleted} comments for {username} "
              f"in course {course_ids}")
     event_data.update({

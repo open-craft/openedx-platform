@@ -1,19 +1,27 @@
 """
-Tests for Learning-Core-based Content Libraries
+Tests for openedx_content-based Content Libraries
 """
-from datetime import datetime, timezone
+import copy
 import textwrap
+from datetime import UTC, datetime
 
 import ddt
 from freezegun import freeze_time
-
-from opaque_keys.edx.locator import LibraryLocatorV2
+from opaque_keys.edx.locator import LibraryContainerLocator, LibraryLocatorV2, LibraryUsageLocatorV2
+from openedx_authz.constants.roles import COURSE_AUDITOR
 
 from common.djangoapps.student.tests.factories import UserFactory
+from openedx.core.djangoapps.authz.tests.mixins import CourseAuthoringAuthzTestMixin
 from openedx.core.djangoapps.content_libraries import api
-from openedx.core.djangoapps.content_libraries.tests.base import ContentLibrariesRestApiTest
+from openedx.core.djangoapps.content_libraries.tests.base import (
+    URL_LIB_CONTAINER,
+    URL_LIB_CONTAINER_CHILDREN,
+    ContentLibrariesRestApiTest,
+)
 from openedx.core.djangoapps.content_tagging import api as tagging_api
 from openedx.core.djangolib.testing.utils import skip_unless_cms
+from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
+from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
 
 @skip_unless_cms
@@ -39,8 +47,8 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.create_date = datetime(2024, 9, 8, 7, 6, 5, tzinfo=timezone.utc)
-        self.modified_date = datetime(2024, 10, 9, 8, 7, 6, tzinfo=timezone.utc)
+        self.create_date = datetime(2024, 9, 8, 7, 6, 5, tzinfo=UTC)
+        self.modified_date = datetime(2024, 10, 9, 8, 7, 6, tzinfo=UTC)
         self.lib = self._create_library(
             slug="containers",
             title="Container Test Library",
@@ -104,10 +112,19 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
             )
 
         # Create blocks
-        self.problem_block = self._add_block_to_library(self.lib["id"], "problem", "Problem1", can_stand_alone=False)
-        self.html_block = self._add_block_to_library(self.lib["id"], "html", "Html1", can_stand_alone=False)
-        self.problem_block_2 = self._add_block_to_library(self.lib["id"], "problem", "Problem2", can_stand_alone=False)
-        self.html_block_2 = self._add_block_to_library(self.lib["id"], "html", "Html2")
+        with freeze_time(self.create_date):
+            self.problem_block = self._add_block_to_library(
+                self.lib["id"], "problem", "Problem1", can_stand_alone=False
+            )
+            self.html_block = self._add_block_to_library(
+                self.lib["id"], "html", "Html1", can_stand_alone=False
+            )
+            self.problem_block_2 = self._add_block_to_library(
+                self.lib["id"], "problem", "Problem2", can_stand_alone=False
+            )
+            self.html_block_2 = self._add_block_to_library(
+                self.lib["id"], "html", "Html2"
+            )
 
         with freeze_time(self.modified_date):
             # Add components to `unit_with_components`
@@ -160,7 +177,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         Test Create, Read, Update, and Delete of a Containers
         """
         # Create container:
-        create_date = datetime(2024, 9, 8, 7, 6, 5, tzinfo=timezone.utc)
+        create_date = datetime(2024, 9, 8, 7, 6, 5, tzinfo=UTC)
         with freeze_time(create_date):
             container_data = self._create_container(
                 self.lib["id"],
@@ -191,7 +208,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         self.assertDictContainsEntries(container_as_read, expected_data)
 
         # Update the container:
-        modified_date = datetime(2024, 10, 9, 8, 7, 6, tzinfo=timezone.utc)
+        modified_date = datetime(2024, 10, 9, 8, 7, 6, tzinfo=UTC)
         with freeze_time(modified_date):
             container_data = self._update_container(container_id, display_name=f"New Display Name for {container_type}")
         expected_data["last_draft_created"] = expected_data["modified"] = "2024-10-09T08:07:06Z"
@@ -529,6 +546,194 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         assert data[0]['id'] == new_subsection_1['id']
         assert data[1]['id'] == new_subsection_2['id']
 
+    def test_published_child_components(self) -> None:
+        """
+        Test that we can get the published version of a unit.
+        """
+        unit_key_str = self.unit_with_components["id"]
+        unit_key = LibraryContainerLocator.from_string(unit_key_str)
+        # Publish "unit with components"
+        self._publish_container(unit_key_str)
+        # Now both its draft and published versions contain 4 identical components:
+        assert api.get_container_children_count(unit_key, published=False) == 4
+        assert api.get_container_children_count(unit_key, published=True) == 4
+
+        original_children = self._get_container_children(unit_key_str)
+        draft_edited_date = datetime(2024, 9, 8, 7, 6, 5, tzinfo=UTC)
+        # Modify the first component:
+        first_child_key_str = original_children[0]["id"]
+        with freeze_time(draft_edited_date):
+            self._set_library_block_olx(first_child_key_str, "<problem display_name=\"DRAFT problem\"></problem>")
+        # And delete the last one:
+        last_child_key_str = original_children[3]["id"]
+        with freeze_time(draft_edited_date):
+            self._delete_library_block(last_child_key_str)
+
+        # Now the counts should be different - the draft has only three children:
+        assert api.get_container_children_count(unit_key, published=False) == 3
+        assert api.get_container_children_count(unit_key, published=True) == 4
+
+        # Check the published version
+        expected_published = copy.deepcopy(original_children)
+        # The first child was modified since publish:
+        expected_published[0]["has_unpublished_changes"] = True
+        # The last child was modified (deleted) since publish:
+        expected_published[3]["has_unpublished_changes"] = True
+        expected_published[3]["last_draft_created"] = None
+        expected_published[3]["last_draft_created_by"] = ""
+
+        assert self._get_container_children(unit_key_str, published=True) == expected_published
+
+        # Check the draft version:
+        expected_draft = copy.deepcopy(original_children)
+        # The first child was modified since publish:
+        expected_draft[0]["display_name"] = "DRAFT problem"
+        expected_draft[0]["has_unpublished_changes"] = True
+        # The last child was modified (deleted) since publish:
+        del expected_draft[3]
+
+        assert self._get_container_children(unit_key_str, published=False) == expected_draft
+
+    def test_published_child_containers(self) -> None:
+        """
+        Test that we can get the published version of a subsection.
+        """
+        subsection_key_str = self.subsection_with_units["id"]
+        subsection_key = LibraryContainerLocator.from_string(subsection_key_str)
+        # Publish "subsection with units"
+        self._publish_container(subsection_key_str)
+        # Now both its draft and published versions contain 4 identical units:
+        assert api.get_container_children_count(subsection_key, published=False) == 4
+        assert api.get_container_children_count(subsection_key, published=True) == 4
+
+        original_children = self._get_container_children(subsection_key_str)
+        draft_edited_date = datetime(2024, 9, 8, 7, 6, 5, tzinfo=UTC)
+        # Modify the first child unit:
+        first_child_key_str = original_children[0]["id"]
+        with freeze_time(draft_edited_date):
+            self._update_container(first_child_key_str, display_name="DRAFT unit")
+        # And delete the last one:
+        last_child_key_str = original_children[3]["id"]
+        with freeze_time(draft_edited_date):
+            self._delete_container(last_child_key_str)
+
+        # Now the counts should be different - the draft has only three children:
+        assert api.get_container_children_count(subsection_key, published=False) == 3
+        assert api.get_container_children_count(subsection_key, published=True) == 4
+
+        # Check the published version
+        expected_published = copy.deepcopy(original_children)
+        # The first child was modified since publish:
+        expected_published[0]["has_unpublished_changes"] = True
+        # The last child was modified (deleted) since publish:
+        expected_published[3]["has_unpublished_changes"] = True
+        expected_published[3]["last_draft_created"] = None
+        expected_published[3]["last_draft_created_by"] = ""  # last draft was deleted.
+
+        assert self._get_container_children(subsection_key_str, published=True)[0] == expected_published[0]
+        assert self._get_container_children(subsection_key_str, published=True)[3] == expected_published[3]
+        assert self._get_container_children(subsection_key_str, published=True) == expected_published
+
+        # Check the draft version:
+        expected_draft = copy.deepcopy(original_children)
+        # The first child was modified since publish:
+        expected_draft[0]["display_name"] = "DRAFT unit"
+        expected_draft[0]["has_unpublished_changes"] = True
+        # The last child was modified (deleted) since publish:
+        del expected_draft[3]
+
+        assert self._get_container_children(subsection_key_str, published=False) == expected_draft
+
+    def test_get_container_children_queries(self):
+        """
+        Test how many queries are used to retrieve the children of a container
+        """
+        empty_unit_key = LibraryContainerLocator.from_string(self.unit["id"])
+        unit_with_children_key = LibraryContainerLocator.from_string(self.unit_with_components["id"])
+        EMPTY_QUERIES = 6
+        PER_CHILD_QUERIES = 10  # There's room to optimize here.
+        with self.assertNumQueries(EMPTY_QUERIES):
+            result = api.get_container_children(empty_unit_key)
+            assert len(result) == 0
+        with self.assertNumQueries(6):
+            num_children = api.get_container_children_count(unit_with_children_key)
+        with self.assertNumQueries(EMPTY_QUERIES + PER_CHILD_QUERIES * num_children):
+            result = api.get_container_children(unit_with_children_key)
+            assert len(result) == num_children
+
+    def test_get_container_children_list_components(self) -> None:
+        """
+        Test that we can use get_container_children_list() to get the draft and
+        published children of any container, simply and performantly.
+        """
+        # Publish "unit with components"
+        unit_key_str = self.unit_with_components["id"]
+        unit_key = LibraryContainerLocator.from_string(unit_key_str)
+        self._publish_container(unit_key_str)
+
+        original_list = api.get_container_children_list(unit_key, published=True)
+        assert original_list == [
+            api.ContainerChildMetadata(
+                display_name='Blank Problem',
+                key=LibraryUsageLocatorV2.from_string('lb:CL-TEST:containers:problem:Problem1'),
+            ),
+            api.ContainerChildMetadata(
+                display_name='Text',
+                key=LibraryUsageLocatorV2.from_string('lb:CL-TEST:containers:html:Html1'),
+            ),
+            api.ContainerChildMetadata(
+                display_name='Blank Problem',
+                key=LibraryUsageLocatorV2.from_string('lb:CL-TEST:containers:problem:Problem2'),
+            ),
+            api.ContainerChildMetadata(
+                display_name='Text',
+                key=LibraryUsageLocatorV2.from_string('lb:CL-TEST:containers:html:Html2'),
+            ),
+        ]
+
+        # Modify the first component:
+        first_child_key = original_list[0].key
+        self._set_library_block_olx(str(first_child_key), "<problem display_name=\"DRAFT problem\"></problem>")
+        # And delete the last one:
+        last_child_key = original_list[3].key
+        self._delete_library_block(str(last_child_key))
+
+        # Now the counts should be different - the draft has only three children:
+        assert api.get_container_children_list(unit_key, published=True) == original_list
+        assert api.get_container_children_list(unit_key, published=False) == [
+            api.ContainerChildMetadata(
+                display_name='DRAFT problem',  # new name
+                key=LibraryUsageLocatorV2.from_string('lb:CL-TEST:containers:problem:Problem1'),
+            ),
+            api.ContainerChildMetadata(
+                display_name='Text',
+                key=LibraryUsageLocatorV2.from_string('lb:CL-TEST:containers:html:Html1'),
+            ),
+            api.ContainerChildMetadata(
+                display_name='Blank Problem',
+                key=LibraryUsageLocatorV2.from_string('lb:CL-TEST:containers:problem:Problem2'),
+            ),
+            # last component was deleted.
+        ]
+
+
+    def test_get_container_children_list_queries(self):
+        """
+        Test how many queries are used to retrieve the children of a container
+        """
+        empty_unit_key = LibraryContainerLocator.from_string(self.unit["id"])
+        unit_with_children_key = LibraryContainerLocator.from_string(self.unit_with_components["id"])
+        EMPTY_QUERIES = 6
+        PER_CHILD_QUERIES = 3  # There's room to optimize here - remove the componenttype lookups
+        with self.assertNumQueries(EMPTY_QUERIES):
+            result = api.get_container_children_list(empty_unit_key, published=False)
+            assert len(result) == 0
+        with self.assertNumQueries(6):
+            num_children = api.get_container_children_count(unit_with_children_key)
+        with self.assertNumQueries(EMPTY_QUERIES + PER_CHILD_QUERIES * num_children):
+            result = api.get_container_children_list(unit_with_children_key, published=False)
+            assert len(result) == num_children
+
     @ddt.data(
         "unit",
         "subsection",
@@ -592,7 +797,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
 
         result = self._patch_container_collections(
             self.unit["id"],
-            collection_keys=[col1.key],
+            collection_keys=[col1.collection_code],
         )
 
         assert result['count'] == 1
@@ -601,10 +806,10 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         unit_as_read = self._get_container(self.unit["id"])
 
         # Verify the collections
-        assert unit_as_read['collections'] == [{"title": col1.title, "key": col1.key}]
+        assert unit_as_read['collections'] == [{"title": col1.title, "key": col1.collection_code}]
 
     def test_section_hierarchy(self):
-        with self.assertNumQueries(133):
+        with self.assertNumQueries(126):
             hierarchy = self._get_container_hierarchy(self.section_with_subsections["id"])
         assert hierarchy["object_key"] == self.section_with_subsections["id"]
         assert hierarchy["components"] == [
@@ -630,7 +835,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         ]
 
     def test_subsection_hierarchy(self):
-        with self.assertNumQueries(95):
+        with self.assertNumQueries(91):
             hierarchy = self._get_container_hierarchy(self.subsection_with_units["id"])
         assert hierarchy["object_key"] == self.subsection_with_units["id"]
         assert hierarchy["components"] == [
@@ -653,7 +858,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         ]
 
     def test_units_hierarchy(self):
-        with self.assertNumQueries(60):
+        with self.assertNumQueries(56):
             hierarchy = self._get_container_hierarchy(self.unit_with_components["id"])
         assert hierarchy["object_key"] == self.unit_with_components["id"]
         assert hierarchy["components"] == [
@@ -679,7 +884,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         )
 
     def test_block_hierarchy(self):
-        with self.assertNumQueries(27):
+        with self.assertNumQueries(24):
             hierarchy = self._get_block_hierarchy(self.problem_block["id"])
         assert hierarchy["object_key"] == self.problem_block["id"]
         assert hierarchy["components"] == [
@@ -840,6 +1045,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         # Test the actual OLX in the clipboard:
         olx_data = staging_api.get_staged_content_olx(clipboard_data.content.id)
         assert olx_data is not None
+        # pylint: disable=line-too-long
         assert olx_data == textwrap.dedent(f"""\
           <chapter copied_from_block="{self.section_with_subsections["id"]}" copied_from_version="2" display_name="Section with subsections">
             <sequential copied_from_block="{self.subsection["id"]}" copied_from_version="1" display_name="Subsection Alpha"/>
@@ -858,6 +1064,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
             <sequential copied_from_block="{self.subsection_3["id"]}" copied_from_version="1" display_name="Test Subsection 3"/>
           </chapter>
         """)
+        # pylint: enable=line-too-long
 
     def test_publish_subsection(self) -> None:
         """
@@ -875,7 +1082,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         )
 
         # TODO -- remove this when containers publish their children:
-        # https://github.com/openedx/openedx-learning/pull/307
+        # https://github.com/openedx/openedx-core/pull/307
         # Removing the unit with components because the components (children of children) are not published.
         # If the unit is kept, the subsection continues to have changes even after it is published.
         self._remove_container_children(
@@ -951,7 +1158,7 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         )
 
         # TODO -- remove this when containers publish their children:
-        # https://github.com/openedx/openedx-learning/pull/307
+        # https://github.com/openedx/openedx-core/pull/307
         # Removing the subsection with units because the units (children of children) are not published.
         # If the subsection is kept, the section continues to have changes even after it is published.
         self._remove_container_children(
@@ -1012,3 +1219,212 @@ class ContainersTestCase(ContentLibrariesRestApiTest):
         assert c2_units_after[1]["id"] == subsection_4["id"]
         assert c2_units_after[1]["has_unpublished_changes"]  # unaffected
         assert c2_units_after[1]["published_by"] is None
+
+    def test_container_draft_history_empty_after_publish(self):
+        """
+        A container with no unpublished changes since its last publish has an empty draft history.
+        """
+        unit = self._create_container(self.lib["id"], "unit", display_name="History Unit", slug=None)
+        self._publish_container(unit["id"])
+
+        history = self._get_container_draft_history(unit["id"])
+        assert history == []
+
+    def test_container_draft_history_shows_unpublished_edits(self):
+        """
+        Draft history contains entries for edits made since the last publication,
+        ordered most-recent-first, with the correct fields.
+        """
+        with freeze_time(datetime(2026, 1, 1, tzinfo=UTC)):
+            unit = self._create_container(self.lib["id"], "unit", display_name="History Unit Edits", slug=None)
+        with freeze_time(datetime(2026, 2, 1, tzinfo=UTC)):
+            self._publish_container(unit["id"])
+
+        edit1_time = datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC)
+        with freeze_time(edit1_time):
+            self._update_container(unit["id"], display_name="History Unit Edits v2")
+
+        edit2_time = datetime(2026, 4, 2, 10, 0, 0, tzinfo=UTC)
+        with freeze_time(edit2_time):
+            self._update_container(unit["id"], display_name="History Unit Edits v3")
+
+        history = self._get_container_draft_history(unit["id"])
+        assert len(history) == 2
+        assert history[0]["changed_at"] == edit2_time.isoformat().replace("+00:00", "Z")
+        assert history[1]["changed_at"] == edit1_time.isoformat().replace("+00:00", "Z")
+        entry = history[0]
+        assert "contributor" in entry
+        assert "title" in entry
+        assert "action" in entry
+
+    def test_container_draft_history_includes_descendant_components(self):
+        """
+        The history of a container includes entries from its descendant components,
+        merged and sorted newest-first.
+        """
+        with freeze_time(datetime(2026, 1, 1, tzinfo=UTC)):
+            unit = self._create_container(self.lib["id"], "unit", display_name="History Unit Children", slug=None)
+            block = self._add_block_to_library(self.lib["id"], "problem", "hist-prob", can_stand_alone=False)
+            self._add_container_children(unit["id"], children_ids=[block["id"]])
+        with freeze_time(datetime(2026, 2, 1, tzinfo=UTC)):
+            self._publish_container(unit["id"])
+
+        container_edit_time = datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC)
+        with freeze_time(container_edit_time):
+            self._update_container(unit["id"], display_name="History Unit Children v2")
+
+        block_edit_time = datetime(2026, 4, 2, 10, 0, 0, tzinfo=UTC)
+        with freeze_time(block_edit_time):
+            self._set_library_block_olx(block["id"], "<problem><p>edited</p></problem>")
+
+        history = self._get_container_draft_history(unit["id"])
+        changed_at_list = [entry["changed_at"] for entry in history]
+        # Both the container edit and the block edit should appear in the history.
+        block_edit_time_str = block_edit_time.isoformat().replace("+00:00", "Z")
+        container_edit_time_str = container_edit_time.isoformat().replace("+00:00", "Z")
+        assert block_edit_time_str in changed_at_list
+        assert container_edit_time_str in changed_at_list
+        # History is sorted newest-first, so the block edit should come before the container edit.
+        assert changed_at_list.index(block_edit_time_str) < changed_at_list.index(container_edit_time_str)
+
+    def test_container_draft_history_action_renamed(self):
+        """
+        When the title changes, the action is 'renamed'.
+        """
+        unit = self._create_container(self.lib["id"], "unit", display_name="Original Name", slug=None)
+        self._publish_container(unit["id"])
+        self._update_container(unit["id"], display_name="New Name")
+
+        history = self._get_container_draft_history(unit["id"])
+        assert len(history) >= 1
+        assert history[0]["action"] == "renamed"
+
+    def test_container_draft_history_cleared_after_publish(self):
+        """
+        After publishing, the draft history resets to empty.
+        """
+        unit = self._create_container(self.lib["id"], "unit", display_name="Clear History Unit", slug=None)
+        self._publish_container(unit["id"])
+        self._update_container(unit["id"], display_name="Updated Name")
+        assert len(self._get_container_draft_history(unit["id"])) >= 1
+
+        self._publish_container(unit["id"])
+        assert self._get_container_draft_history(unit["id"]) == []
+
+    def test_container_draft_history_nonexistent_container(self):
+        """
+        Requesting draft history for a non-existent container returns 404.
+        """
+        self._get_container_draft_history(
+            "lct:CL-TEST:containers:unit:nonexistent",
+            expect_response=404,
+        )
+
+    def test_container_draft_history_permissions(self):
+        """
+        A user without library access receives 403.
+        """
+        unit = self._create_container(self.lib["id"], "unit", display_name="Auth Unit", slug=None)
+        self._update_container(unit["id"], display_name="Updated Auth Unit")
+
+        unauthorized = UserFactory.create(username="noauth-container-hist", password="edx")
+        with self.as_user(unauthorized):
+            self._get_container_draft_history(unit["id"], expect_response=403)
+
+
+@skip_unless_cms
+class ContainerLibraryUpdatesAuthzBypassTest(
+    CourseAuthoringAuthzTestMixin, ContentLibrariesRestApiTest, ModuleStoreTestCase,
+):
+    """
+    A course auditor has no direct permissions on the library backing a unit they're
+    reviewing, but does hold `courses.view_library_updates` in the course. Passing the
+    linked downstream unit's usage key as `course_id` should let them view the upstream
+    container/children anyway, but only because that specific downstream is actually
+    linked to it: holding the permission in the course alone isn't enough.
+
+    See openedx-authz#441.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.course = CourseFactory.create()
+        self.add_user_to_role_in_course(self.authorized_user, COURSE_AUDITOR.external_key, str(self.course.id))
+
+        self.lib = self._create_library(slug="library-updates-lib", title="Library Updates Test Library")
+        self.container_key = self._create_container(
+            self.lib["id"], "unit", display_name="Reviewable Unit", slug=None,
+        )["id"]
+
+        # Linked to self.container_key: this is the downstream that should grant access.
+        self.linked_downstream_id = str(
+            BlockFactory.create(category="vertical", parent=self.course, upstream=self.container_key).location
+        )
+        # In the same (accessible) course, but not linked to self.container_key at all: this
+        # is what openedx-authz#441 was actually about, holding the course permission must
+        # not be enough on its own, the resource has to be linked to that specific downstream.
+        self.unrelated_downstream_id = str(
+            BlockFactory.create(category="vertical", parent=self.course).location
+        )
+
+    def test_container_detail_denied_without_course_id(self):
+        """A course auditor with no library access is denied when course_id isn't given."""
+        with self.as_user(self.authorized_user), self.allow_transaction_exception():
+            response = self.client.get(URL_LIB_CONTAINER.format(container_key=self.container_key))
+        assert response.status_code == 403
+
+    def test_container_detail_allowed_with_linked_downstream(self):
+        """The same course auditor is allowed once course_id points at the linked downstream."""
+        with self.as_user(self.authorized_user):
+            response = self.client.get(
+                URL_LIB_CONTAINER.format(container_key=self.container_key),
+                {"downstream_block_id": self.linked_downstream_id},
+            )
+        assert response.status_code == 200
+
+    def test_container_children_denied_without_course_id(self):
+        """Same as test_container_detail_denied_without_course_id, for the children endpoint."""
+        with self.as_user(self.authorized_user), self.allow_transaction_exception():
+            response = self.client.get(URL_LIB_CONTAINER_CHILDREN.format(container_key=self.container_key))
+        assert response.status_code == 403
+
+    def test_container_children_allowed_with_linked_downstream(self):
+        """Same as test_container_detail_allowed_with_linked_downstream, for the children endpoint."""
+        with self.as_user(self.authorized_user):
+            response = self.client.get(
+                URL_LIB_CONTAINER_CHILDREN.format(container_key=self.container_key),
+                {"downstream_block_id": self.linked_downstream_id},
+            )
+        assert response.status_code == 200
+
+    def test_unrelated_course_id_is_denied(self):
+        """A course_id where the user holds no role at all must not grant access."""
+        with self.as_user(self.authorized_user), self.allow_transaction_exception():
+            response = self.client.get(
+                URL_LIB_CONTAINER.format(container_key=self.container_key),
+                {"downstream_block_id": "course-v1:CL-TEST+OTHER101+2025"},
+            )
+        assert response.status_code == 403
+
+    def test_downstream_not_linked_to_this_container_is_denied(self):
+        """
+        A downstream in a course the user can review, but that isn't linked to this
+        container, must not grant access. Regression test for openedx-authz#441: the
+        original implementation trusted the course_id alone, so holding the permission in
+        any course was enough to read any library resource, whether or not that course
+        actually used it.
+        """
+        with self.as_user(self.authorized_user), self.allow_transaction_exception():
+            response = self.client.get(
+                URL_LIB_CONTAINER.format(container_key=self.container_key),
+                {"downstream_block_id": self.unrelated_downstream_id},
+            )
+        assert response.status_code == 403
+
+    def test_library_permission_alone_still_works_without_course_id(self):
+        """
+        Backward compatibility: a user with direct library access (self.user, who created
+        the library) keeps working exactly as before, without ever passing course_id.
+        """
+        response = self.client.get(URL_LIB_CONTAINER.format(container_key=self.container_key))
+        assert response.status_code == 200

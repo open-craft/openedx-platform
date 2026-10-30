@@ -3,22 +3,24 @@ Block rendering
 """
 
 from __future__ import annotations
+
 import json
 import logging
 import textwrap
 from collections import OrderedDict
-
-from functools import partial
+from functools import lru_cache, partial
+from typing import TYPE_CHECKING, Callable  # noqa: UP035
 
 from completion.services import CompletionService
 from django.conf import settings
-from django.contrib.auth.models import AnonymousUser, User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import AnonymousUser, User  # pylint: disable=imported-auth-user
 from django.core.cache import cache
 from django.db import transaction
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.middleware.csrf import CsrfViewMiddleware
 from django.template.context_processors import csrf
 from django.urls import reverse
+from django.utils.module_loading import import_string
 from django.utils.text import slugify
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
@@ -34,70 +36,77 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import APIException
-from typing import Callable, TYPE_CHECKING
 from web_fragments.fragment import Fragment
 from xblock.django.request import django_to_webob_request, webob_to_django_response
 from xblock.exceptions import NoSuchHandlerError, NoSuchViewError, NotFoundError, ProcessingError
 from xblock.reference.plugins import FSService
 from xblock.runtime import KvsFieldData
+from xblocks_contrib.video.exceptions import TranscriptNotFoundError
 
+from common.djangoapps.edxmako.services import MakoService
+from common.djangoapps.static_replace.services import ReplaceURLService
+from common.djangoapps.static_replace.wrapper import replace_urls_wrapper
+from common.djangoapps.student.models import anonymous_id_for_user
+from common.djangoapps.student.roles import CourseBetaTesterRole
+from common.djangoapps.util import milestones_helpers
+from common.djangoapps.util.json_request import JsonResponse
+from common.djangoapps.xblock_django.user_service import DjangoXBlockUserService
+from lms.djangoapps.courseware.access import get_user_role, has_access
+from lms.djangoapps.courseware.entrance_exams import user_can_skip_entrance_exam, user_has_passed_entrance_exam
+from lms.djangoapps.courseware.field_overrides import OverrideFieldData
+from lms.djangoapps.courseware.masquerade import (
+    MasqueradingKeyValueStore,
+    filter_displayed_blocks,
+    is_masquerading_as_specific_student,
+    setup_masquerade,
+)
+from lms.djangoapps.courseware.model_data import DjangoKeyValueStore, FieldDataCache
+from lms.djangoapps.courseware.services import UserStateService
+from lms.djangoapps.grades.api import GradesUtilService
+from lms.djangoapps.lms_xblock.field_data import LmsFieldData
+from lms.djangoapps.lms_xblock.runtime import UserTagsService, lms_applicable_aside_types, lms_wrappers_aside
 from lms.djangoapps.teams.services import TeamsService
+from lms.djangoapps.verify_student.services import XBlockVerificationService
+from openedx.core.djangoapps.bookmarks.api import BookmarksService
+from openedx.core.djangoapps.crawlers.models import CrawlersConfig
+from openedx.core.djangoapps.credit.services import CreditService
+from openedx.core.djangoapps.discussions.services import DiscussionConfigService
+from openedx.core.djangoapps.enrollments.services import EnrollmentsService
+from openedx.core.djangoapps.util.user_utils import SystemUser
 from openedx.core.djangoapps.video_config.services import VideoConfigService
+from openedx.core.djangolib.markup import HTML
+from openedx.core.lib.api.authentication import BearerAuthenticationAllowInactiveUser
+from openedx.core.lib.api.view_utils import view_auth_classes
+from openedx.core.lib.cache_utils import CacheService
+from openedx.core.lib.gating.services import GatingService
+from openedx.core.lib.license import wrap_with_license
+from openedx.core.lib.url_utils import quote_slashes, unquote_slashes
 from openedx.core.lib.xblock_services.call_to_action import CallToActionService
+from openedx.core.lib.xblock_utils import (
+    add_staff_markup,
+    get_aside_from_xblock,
+    hash_resource,
+    is_xblock_aside,
+    wrap_xblock,
+)
+from openedx.core.lib.xblock_utils import request_token as xblock_request_token
+from openedx.features.content_type_gating.services import ContentTypeGatingService
+from openedx.features.course_duration_limits.access import course_expiration_wrapper
+from openedx.features.discounts.utils import offer_banner_wrapper
 from xmodule.contentstore.django import contentstore
 from xmodule.exceptions import NotFoundError as XModuleNotFoundError
 from xmodule.library_tools import LegacyLibraryToolsService
 from xmodule.modulestore.django import XBlockI18nService, modulestore
 from xmodule.modulestore.exceptions import ItemNotFoundError
 from xmodule.partitions.partitions_service import PartitionService
+from xmodule.services import (
+    EventPublishingService,
+    RebindUserService,
+    SettingsService,
+    TeamsConfigurationService,
+    XQueueService,
+)
 from xmodule.util.sandboxing import SandboxService
-from xmodule.services import EventPublishingService, RebindUserService, SettingsService, TeamsConfigurationService
-from common.djangoapps.static_replace.services import ReplaceURLService
-from common.djangoapps.static_replace.wrapper import replace_urls_wrapper
-from lms.djangoapps.courseware.access import get_user_role, has_access
-from lms.djangoapps.courseware.entrance_exams import user_can_skip_entrance_exam, user_has_passed_entrance_exam
-from lms.djangoapps.courseware.masquerade import (
-    MasqueradingKeyValueStore,
-    filter_displayed_blocks,
-    is_masquerading_as_specific_student,
-    setup_masquerade
-)
-from lms.djangoapps.courseware.model_data import DjangoKeyValueStore, FieldDataCache
-from lms.djangoapps.courseware.field_overrides import OverrideFieldData
-from lms.djangoapps.courseware.services import UserStateService
-from lms.djangoapps.grades.api import GradesUtilService
-from lms.djangoapps.lms_xblock.field_data import LmsFieldData
-from lms.djangoapps.lms_xblock.runtime import UserTagsService, lms_wrappers_aside, lms_applicable_aside_types
-from lms.djangoapps.verify_student.services import XBlockVerificationService
-from openedx.core.djangoapps.bookmarks.api import BookmarksService
-from openedx.core.djangoapps.crawlers.models import CrawlersConfig
-from openedx.core.djangoapps.credit.services import CreditService
-from openedx.core.djangoapps.enrollments.services import EnrollmentsService
-from openedx.core.djangoapps.util.user_utils import SystemUser
-from openedx.core.djangolib.markup import HTML
-from openedx.core.lib.api.authentication import BearerAuthenticationAllowInactiveUser
-from openedx.core.lib.api.view_utils import view_auth_classes
-from openedx.core.lib.gating.services import GatingService
-from openedx.core.lib.license import wrap_with_license
-from openedx.core.lib.url_utils import quote_slashes, unquote_slashes
-from openedx.core.lib.xblock_utils import (
-    add_staff_markup,
-    get_aside_from_xblock,
-    hash_resource,
-    is_xblock_aside
-)
-from openedx.core.lib.xblock_utils import request_token as xblock_request_token
-from openedx.core.lib.xblock_utils import wrap_xblock
-from openedx.features.course_duration_limits.access import course_expiration_wrapper
-from openedx.features.discounts.utils import offer_banner_wrapper
-from openedx.features.content_type_gating.services import ContentTypeGatingService
-from common.djangoapps.student.models import anonymous_id_for_user
-from common.djangoapps.student.roles import CourseBetaTesterRole
-from common.djangoapps.util import milestones_helpers
-from common.djangoapps.util.json_request import JsonResponse
-from common.djangoapps.edxmako.services import MakoService
-from common.djangoapps.xblock_django.user_service import DjangoXBlockUserService
-from openedx.core.lib.cache_utils import CacheService
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -117,7 +126,7 @@ class LmsModuleRenderError(Exception):
     """
     An exception class for exceptions thrown by block_render that don't fit well elsewhere
     """
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass
 
 
 def make_track_function(request):
@@ -252,7 +261,7 @@ def _add_timed_exam_info(user, course, section, section_context):
     """
     section_is_time_limited = (
         getattr(section, 'is_time_limited', False) and
-        settings.FEATURES.get('ENABLE_SPECIAL_EXAMS', False)
+        settings.ENABLE_SPECIAL_EXAMS
     )
     if section_is_time_limited:
         # call into edx_proctoring subsystem
@@ -548,7 +557,7 @@ def prepare_runtime_for_user(
         block_wrappers.append(filter_displayed_blocks)
 
     mako_service = MakoService()
-    if settings.FEATURES.get("LICENSING", False):
+    if settings.LICENSING:
         block_wrappers.append(partial(wrap_with_license, mako_service=mako_service))
 
     # Wrap the output display in a single div to allow for the XBlock
@@ -577,7 +586,7 @@ def prepare_runtime_for_user(
 
     user_is_staff = bool(has_access(user, 'staff', course_id))
 
-    if settings.FEATURES.get('DISPLAY_DEBUG_INFO_TO_STAFF'):
+    if settings.DISPLAY_DEBUG_INFO_TO_STAFF:
         if user_is_staff or is_masquerading_as_specific_student(user, course_id):
             # When masquerading as a specific student, we want to show the debug button
             # unconditionally to enable resetting the state of the student we are masquerading as.
@@ -637,12 +646,14 @@ def prepare_runtime_for_user(
         'publish': EventPublishingService(user, course_id, track_function),
         'enrollments': EnrollmentsService(),
         'video_config': VideoConfigService(),
+        'discussion_config_service': DiscussionConfigService(),
+        'xqueue': XQueueService,
     }
 
     runtime.get_block_for_descriptor = inner_get_block
 
     runtime.wrappers = block_wrappers
-    runtime._services.update(services)  # lint-amnesty, pylint: disable=protected-access
+    runtime._services.update(services)  # pylint: disable=protected-access
     runtime.request_token = request_token
     runtime.wrap_asides_override = lms_wrappers_aside
     runtime.applicable_aside_types_override = lms_applicable_aside_types
@@ -727,13 +738,18 @@ def xqueue_callback(request, course_id, userid, mod_id, dispatch):
 def handle_xblock_callback_noauth(request, course_id, usage_id, handler, suffix=None):
     """
     Entry point for unauthenticated XBlock handlers.
+
+    Only the handlers listed in ``settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST`` can be called here. This view is
+    exempt from CSRF checks, so the handler always runs as an anonymous user, even if the request carries a
+    session, and the block's access checks are skipped.
     """
+    request.user = AnonymousUser()
     request.user.known = False
 
     course_key = CourseKey.from_string(course_id)
     with modulestore().bulk_operations(course_key):
         course = modulestore().get_course(course_key, depth=0)
-        return _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course=course)
+        return _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course=course, noauth=True)
 
 
 @csrf_exempt
@@ -784,27 +800,55 @@ def handle_xblock_callback(request, course_id, usage_id, handler, suffix=None):
                     break
 
     # NOTE (CCB): Allow anonymous GET calls (e.g. for transcripts). Modifying this view is simpler than updating
-    # the XBlocks to use `handle_xblock_callback_noauth`, which is practically identical to this view.
+    # the XBlocks to use `handle_xblock_callback_noauth`. Anonymous GET calls still go through the block's
+    # access checks, so they only reach blocks that an anonymous user is allowed to load.
     # Block all request types coming from restricted applications.
     if (
         request.method != 'GET' and not (request.user and request.user.is_authenticated)
     ) or JwtRestrictedApplication().has_permission(request, None):  # type: ignore
         return HttpResponseForbidden('Unauthenticated')
 
-    request.user.known = request.user.is_authenticated
-
     try:
         course_key = CourseKey.from_string(course_id)
     except InvalidKeyError:
-        raise Http404(f'{course_id} is not a valid course key')  # lint-amnesty, pylint: disable=raise-missing-from
+        raise Http404(f'{course_id} is not a valid course key')  # pylint: disable=raise-missing-from  # noqa: B904
 
     with modulestore().bulk_operations(course_key):
         try:
             course = modulestore().get_course(course_key)
         except ItemNotFoundError:
-            raise Http404(f'{course_id} does not exist in the modulestore')  # lint-amnesty, pylint: disable=raise-missing-from
+            raise Http404(f'{course_id} does not exist in the modulestore')  # pylint: disable=raise-missing-from  # noqa: B904
 
         return _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course=course)
+
+
+@lru_cache
+def _get_noauth_handlers(handler_paths: tuple[str, ...]) -> frozenset[Callable]:
+    """
+    Import the handler methods named by dotted paths in ``settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST``.
+
+    Paths that cannot be imported (for example, from an XBlock package that isn't installed) are skipped.
+    """
+    handlers = set()
+    for handler_path in handler_paths:
+        class_path, _, method_name = handler_path.rpartition('.')
+        try:
+            handlers.add(getattr(import_string(class_path), method_name))
+        except (ImportError, AttributeError):
+            log.warning("Skipping XBLOCK_NOAUTH_HANDLER_ALLOWLIST entry %r: it could not be imported", handler_path)
+    return frozenset(handlers)
+
+
+def _is_noauth_handler_allowed(handler_instance, handler: str) -> bool:
+    """
+    Return True if ``handler`` on ``handler_instance`` may be called through the noauth handler URL.
+
+    The method is looked up on the instance's class, so a subclass that overrides an allowed handler
+    has to be allowed separately.
+    """
+    handler_method = getattr(type(handler_instance), handler, None)
+    allowed = _get_noauth_handlers(tuple(settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST))
+    return handler_method is not None and handler_method in allowed
 
 
 def _get_usage_key_for_course(course_key, usage_id) -> UsageKey:
@@ -887,7 +931,7 @@ def get_block_by_usage_id(request, course_id, usage_id, disable_staff_debug_info
     return instance, tracking_context
 
 
-def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course=None):
+def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course=None, noauth=False):
     """
     Invoke an XBlock handler, either authenticated or not.
 
@@ -897,6 +941,8 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course
         usage_id (str): A string of the form i4x://org/course/category/name@revision
         handler (str): The name of the handler to invoke
         suffix (str): The suffix to pass to the handler when invoked
+        noauth (bool): True for the unauthenticated handler URL, which only allows the handlers in
+            ``settings.XBLOCK_NOAUTH_HANDLER_ALLOWLIST``
     """
 
     # Check submitted files
@@ -942,17 +988,22 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course
         nr_tx_name += f"/{suffix}" if (suffix and handler == "xmodule_handler") else ""
         set_monitoring_transaction_name(nr_tx_name, group="Python/XBlock/Handler")
 
+        if is_xblock_aside(usage_key):
+            # In this case, 'instance' is the XBlock being wrapped by the aside, so
+            # the actual aside instance needs to be retrieved in order to invoke its
+            # handler method.
+            handler_instance = get_aside_from_xblock(instance, usage_key.aside_type)
+        else:
+            handler_instance = instance
+
+        if noauth and not _is_noauth_handler_allowed(handler_instance, handler):
+            log.info("XBlock handler %r on %s is not allowed on the noauth handler URL", handler, usage_key)
+            raise Http404
+
         tracking_context_name = 'module_callback_handler'
         req = django_to_webob_request(request)
         try:
             with tracker.get_tracker().context(tracking_context_name, tracking_context):
-                if is_xblock_aside(usage_key):
-                    # In this case, 'instance' is the XBlock being wrapped by the aside, so
-                    # the actual aside instance needs to be retrieved in order to invoke its
-                    # handler method.
-                    handler_instance = get_aside_from_xblock(instance, usage_key.aside_type)
-                else:
-                    handler_instance = instance
                 resp = handler_instance.handle(handler, req, suffix)
                 if suffix == 'problem_check' \
                         and course \
@@ -963,12 +1014,12 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course
 
         except NoSuchHandlerError:
             log.exception("XBlock %s attempted to access missing handler %r", instance, handler)
-            raise Http404  # lint-amnesty, pylint: disable=raise-missing-from
+            raise Http404  # pylint: disable=raise-missing-from  # noqa: B904
 
         # If we can't find the block, respond with a 404
-        except (XModuleNotFoundError, NotFoundError):
+        except (XModuleNotFoundError, NotFoundError, TranscriptNotFoundError):
             log.exception("Module indicating to user that request doesn't exist")
-            raise Http404  # lint-amnesty, pylint: disable=raise-missing-from
+            raise Http404  # pylint: disable=raise-missing-from  # noqa: B904
 
         # For XBlock-specific errors, we log the error and respond with an error message
         except ProcessingError as err:
@@ -995,15 +1046,15 @@ def xblock_view(request, course_id, usage_id, view_name):
         resources: A list of tuples where the first element is the resource hash, and
             the second is the resource description
     """
-    if not settings.FEATURES.get('ENABLE_XBLOCK_VIEW_ENDPOINT', False):
+    if not settings.ENABLE_XBLOCK_VIEW_ENDPOINT:
         log.warning("Attempt to use deactivated XBlock view endpoint -"
-                    " see FEATURES['ENABLE_XBLOCK_VIEW_ENDPOINT']")
+                    " see ENABLE_XBLOCK_VIEW_ENDPOINT")
         raise Http404
 
     try:
         course_key = CourseKey.from_string(course_id)
     except InvalidKeyError:
-        raise Http404("Invalid location")  # lint-amnesty, pylint: disable=raise-missing-from
+        raise Http404("Invalid location")  # pylint: disable=raise-missing-from  # noqa: B904
 
     with modulestore().bulk_operations(course_key):
         course = modulestore().get_course(course_key)
@@ -1013,7 +1064,7 @@ def xblock_view(request, course_id, usage_id, view_name):
             fragment = instance.render(view_name, context=request.GET)
         except NoSuchViewError:
             log.exception("Attempt to render missing view on %s: %s", instance, view_name)
-            raise Http404  # lint-amnesty, pylint: disable=raise-missing-from
+            raise Http404  # pylint: disable=raise-missing-from  # noqa: B904
 
         hashed_resources = OrderedDict()
         for resource in fragment.resources:
@@ -1040,14 +1091,14 @@ def _check_files_limits(files):
         # Check number of files submitted
         if len(inputfiles) > settings.MAX_FILEUPLOADS_PER_INPUT:
             msg = 'Submission aborted! Maximum %d files may be submitted at once' % \
-                  settings.MAX_FILEUPLOADS_PER_INPUT
+                  settings.MAX_FILEUPLOADS_PER_INPUT  # noqa: UP031
             return msg
 
         # Check file sizes
         for inputfile in inputfiles:
             if inputfile.size > settings.STUDENT_FILEUPLOAD_MAX_SIZE:  # Bytes
                 msg = 'Submission aborted! Your file "%s" is too large (max size: %d MB)' % \
-                      (inputfile.name, settings.STUDENT_FILEUPLOAD_MAX_SIZE / (1000 ** 2))
+                      (inputfile.name, settings.STUDENT_FILEUPLOAD_MAX_SIZE / (1000 ** 2))  # noqa: UP031
                 return msg
 
     return None

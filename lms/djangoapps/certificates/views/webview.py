@@ -4,6 +4,7 @@ Certificate HTML webview.
 
 
 import logging
+import re
 import urllib
 from datetime import datetime
 from uuid import uuid4
@@ -15,11 +16,11 @@ from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.template import RequestContext
 from django.utils import translation
 from django.utils.encoding import smart_str
+from edx_django_utils.plugins import pluggable_override
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from openedx_filters.learning.filters import CertificateRenderStarted
 from organizations import api as organizations_api
-from edx_django_utils.plugins import pluggable_override
 
 from common.djangoapps.edxmako.shortcuts import render_to_response
 from common.djangoapps.edxmako.template import Template
@@ -32,28 +33,27 @@ from lms.djangoapps.certificates.api import (
     get_active_web_certificate,
     get_certificate_footer_context,
     get_certificate_header_context,
-    get_certificate_template
+    get_certificate_template,
 )
 from lms.djangoapps.certificates.models import (
     CertificateGenerationCourseSetting,
     CertificateHtmlViewConfiguration,
     CertificateSocialNetworks,
     CertificateStatuses,
-    GeneratedCertificate
+    GeneratedCertificate,
 )
 from lms.djangoapps.certificates.permissions import PREVIEW_CERTIFICATES
 from lms.djangoapps.certificates.utils import (
     emit_certificate_event,
     get_certificate_url,
-    get_preferred_certificate_name
+    get_preferred_certificate_name,
 )
 from openedx.core.djangoapps.catalog.api import get_course_run_details
 from openedx.core.djangoapps.content.course_overviews.api import get_course_overview_or_none
 from openedx.core.djangoapps.lang_pref.api import get_closest_released_language
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
-from openedx.core.lib.courses import course_image_url
-from openedx.core.lib.courses import get_course_by_id
-from xmodule.data import CertificatesDisplayBehaviors  # lint-amnesty, pylint: disable=wrong-import-order
+from openedx.core.lib.courses import course_image_url, get_course_by_id
+from xmodule.data import CertificatesDisplayBehaviors  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 _ = translation.gettext
@@ -82,7 +82,7 @@ def get_certificate_description(mode, certificate_type, platform_name, course_ke
                                          "{platform_name} and has completed all of the required tasks for this course "
                                          "under its guidelines. ").format(cert_type=certificate_type,
                                                                           platform_name=platform_name)
-        if settings.FEATURES.get('ENABLE_CERTIFICATES_IDV_REQUIREMENT'):
+        if settings.ENABLE_CERTIFICATES_IDV_REQUIREMENT:
             certificate_type_description += _("A {cert_type} certificate also indicates that the "
                                               "identity of the learner has been checked and "
                                               "is valid.").format(cert_type=certificate_type)
@@ -174,7 +174,7 @@ def _update_context_with_basic_info(context, course_id, platform_name, configura
 
     # Translators:  'All rights reserved' is a legal term used in copyrighting to protect published content
     reserved = _("All rights reserved")
-    context['copyright_text'] = '&copy; {year} {platform_name}. {reserved}.'.format(
+    context['copyright_text'] = '© {year} {platform_name}. {reserved}.'.format(  # noqa: UP032
         year=datetime.now(pytz.timezone(settings.TIME_ZONE)).year,
         platform_name=platform_name,
         reserved=reserved
@@ -216,7 +216,7 @@ def _update_context_with_basic_info(context, course_id, platform_name, configura
                                                   'that they can be validated independently by anyone with the '
                                                   '{platform_name} public key. For independent verification, '
                                                   '{platform_name} uses what is called a '
-                                                  '"detached signature"&quot;".').format(platform_name=platform_name)
+                                                  '"detached signature".').format(platform_name=platform_name)
 
     context['certificate_verify_urltext'] = _("Validate this certificate for yourself")
 
@@ -250,7 +250,7 @@ def _update_course_context(request, context, course, platform_name):
     context['accomplishment_copy_course_name'] = accomplishment_copy_course_name
     course_number = course.display_coursenumber if course.display_coursenumber else course.number
     context['course_number'] = course_number
-    context['idv_enabled_for_certificates'] = settings.FEATURES.get('ENABLE_CERTIFICATES_IDV_REQUIREMENT')
+    context['idv_enabled_for_certificates'] = settings.ENABLE_CERTIFICATES_IDV_REQUIREMENT
     if context['organization_long_name']:
         # Translators:  This text represents the description of course
         context['accomplishment_copy_course_description'] = _('a course of study offered by {partner_short_name}, '
@@ -458,6 +458,59 @@ def render_cert_by_uuid(request, certificate_uuid):
         raise Http404 from e
 
 
+# URL schemes that execute script in the page's own origin.  A certificate override that parses
+# as one of these is dropped: HTML escaping does not neutralise them, because they contain no
+# characters that escaping touches.
+_SCRIPT_URL_SCHEMES = frozenset(['javascript', 'vbscript'])
+
+# Browsers ignore leading C0 control characters and spaces when parsing a URL, and strip tabs,
+# carriage returns and newlines from anywhere in it, so we do the same before reading the scheme.
+_URL_IGNORED_LEADING_CHARS = ''.join(chr(code) for code in range(0x21))
+_URL_SCHEME_RE = re.compile(r'^([a-zA-Z][a-zA-Z0-9+.\-]*):')
+
+
+def _has_script_scheme(value):
+    """
+    Return True if a browser would read `value` as a URL with a script-executing scheme.
+
+    This deliberately models the browser's scheme parsing rather than using `urllib.parse`, which
+    raises on some malformed URLs and would force us to choose between dropping unparseable plain
+    text and letting a malformed `javascript:` URL through.
+    """
+    candidate = value
+    for char in '\t\r\n':
+        candidate = candidate.replace(char, '')
+    match = _URL_SCHEME_RE.match(candidate.lstrip(_URL_IGNORED_LEADING_CHARS))
+    return bool(match) and match.group(1).lower() in _SCRIPT_URL_SCHEMES
+
+
+def _drop_unsafe_cert_html_view_overrides(overrides, course_id):
+    """
+    Return the course's `cert_html_view_overrides` with unsafe values removed.
+
+    These values come from Studio Advanced Settings, so any course author can set them, and they
+    replace context values that certificate templates render into arbitrary positions, including
+    `href` attributes.  Templates HTML-escape the values they render, which stops an override from
+    injecting markup, but escaping cannot stop a `javascript:` URL from running when it is used as
+    a link, so those are dropped here and the configured value is used instead.
+
+    Values are otherwise passed through untouched: escaping them here would corrupt URLs rendered
+    into JavaScript strings, and would turn non-string overrides into strings, breaking the
+    templates that read them as booleans or dictionaries.
+    """
+    safe_overrides = {}
+    for key, value in overrides.items():
+        if isinstance(value, str) and _has_script_scheme(value):
+            log.warning(
+                "Ignoring certificate override %s for course %s: its value is a script-executing URL.",
+                key,
+                course_id,
+            )
+            continue
+        safe_overrides[key] = value
+    return safe_overrides
+
+
 @handle_500(
     template_path="certificates/server-error.html",
     test_func=lambda request: request.GET.get('preview', None)
@@ -476,7 +529,7 @@ def render_html_view(request, course_id, certificate=None):  # pylint: disable=t
     configuration = CertificateHtmlViewConfiguration.get_config()
 
     # Kick the user back to the "Invalid" screen if the feature is disabled globally
-    if not settings.FEATURES.get('CERTIFICATES_HTML_VIEW', False):
+    if not settings.CERTIFICATES_HTML_VIEW:
         return _render_invalid_certificate(request, course_id, platform_name, configuration)
 
     # Load the course and user objects
@@ -532,7 +585,7 @@ def render_html_view(request, course_id, certificate=None):  # pylint: disable=t
     # Determine whether to use the standard or custom template to render the certificate.
     custom_template = None
     custom_template_language = None
-    if settings.FEATURES.get('CUSTOM_CERTIFICATE_TEMPLATES_ENABLED', False):
+    if settings.CUSTOM_CERTIFICATE_TEMPLATES_ENABLED:
         log.info("Custom certificate for course %s", course_id)
         custom_template, custom_template_language = _get_custom_template_and_language(
             course.id,
@@ -589,7 +642,7 @@ def render_html_view(request, course_id, certificate=None):  # pylint: disable=t
         context.update(get_certificate_footer_context())
 
         # Append/Override the existing view context values with any course-specific static values from Advanced Settings
-        context.update(course.cert_html_view_overrides)
+        context.update(_drop_unsafe_cert_html_view_overrides(course.cert_html_view_overrides, course_id))
 
         # Track certificate view events
         _track_certificate_events(request, course, user, user_certificate)
@@ -698,7 +751,7 @@ def _render_valid_certificate(request, context, custom_template=None):
             custom_template.template,
             output_encoding='utf-8',
             input_encoding='utf-8',
-            default_filters=['decode.utf8'],
+            default_filters=['decode.utf8', 'h'],
             encoding_errors='replace',
         )
         context = RequestContext(request, context)

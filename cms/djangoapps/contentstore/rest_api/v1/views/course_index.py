@@ -2,20 +2,19 @@
 
 import logging
 
-import edx_api_doc_tools as apidocs
 from django.conf import settings
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from opaque_keys.edx.keys import CourseKey
+from openedx_authz.constants.permissions import COURSES_VIEW_COURSE
+from rest_framework.fields import BooleanField
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.fields import BooleanField
 
 from cms.djangoapps.contentstore.config.waffle import CUSTOM_RELATIVE_DATES
 from cms.djangoapps.contentstore.rest_api.v1.mixins import ContainerHandlerMixin
-from cms.djangoapps.contentstore.rest_api.v1.serializers import (
-    CourseIndexSerializer,
-    ContainerChildrenSerializer,
-)
+from cms.djangoapps.contentstore.rest_api.v1.serializers import ContainerChildrenSerializer, CourseIndexSerializer
 from cms.djangoapps.contentstore.utils import (
     get_course_index_context,
     get_user_partition_info,
@@ -25,29 +24,30 @@ from cms.djangoapps.contentstore.utils import (
 )
 from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import get_xblock
 from cms.lib.xblock.upstream_sync import UpstreamLink
-from common.djangoapps.student.auth import has_studio_read_access
+from openedx.core.djangoapps.authz.decorators import LegacyAuthoringPermission, user_has_course_permission
 from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, verify_course_exists, view_auth_classes
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.exceptions import ItemNotFoundError  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.exceptions import ItemNotFoundError  # pylint: disable=wrong-import-order
 
 
 @view_auth_classes(is_authenticated=True)
 class CourseIndexView(DeveloperErrorViewMixin, APIView):
     """View for Course Index"""
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter("course_id", apidocs.ParameterLocation.PATH, description="Course ID"),
-            apidocs.string_parameter(
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course ID"),
+            OpenApiParameter(
                 "show",
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 description="Query param to set initial state which fully expanded to see the item",
             )],
         responses={
             200: CourseIndexSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     @verify_course_exists()
@@ -104,7 +104,12 @@ class CourseIndexView(DeveloperErrorViewMixin, APIView):
         """
 
         course_key = CourseKey.from_string(course_id)
-        if not has_studio_read_access(request.user, course_key):
+        if not user_has_course_permission(
+            request.user,
+            COURSES_VIEW_COURSE.identifier,
+            course_key,
+            LegacyAuthoringPermission.READ
+        ):
             self.permission_denied(request)
         course_index_context = get_course_index_context(request, course_key)
         course_index_context.update({
@@ -123,23 +128,25 @@ class ContainerChildrenView(APIView, ContainerHandlerMixin):
     View for container xblock requests to get state and children data.
     """
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter(
+            OpenApiParameter(
                 "usage_key_string",
-                apidocs.ParameterLocation.PATH,
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
                 description="Container usage key",
             ),
-            apidocs.string_parameter(
+            OpenApiParameter(
                 "get_upstream_info",
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 description="Gets the info of all ready to sync children",
             ),
         ],
         responses={
             200: ContainerChildrenSerializer,
-            401: "The requester is not authenticated.",
-            404: "The requested locator does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            404: OpenApiResponse(description="The requested locator does not exist."),
         },
     )
     def get(self, request: Request, usage_key_string: str):

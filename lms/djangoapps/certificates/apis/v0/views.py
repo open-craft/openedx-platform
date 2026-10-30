@@ -3,8 +3,9 @@
 
 import logging
 
-import edx_api_doc_tools as apidocs
 from django.contrib.auth import get_user_model
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from edx_rest_framework_extensions import permissions
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from edx_rest_framework_extensions.auth.session.authentication import SessionAuthenticationAllowInactiveUser
@@ -17,13 +18,13 @@ from rest_framework.views import APIView
 from lms.djangoapps.certificates.api import (
     certificates_viewable_for_course,
     get_certificate_for_user,
-    get_certificates_for_user
+    get_certificates_for_user,
 )
 from lms.djangoapps.certificates.apis.v0.permissions import IsOwnerOrPublicCertificates
 from openedx.core.djangoapps.content.course_overviews.api import (
     get_course_overview_or_none,
     get_course_overviews_from_ids,
-    get_pseudo_course_overview
+    get_pseudo_course_overview,
 )
 from openedx.core.djangoapps.user_api.accounts.api import visible_fields
 from openedx.core.lib.api.authentication import BearerAuthenticationAllowInactiveUser
@@ -170,10 +171,11 @@ class CertificatesListView(APIView):
 
     required_scopes = ['certificates:read']
 
-    @apidocs.schema(parameters=[
-        apidocs.string_parameter(
+    @extend_schema(parameters=[
+        OpenApiParameter(
             'username',
-            apidocs.ParameterLocation.PATH,
+            OpenApiTypes.STR,
+            OpenApiParameter.PATH,
             description="The users to get certificates for",
         )
     ])

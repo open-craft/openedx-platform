@@ -13,7 +13,8 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_noop
-import edx_api_doc_tools as apidocs
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from edx_rest_framework_extensions.paginators import DefaultPagination
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
@@ -23,11 +24,11 @@ from rest_framework.generics import ListCreateAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from openedx.core.lib.api.authentication import BearerAuthentication
 from openedx.core.djangoapps.bookmarks.api import BookmarksLimitReachedError
+from openedx.core.lib.api.authentication import BearerAuthentication
 from openedx.core.lib.api.permissions import IsUserInUrl
 from openedx.core.lib.url_utils import unquote_slashes
-from xmodule.modulestore.exceptions import ItemNotFoundError  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.exceptions import ItemNotFoundError  # pylint: disable=wrong-import-order
 
 from . import DEFAULT_FIELDS, OPTIONAL_FIELDS, api
 from .serializers import BookmarkSerializer
@@ -91,7 +92,7 @@ class BookmarksViewMixin:
         return Response(
             {
                 "developer_message": developer_message,
-                "user_message": _(user_message)  # lint-amnesty, pylint: disable=translation-of-non-string
+                "user_message": _(user_message)  # pylint: disable=translation-of-non-string
             },
             status=error_status
         )
@@ -105,16 +106,18 @@ class BookmarksListView(ListCreateAPIView, BookmarksViewMixin):
     permission_classes = (permissions.IsAuthenticated,)
     serializer_class = BookmarkSerializer
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter(
+            OpenApiParameter(
                 'course_id',
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 description="The id of the course to limit the list",
             ),
-            apidocs.string_parameter(
+            OpenApiParameter(
                 'fields',
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 description="The fields to return: display_name, path.",
             ),
         ],
@@ -201,8 +204,8 @@ class BookmarksListView(ListCreateAPIView, BookmarksViewMixin):
 
         return page
 
-    @apidocs.schema()
-    def post(self, request, *unused_args, **unused_kwargs):  # lint-amnesty, pylint: disable=unused-argument
+    @extend_schema()
+    def post(self, request, *unused_args, **unused_kwargs):  # pylint: disable=unused-argument
         """Create a new bookmark for a user.
 
         The POST request only needs to contain one parameter "usage_id".
@@ -311,8 +314,8 @@ class BookmarksDetailView(APIView, BookmarksViewMixin):
             log.error(error_message)
             return self.error_response(error_message, error_status=status.HTTP_404_NOT_FOUND)
 
-    @apidocs.schema()
-    def get(self, request, username=None, usage_id=None):  # lint-amnesty, pylint: disable=unused-argument
+    @extend_schema()
+    def get(self, request, username=None, usage_id=None):  # pylint: disable=unused-argument
         """
         Get a specific bookmark for a user.
 
