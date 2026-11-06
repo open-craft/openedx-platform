@@ -127,6 +127,20 @@ class VerificationStatusViewTestsMixin(VerificationViewTestsMixinBase):
         path = reverse(self.VIEW_NAME, kwargs={'username': 'abc123'})
         self.assert_path_not_found(path)
 
+    def test_anonymous_with_empty_username_query_param(self):
+        """ An anonymous caller must not pass the check by sending an empty `?username=`. """
+        self.client.logout()
+        response = self.client.get(self.path, {'username': ''})
+        assert response.status_code == 401
+
+    def test_non_owner_with_own_username_query_param(self):
+        """ A caller must not pass by sending their own name in `?username=` when the path names someone else. """
+        other_user = UserFactory(password=self.PASSWORD)
+        self.client.logout()
+        self.client.login(username=other_user.username, password=self.PASSWORD)
+        response = self.client.get(self.path, {'username': other_user.username})
+        assert response.status_code == 403
+
 
 @override_settings(VERIFY_STUDENT=VERIFY_STUDENT)
 class PhotoVerificationStatusViewTests(VerificationStatusViewTestsMixin, TestCase):
@@ -176,12 +190,12 @@ class VerificationsDetailsViewTests(VerificationStatusViewTestsMixin, TestCase):
         }]
 
     def test_multiple_verification_types(self):
-        self.manual_verification = ManualVerification.objects.create(  # lint-amnesty, pylint: disable=attribute-defined-outside-init
+        self.manual_verification = ManualVerification.objects.create(  # pylint: disable=attribute-defined-outside-init
             user=self.user,
             status='approved',
             reason='testing'
         )
-        self.sso_verification = SSOVerificationFactory(user=self.user, status='approved')  # lint-amnesty, pylint: disable=attribute-defined-outside-init
+        self.sso_verification = SSOVerificationFactory(user=self.user, status='approved')  # pylint: disable=attribute-defined-outside-init
         self.photo_verification.error_msg = 'tested_error'
         self.photo_verification.error_code = 'error_code'
         self.photo_verification.status = 'denied'
@@ -219,7 +233,7 @@ class VerificationsDetailsViewTests(VerificationStatusViewTestsMixin, TestCase):
         assert json.loads(response.content.decode('utf-8')) == expected
 
     def test_multiple_verification_instances(self):
-        self.sso_verification = SSOVerificationFactory(user=self.user, status='approved')  # lint-amnesty, pylint: disable=attribute-defined-outside-init
+        self.sso_verification = SSOVerificationFactory(user=self.user, status='approved')  # pylint: disable=attribute-defined-outside-init
         second_ss_photo_verification = SoftwareSecurePhotoVerification.objects.create(
             user=self.user,
             status='denied',

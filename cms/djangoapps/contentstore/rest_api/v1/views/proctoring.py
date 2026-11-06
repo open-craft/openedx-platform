@@ -2,25 +2,29 @@
 import copy
 
 from django.conf import settings
-import edx_api_doc_tools as apidocs
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from opaque_keys.edx.keys import CourseKey
+from openedx_authz.constants.permissions import COURSES_MANAGE_PAGES_AND_RESOURCES, COURSES_VIEW_PAGES_AND_RESOURCES
 from rest_framework import status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from cms.djangoapps.contentstore.views.course import get_course_and_check_access
 from cms.djangoapps.contentstore.utils import get_proctored_exam_settings_url
 from cms.djangoapps.models.settings.course_metadata import CourseMetadata
-from common.djangoapps.student.auth import has_studio_advanced_settings_access
-from xmodule.course_block import (
-    get_available_providers,
-    get_requires_escalation_email_providers,
-)  # lint-amnesty, pylint: disable=wrong-import-order
+from common.djangoapps.student.auth import check_course_advanced_settings_access
+from common.djangoapps.student.roles import enable_authz_course_authoring
+from openedx.core.djangoapps.authz.constants import LegacyAuthoringPermission
+from openedx.core.djangoapps.authz.decorators import user_has_course_permission
 from openedx.core.djangoapps.course_apps.toggles import exams_ida_enabled
 from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, verify_course_exists, view_auth_classes
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.course_block import (  # pylint: disable=wrong-import-order
+    get_available_providers,
+    get_requires_escalation_email_providers,
+)
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
 
 from ..serializers import (
     LimitedProctoredExamSettingsSerializer,
@@ -105,7 +109,7 @@ class ProctoredExamSettingsView(APIView):
     def get(self, request, course_id):
         """ GET handler """
         with modulestore().bulk_operations(CourseKey.from_string(course_id)):
-            course_block = self._get_and_validate_course_access(request.user, course_id)
+            course_block = self._get_and_validate_course_access(request.user, course_id, require_write_access=False)
             course_metadata = CourseMetadata().fetch_all(course_block)
             proctored_exam_settings = self._get_proctored_exam_setting_values(course_metadata)
 
@@ -131,17 +135,29 @@ class ProctoredExamSettingsView(APIView):
 
     def post(self, request, course_id):
         """ POST handler """
-        serializer = ProctoredExamSettingsSerializer if request.user.is_staff \
-            else LimitedProctoredExamSettingsSerializer
-        exam_config = serializer(data=request.data.get('proctored_exam_settings', {}))
-        valid_request = exam_config.is_valid()
-        if not request.user.is_staff and valid_request and ProctoredExamSettingsSerializer(
-            data=request.data.get('proctored_exam_settings', {})
-        ).is_valid():
-            return Response(status=status.HTTP_403_FORBIDDEN)
-
         with modulestore().bulk_operations(CourseKey.from_string(course_id)):
-            course_block = self._get_and_validate_course_access(request.user, course_id)
+            course_block = self._get_and_validate_course_access(request.user, course_id, require_write_access=True)
+
+            # The access check above already required the manage permission when AuthZ is enabled for
+            # the course, so reaching this point means the user holds it. Without AuthZ the legacy
+            # fallback only checks read access, so staff-only fields stay reserved to global staff.
+            can_edit_staff_fields = request.user.is_staff or enable_authz_course_authoring(
+                CourseKey.from_string(course_id)
+            )
+
+            serializer = (
+                ProctoredExamSettingsSerializer if can_edit_staff_fields else LimitedProctoredExamSettingsSerializer
+            )
+            exam_config = serializer(data=request.data.get("proctored_exam_settings", {}))
+            valid_request = exam_config.is_valid()
+
+            if (
+                not can_edit_staff_fields
+                and valid_request
+                and ProctoredExamSettingsSerializer(data=request.data.get("proctored_exam_settings", {})).is_valid()
+            ):
+                return Response(status=status.HTTP_403_FORBIDDEN)
+
             course_metadata = CourseMetadata().fetch_all(course_block)
 
             models_to_update = {}
@@ -185,15 +201,29 @@ class ProctoredExamSettingsView(APIView):
         }
 
     @staticmethod
-    def _get_and_validate_course_access(user, course_id):
+    def _get_and_validate_course_access(user, course_id, require_write_access):
         """
         Check if course_id exists and is accessible by the user.
+
+        Reading requires the AuthZ view permission and writing the manage permission.
+        When AuthZ is not enabled for the course, both fall back to legacy Studio read access.
 
         Returns a course_block object
         """
         course_key = CourseKey.from_string(course_id)
-        course_block = get_course_and_check_access(course_key, user)
+        authz_permission = (
+            COURSES_MANAGE_PAGES_AND_RESOURCES if require_write_access else COURSES_VIEW_PAGES_AND_RESOURCES
+        )
 
+        if not user_has_course_permission(
+            user,
+            authz_permission.identifier,
+            course_key,
+            LegacyAuthoringPermission.READ,
+        ):
+            raise PermissionDenied
+
+        course_block = modulestore().get_course(course_key, depth=0)
         if not course_block:
             raise NotFound(
                 f'Course with course_id {course_id} does not exist.'
@@ -207,15 +237,15 @@ class ProctoringErrorsView(DeveloperErrorViewMixin, APIView):
     """
     View for getting the proctoring errors for a course with url to proctored exam settings.
     """
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter("course_id", apidocs.ParameterLocation.PATH, description="Course ID"),
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course ID"),
         ],
         responses={
             200: ProctoringErrorsSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     @verify_course_exists()
@@ -260,12 +290,14 @@ class ProctoringErrorsView(DeveloperErrorViewMixin, APIView):
         ```
         """
         course_key = CourseKey.from_string(course_id)
-        if not has_studio_advanced_settings_access(request.user):
+        if not check_course_advanced_settings_access(
+            request.user, course_key, access_type='feature_restricted'
+        ):
             self.permission_denied(request)
 
         course_block = modulestore().get_course(course_key)
         advanced_dict = CourseMetadata.fetch(course_block)
-        if settings.FEATURES.get('DISABLE_MOBILE_COURSE_AVAILABLE', False):
+        if settings.DISABLE_MOBILE_COURSE_AVAILABLE:
             advanced_dict.get('mobile_available')['deprecated'] = True
 
         proctoring_errors = CourseMetadata.validate_proctoring_settings(course_block, advanced_dict, request.user)

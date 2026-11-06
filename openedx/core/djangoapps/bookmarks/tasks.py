@@ -7,7 +7,6 @@ import logging
 
 from celery import shared_task
 from django.db import transaction
-from edx_django_utils.monitoring import set_code_owner_attribute
 from opaque_keys.edx.keys import CourseKey
 
 from xmodule.modulestore.django import modulestore
@@ -87,11 +86,11 @@ def paths_equal(paths_1, paths_2):
     if len(paths_1) != len(paths_2):
         return False
 
-    for path_1, path_2 in zip(paths_1, paths_2):
+    for path_1, path_2 in zip(paths_1, paths_2):  # noqa: B905
         if len(path_1) != len(path_2):
             return False
 
-        for path_item_1, path_item_2 in zip(path_1, path_2):
+        for path_item_1, path_item_2 in zip(path_1, path_2):  # noqa: B905
             if path_item_1.display_name != path_item_2.display_name:
                 return False
 
@@ -145,7 +144,6 @@ def _update_xblocks_cache(course_key):
 
 
 @shared_task(name='openedx.core.djangoapps.bookmarks.tasks.update_xblocks_cache')
-@set_code_owner_attribute
 def update_xblocks_cache(course_id):
     """
     Update the XBlocks cache for a course.

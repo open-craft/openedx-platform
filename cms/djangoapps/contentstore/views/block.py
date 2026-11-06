@@ -12,54 +12,42 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.http import require_http_methods
 from opaque_keys.edx.keys import CourseKey
+from openedx_authz.constants.permissions import (
+    COURSES_EDIT_COURSE_CONTENT,
+    COURSES_MANAGE_TAGS,
+    COURSES_VIEW_COURSE,
+)
 from web_fragments.fragment import Fragment
 
 from cms.djangoapps.contentstore.utils import load_services_for_studio
+from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import (
+    create_xblock_info,
+    delete_orphans,
+    get_block_info,
+    get_xblock,
+    handle_xblock,
+)
+from cms.djangoapps.contentstore.xblock_storage_handlers.xblock_helpers import get_tags_count, usage_key_with_run
 from cms.lib.xblock.authoring_mixin import VISIBILITY_VIEW
 from common.djangoapps.edxmako.shortcuts import render_to_response, render_to_string
-from common.djangoapps.student.auth import (
-    has_studio_read_access,
-    has_studio_write_access,
-)
+from common.djangoapps.student.auth import has_studio_read_access
 from common.djangoapps.util.json_request import JsonResponse, expect_json
-from openedx.core.lib.xblock_utils import (
-    hash_resource,
-    request_token,
-    wrap_xblock,
-    wrap_xblock_aside,
-)
-from xmodule.modulestore.django import (
-    modulestore,
-)  # lint-amnesty, pylint: disable=wrong-import-order
+from openedx.core.djangoapps.authz.constants import LegacyAuthoringPermission
+from openedx.core.djangoapps.authz.decorators import user_has_course_permission
 from openedx.core.djangoapps.content_tagging.toggles import is_tagging_feature_disabled
-
-from xmodule.x_module import (
+from openedx.core.lib.xblock_utils import hash_resource, request_token, wrap_xblock, wrap_xblock_aside
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.x_module import (  # pylint: disable=wrong-import-order
     AUTHOR_VIEW,
     PREVIEW_VIEWS,
     STUDENT_VIEW,
     STUDIO_VIEW,
-)  # lint-amnesty, pylint: disable=wrong-import-order
-
-
-from ..helpers import (
-    is_unit,
 )
-from .preview import get_preview_fragment
-from .component import _get_item_in_course
+
+from ..helpers import is_unit
 from ..utils import get_container_handler_context
-
-from cms.djangoapps.contentstore.xblock_storage_handlers.view_handlers import (
-    handle_xblock,
-    create_xblock_info,
-    get_block_info,
-    get_xblock,
-    delete_orphans,
-)
-from cms.djangoapps.contentstore.xblock_storage_handlers.xblock_helpers import (
-    usage_key_with_run,
-    get_tags_count,
-)
-
+from .component import _get_item_in_course
+from .preview import get_preview_fragment
 
 __all__ = [
     "orphan_handler",
@@ -145,10 +133,63 @@ def xblock_handler(request, usage_key_string=None):
     return handle_xblock(request, usage_key_string)
 
 
+def _user_can_edit_course_content(user, course_key):
+    """
+    Return whether the user may edit course content, as a single final boolean.
+
+    This delegates entirely to ``user_has_course_permission`` which already
+    encapsulates the flag logic: when ``authz.enable_course_authoring`` is on
+    for the course the ``courses.edit_course_content`` AuthZ permission is
+    checked and legacy access is ignored; when the flag is off it falls back to
+    the legacy studio WRITE permission. No separate legacy check is OR'd in.
+    """
+    return user_has_course_permission(
+        user,
+        COURSES_EDIT_COURSE_CONTENT.identifier,
+        course_key,
+        legacy_permission=LegacyAuthoringPermission.WRITE,
+    )
+
+
+def _user_can_manage_tags(user, course_key):
+    """
+    Return whether the user may manage tags, as a single final boolean.
+
+    Tag management has no legacy-permission concept, so when
+    ``authz.enable_course_authoring`` is off for the course we preserve the
+    pre-RBAC behaviour and return ``True``. When the flag is on we check the
+    ``courses.manage_tags`` AuthZ permission.
+    """
+    return user_has_course_permission(
+        user,
+        COURSES_MANAGE_TAGS.identifier,
+        course_key,
+        default_fallback=True,
+    )
+
+
+def _user_can_edit_title(user, course_key):
+    """
+    Return whether the user may edit an xblock title, as a single final boolean.
+
+    Editing a title is a content-authoring action, so when
+    ``authz.enable_course_authoring`` is off for the course we preserve the
+    pre-RBAC behaviour and return ``True`` (the "Edit Title" affordance was
+    historically always available). When the flag is on it tracks the
+    ``courses.edit_course_content`` AuthZ permission.
+    """
+    return user_has_course_permission(
+        user,
+        COURSES_EDIT_COURSE_CONTENT.identifier,
+        course_key,
+        default_fallback=True,
+    )
+
+
 @require_http_methods("GET")
 @login_required
 @expect_json
-def xblock_view_handler(request, usage_key_string, view_name):
+def xblock_view_handler(request, usage_key_string, view_name): # pylint: disable=too-many-statements
     """
     The restful handler for requests for rendered xblock views.
 
@@ -158,7 +199,12 @@ def xblock_view_handler(request, usage_key_string, view_name):
             the second is the resource description
     """
     usage_key = usage_key_with_run(usage_key_string)
-    if not has_studio_read_access(request.user, usage_key.course_key):
+    if not user_has_course_permission(
+        request.user,
+        COURSES_VIEW_COURSE.identifier,
+        usage_key.course_key,
+        LegacyAuthoringPermission.READ,
+    ):
         raise PermissionDenied()
 
     accept_header = request.META.get("HTTP_ACCEPT", "application/json")
@@ -214,7 +260,13 @@ def xblock_view_handler(request, usage_key_string, view_name):
             is_pages_view = (
                 view_name == STUDENT_VIEW
             )  # Only the "Pages" view uses student view in Studio
-            can_edit = has_studio_write_access(request.user, usage_key.course_key)
+
+            # Resolve the final gating booleans server-side. Each helper
+            # encapsulates its own "authz flag off" default, so the template
+            # only needs these two already-final values.
+            can_edit = _user_can_edit_course_content(request.user, usage_key.course_key)
+            can_manage_tags = _user_can_manage_tags(request.user, usage_key.course_key)
+            can_edit_title = _user_can_edit_title(request.user, usage_key.course_key)
 
             # Determine the items to be shown as reorderable. Note that the view
             # 'reorderable_container_child_preview' is only rendered for xblocks that
@@ -258,6 +310,8 @@ def xblock_view_handler(request, usage_key_string, view_name):
                     "is_pages_view": is_pages_view or view_name == AUTHOR_VIEW,
                     "is_unit_page": is_unit(xblock),
                     "can_edit": can_edit,
+                    "can_manage_tags": can_manage_tags,
+                    "can_edit_title": can_edit_title,
                     "root_xblock": xblock
                     if (view_name == "container_preview")
                     else None,
@@ -315,7 +369,12 @@ def xblock_edit_view(request, usage_key_string):
     Allows editing of an XBlock specified by the usage key.
     """
     usage_key = usage_key_with_run(usage_key_string)
-    if not has_studio_read_access(request.user, usage_key.course_key):
+    if not user_has_course_permission(
+        request.user,
+        COURSES_VIEW_COURSE.identifier,
+        usage_key.course_key,
+        LegacyAuthoringPermission.READ,
+    ):
         raise PermissionDenied()
 
     store = modulestore()
@@ -348,7 +407,12 @@ def xblock_outline_handler(request, usage_key_string):
     a course.
     """
     usage_key = usage_key_with_run(usage_key_string)
-    if not has_studio_read_access(request.user, usage_key.course_key):
+    if not user_has_course_permission(
+        request.user,
+        COURSES_VIEW_COURSE.identifier,
+        usage_key.course_key,
+        LegacyAuthoringPermission.READ,
+    ):
         raise PermissionDenied()
 
     response_format = request.GET.get("format", "html")
@@ -382,7 +446,12 @@ def xblock_container_handler(request, usage_key_string):
     """
     usage_key = usage_key_with_run(usage_key_string)
 
-    if not has_studio_read_access(request.user, usage_key.course_key):
+    if not user_has_course_permission(
+        request.user,
+        COURSES_VIEW_COURSE.identifier,
+        usage_key.course_key,
+        LegacyAuthoringPermission.READ,
+    ):
         raise PermissionDenied()
 
     response_format = request.GET.get("format", "html")

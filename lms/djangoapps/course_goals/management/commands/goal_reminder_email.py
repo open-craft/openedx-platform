@@ -1,34 +1,35 @@
 """
 Command to trigger sending reminder emails for learners to achieve their Course Goals
 """
+import logging
 import time
+import uuid
 from datetime import date, datetime, timedelta
 
 import boto3
-from edx_ace.channel.django_email import DjangoEmailChannel
-from edx_ace.channel.mixins import EmailChannelMixin
-from eventtracking import tracker
-import logging
-import uuid
-
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.core.management.base import BaseCommand
 from edx_ace import ace, presentation
+from edx_ace.channel.django_email import DjangoEmailChannel
+from edx_ace.channel.mixins import EmailChannelMixin
 from edx_ace.message import Message
 from edx_ace.recipient import Recipient
 from edx_ace.utils.signals import send_ace_message_sent_signal
+from eventtracking import tracker
+
 from common.djangoapps.student.models import CourseEnrollment
 from lms.djangoapps.certificates.api import get_certificate_for_user_id
 from lms.djangoapps.certificates.data import CertificateStatuses
-from lms.djangoapps.courseware.context_processor import get_user_timezone_or_last_seen_timezone_or_utc
 from lms.djangoapps.course_goals.models import CourseGoal, CourseGoalReminderStatus, UserActivity
+from lms.djangoapps.courseware.context_processor import get_user_timezone_or_last_seen_timezone_or_utc
 from openedx.core.djangoapps.ace_common.template_context import get_base_template_context
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.lang_pref import LANGUAGE_KEY
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from openedx.core.djangoapps.user_api.preferences.api import get_user_preference
 from openedx.core.lib.celery.task_utils import emulate_http_request
+from openedx.core.lib.log_utils import get_username_or_pii_safe_user_id_for_log
 from openedx.features.course_duration_limits.access import get_user_course_expiration_date
 from openedx.features.course_experience import ENABLE_COURSE_GOALS, ENABLE_SES_FOR_GOALREMINDER
 from openedx.features.course_experience.url_helpers import get_learning_mfe_home_url
@@ -50,7 +51,8 @@ def send_ace_message(goal, session_id):
     """
     user = goal.user
     if not user.has_usable_password():
-        log.info(f'Goal Reminder User is disabled {user.username} course {goal.course_key}')
+        user_identifier_for_log = get_username_or_pii_safe_user_id_for_log(user)
+        log.info('Goal Reminder User is disabled user %s course %s', user_identifier_for_log, goal.course_key)
         return False
     try:
         course = CourseOverview.get_from_id(goal.course_key)
@@ -234,7 +236,7 @@ class Command(BaseCommand):
                 'goal_count': total_goals,
             }
         )
-        log.info('Processing course goals, total goal count {}, timestamp: {}, uuid: {}'.format(
+        log.info('Processing course goals, total goal count {}, timestamp: {}, uuid: {}'.format(  # noqa: UP032
             total_goals,
             datetime.now(),
             session_id
@@ -247,7 +249,7 @@ class Command(BaseCommand):
                 else:
                     filtered_count += 1
             if (sent_count + filtered_count) % 10000 == 0:
-                log.info('Processing course goals: sent {} filtered {} out of {}, timestamp: {}, uuid: {}'.format(
+                log.info('Processing course goals: sent {} filtered {} out of {}, timestamp: {}, uuid: {}'.format(  # noqa: UP032  # pylint: disable=line-too-long
                     sent_count,
                     filtered_count,
                     total_goals,
@@ -265,7 +267,7 @@ class Command(BaseCommand):
                 'emails_filtered': filtered_count,
             }
         )
-        log.info('Processing course goals complete: sent {} emails, '
+        log.info('Processing course goals complete: sent {} emails, '  # noqa: UP032
                  'filtered out {} emails, timestamp: {}, '
                  'uuid: {}'.format(sent_count, filtered_count, datetime.now(), session_id)
                  )

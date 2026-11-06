@@ -1,23 +1,30 @@
 # pylint: disable=missing-module-docstring
 import logging
-from typing import Dict
+from typing import Dict  # noqa: UP035
 
 from django.contrib.auth import get_user_model
-from edx_api_doc_tools import path_parameter, schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from edx_django_utils.plugins import PluginError
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from edx_rest_framework_extensions.auth.session.authentication import SessionAuthenticationAllowInactiveUser
 from opaque_keys.edx.keys import CourseKey
+from openedx_authz.constants.permissions import (
+    COURSES_MANAGE_PAGES_AND_RESOURCES,
+    COURSES_VIEW_PAGES_AND_RESOURCES,
+)
 from rest_framework import serializers, views
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from common.djangoapps.student.auth import has_studio_write_access
+from openedx.core.djangoapps.authz.constants import LegacyAuthoringPermission
+from openedx.core.djangoapps.authz.decorators import user_has_course_permission
 from openedx.core.djangoapps.course_apps.models import CourseAppStatus
 from openedx.core.lib.api.authentication import BearerAuthenticationAllowInactiveUser
 from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, validate_course_key, verify_course_exists
+
 from ...api import is_course_app_enabled, set_course_app_enabled
 from ...plugins import CourseApp, CourseAppsPluginManager
 
@@ -25,19 +32,24 @@ User = get_user_model()
 log = logging.getLogger(__name__)
 
 
-class HasStudioWriteAccess(BasePermission):
+class HasPagesAndResourcesAccess(BasePermission):
     """
-    Check if the user has write access to studio.
+    Check if the user has access to Pages & Resources.
+
+    Uses authz permissions when the feature flag is enabled,
+    falling back to legacy studio access.
+    GET requests check view permission, all others check manage permission.
     """
 
     def has_permission(self, request, view):
-        """
-        Check if the user has write access to studio.
-        """
         user = request.user
         course_key_string = view.kwargs.get("course_id")
         course_key = validate_course_key(course_key_string)
-        return has_studio_write_access(user, course_key)
+        if request.method == 'GET':
+            authz_perm = COURSES_VIEW_PAGES_AND_RESOURCES.identifier
+        else:
+            authz_perm = COURSES_MANAGE_PAGES_AND_RESOURCES.identifier
+        return user_has_course_permission(user, authz_perm, course_key, LegacyAuthoringPermission.WRITE)
 
 
 class CourseAppSerializer(serializers.Serializer):  # pylint: disable=abstract-method
@@ -59,7 +71,7 @@ class CourseAppSerializer(serializers.Serializer):  # pylint: disable=abstract-m
         help_text="What all operations are supported by the app.",
     )
 
-    def to_representation(self, instance: CourseApp) -> Dict:
+    def to_representation(self, instance: CourseApp) -> Dict:  # noqa: UP006
         course_key = self.context.get("course_key")
         request = self.context.get("request")
         app_status = self.context.get("app_status")
@@ -87,17 +99,17 @@ class CourseAppsView(DeveloperErrorViewMixin, views.APIView):
         BearerAuthenticationAllowInactiveUser,
         SessionAuthenticationAllowInactiveUser,
     )
-    permission_classes = (HasStudioWriteAccess,)
+    permission_classes = (HasPagesAndResourcesAccess,)
 
-    @schema(
+    @extend_schema(
         parameters=[
-            path_parameter("course_id", str, description="Course Key"),
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course Key"),
         ],
         responses={
             200: CourseAppSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester does not have staff access access to the specified course",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester does not have staff access access to the specified course"),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     @verify_course_exists("Requested apps for unknown course {course}")
@@ -149,15 +161,15 @@ class CourseAppsView(DeveloperErrorViewMixin, views.APIView):
         )
         return Response(serializer.data)
 
-    @schema(
+    @extend_schema(
         parameters=[
-            path_parameter("course_id", str, description="Course Key"),
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course Key"),
         ],
         responses={
             200: CourseAppSerializer,
-            401: "The requester is not authenticated.",
-            403: "The requester does not have staff access access to the specified course",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester does not have staff access access to the specified course"),
+            404: OpenApiResponse(description="The requested course does not exist."),
         },
     )
     @verify_course_exists("Requested apps for unknown course {course}")
