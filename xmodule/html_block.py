@@ -15,6 +15,7 @@ from path import Path as path
 from web_fragments.fragment import Fragment
 from xblock.core import XBlock
 from xblock.fields import Boolean, List, Scope, String
+from xblock.utils.resources import ResourceLoader
 from xblocks_contrib.html import HtmlBlock as _ExtractedHtmlBlock
 
 from common.djangoapps.xblock_django.constants import ATTR_KEY_DEPRECATED_ANONYMOUS_USER_ID
@@ -38,6 +39,8 @@ log = logging.getLogger("edx.courseware")
 # Make '_' a no-op so we can scrape strings. Using lambda instead of
 #  `django.utils.translation.ugettext_noop` because Django cannot be imported in this file
 _ = lambda text: text
+
+resource_loader = ResourceLoader(__name__)
 
 
 @XBlock.needs("i18n")
@@ -77,6 +80,12 @@ class HtmlBlockMixin(  # lint-amnesty, pylint: disable=abstract-method
         default=False,
         scope=Scope.settings
     )
+    use_mfe_theming = Boolean(
+        help=_("If enabled, this content is styled with the MFE theme and rendered in isolation."),
+        display_name=_("Apply theme styles"),
+        default=False,
+        scope=Scope.settings,
+    )
     editor = String(
         help=_(
             "Select Visual to enter content and have the editor automatically create the HTML. Select Raw to edit "
@@ -99,9 +108,18 @@ class HtmlBlockMixin(  # lint-amnesty, pylint: disable=abstract-method
         Return a fragment that contains the html for the student view
         """
         fragment = Fragment(self.get_html())
-        add_css_to_fragment(fragment, 'HtmlBlockDisplay.css')
-        add_webpack_js_to_fragment(fragment, 'HtmlBlockDisplay')
-        shim_xmodule_js(fragment, 'HTMLModule')
+        if self.use_mfe_theming:
+            # The legacy html.css is replaced by the theme attached inside the
+            # block's shadow root, so the legacy display assets are not loaded.
+            fragment.add_javascript(resource_loader.load_unicode('static/js/html_block.js'))
+            fragment.initialize_js('HtmlBlock', {
+                'use_mfe_theming': True,
+                'mfe_config_api': f"{settings.LMS_ROOT_URL}/api/mfe_config/v1",
+            })
+        else:
+            add_css_to_fragment(fragment, 'HtmlBlockDisplay.css')
+            add_webpack_js_to_fragment(fragment, 'HtmlBlockDisplay')
+            shim_xmodule_js(fragment, 'HTMLModule')
         return fragment
 
     @XBlock.supports("multi_device")

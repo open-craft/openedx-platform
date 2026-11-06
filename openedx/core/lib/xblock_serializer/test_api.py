@@ -140,6 +140,18 @@ class XBlockSerializationTestCase(SharedModuleStoreTestCase):
             ),
         ])
 
+    def test_html_block_serializes_use_mfe_theming(self):
+        """
+        The use_mfe_theming setting must survive the OLX round trip.
+        """
+        block_id = self.course.id.make_usage_key('html', 'just_img')
+        html_block = modulestore().get_item(block_id)
+        html_block.use_mfe_theming = True
+
+        serialized = api.serialize_xblock_to_olx(html_block)
+
+        self.assertIn('use_mfe_theming="true"', serialized.olx_str)
+
     def test_html_with_static_asset_learning_core(self):
         """
         Test the learning-core-specific serialization of an HTML block
