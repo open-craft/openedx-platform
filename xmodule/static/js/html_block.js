@@ -88,11 +88,11 @@
   /**
    * Attach a stylesheet inside the shadow root only.
    *
-   * Paragon declares its custom properties on `:root`, which matches nothing
-   * inside a shadow tree, but they still reach the content by inheritance through
-   * the host element. Attaching to the document as well would restyle every
-   * other block sharing the page, since Paragon core carries top-level rules for
-   * bare element selectors.
+   * The theme declares its custom properties on `:root, :host`, so inside the
+   * shadow tree they apply to the host element and inherit to the content.
+   * Attaching the stylesheets to the document as well would restyle every other
+   * block sharing the page, since Paragon core carries top-level rules for bare
+   * element selectors.
    */
   function addStylesheet(shadowRoot, url) {
     var link = document.createElement('link');
