@@ -126,6 +126,20 @@
   }
 
   /**
+   * Correct the root font size when the block is rendered inside an iframe.
+   *
+   * Studio's base styles set `html { font-size: 62.5% }`, so 1rem is 10px in the
+   * legacy UI, while the theme sizes everything in rem assuming 1rem is 16px.
+   * The Authoring MFE renders the unit, and with it this block, inside an
+   * iframe, so the correction is scoped there and the LMS page is left alone.
+   */
+  function normalizeRootFontSize() {
+    if (window.self !== window.top) {
+      document.documentElement.style.fontSize = '100%';
+    }
+  }
+
+  /**
    * Typeset the block's formulas once MathJax has finished starting up.
    *
    * The content is rendered server-side, so MathJax does not revisit it on its
@@ -159,6 +173,7 @@
       return;
     }
 
+    normalizeRootFontSize();
     var root = sandbox(element);
     typesetMath(root);
 
