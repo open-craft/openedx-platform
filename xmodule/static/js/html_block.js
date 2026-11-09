@@ -104,29 +104,15 @@
   /**
    * Move the block's server-rendered children into a shadow root.
    */
-  function addContentBridge(shadowRoot) {
-    // The theme's `body` rules do not match inside a shadow tree. Give the
-    // content root the same typography through the theme's own tokens so the
-    // text keeps the site's font, line height and color.
-    var style = document.createElement('style');
-    style.textContent = [
-      '.xblock-root {',
-      '  font-family: var(--pgn-typography-font-family-base, inherit);',
-      '  font-size: var(--pgn-typography-font-size-base, inherit);',
-      '  line-height: var(--pgn-typography-line-height-base, inherit);',
-      '  color: var(--pgn-color-body-base, inherit);',
-      '}',
-    ].join('\n');
-    shadowRoot.appendChild(style);
-  }
-
   function sandbox(element) {
     if (element.shadowRoot) {
       return element.shadowRoot.querySelector('.xblock-root');
     }
 
     var shadowRoot = element.attachShadow({ mode: 'open' });
-    var root = document.createElement('div');
+    // A real <body> element, so the theme's `body` rules (font, line height,
+    // colour) match inside the shadow tree without a hand-maintained copy.
+    var root = document.createElement('body');
     root.classList.add('xblock-root');
 
     // Adopt the rendered content rather than re-rendering it, so anything the
@@ -136,7 +122,6 @@
     }
 
     shadowRoot.appendChild(root);
-    addContentBridge(shadowRoot);
     return root;
   }
 
