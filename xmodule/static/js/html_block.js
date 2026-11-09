@@ -144,18 +144,23 @@
    *
    * The content is rendered server-side, so MathJax does not revisit it on its
    * own; the legacy inline initializer used to queue this typesetting pass, and
-   * it has to keep working for both rendering paths. For themed blocks the
-   * formulas live in the shadow tree, so `target` is the shadow content root
-   * rather than the host element.
+   * it has to keep working for both rendering paths. Ulmo ships MathJax 2.7.5,
+   * which exposes `MathJax.Hub`, so use its queue and keep the MathJax 3 promise
+   * API as a fallback. For themed blocks the formulas live in the shadow tree,
+   * so `target` is the shadow content root rather than the host element.
    *
    * @param {Element} target - The element (or shadow content root) to typeset.
    */
   function typesetMath(target) {
-    if (typeof MathJax !== 'undefined' && MathJax !== null &&
-        MathJax.startup && MathJax.startup.promise) {
+    if (typeof MathJax === 'undefined' || MathJax === null) {
+      return;
+    }
+    if (MathJax.startup && MathJax.startup.promise) {
       MathJax.startup.promise.then(function () {
         MathJax.typesetPromise([target]);
       });
+    } else if (MathJax.Hub) {
+      MathJax.Hub.Queue(['Typeset', MathJax.Hub, target]);
     }
   }
 
