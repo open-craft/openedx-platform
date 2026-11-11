@@ -691,6 +691,7 @@ def _create_block(request):
         category=category,
         display_name=request.json.get("display_name"),
         boilerplate=request.json.get("boilerplate"),
+        extra_metadata=request.json.get("metadata"),
     )
 
     response = {
