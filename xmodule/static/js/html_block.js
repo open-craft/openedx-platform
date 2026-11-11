@@ -204,14 +204,13 @@
 
   function sandbox(element) {
     if (element.shadowRoot) {
-      return element.shadowRoot.querySelector('.xblock-root');
+      return element.shadowRoot.querySelector('body');
     }
 
     var shadowRoot = element.attachShadow({ mode: 'open' });
     // A real <body> element, so the theme's `body` rules (font, line height,
     // colour) match inside the shadow tree without a hand-maintained copy.
     var root = document.createElement('body');
-    root.classList.add('xblock-root');
 
     // Adopt the rendered content rather than re-rendering it, so anything the
     // server produced (images, anchors, embedded markup) is preserved as-is.
