@@ -140,6 +140,74 @@
   }
 
   /**
+   * Copy MathJax's SVG glyph definitions into the shadow root.
+   *
+   * MathJax 2 renders SVG output as `<svg><use href="#glyph">`, pointing at a
+   * shared `<svg><defs id="MathJax_SVG_glyphs">` that lives in the document
+   * body. ID references do not cross a shadow boundary, so the formulas render
+   * with zero-size glyphs unless the definitions are also inside the shadow
+   * tree.
+   *
+   * @param {ShadowRoot} shadowRoot - The root the block content lives in.
+   */
+  function copyMathJaxGlyphs(shadowRoot) {
+    var defs = document.getElementById('MathJax_SVG_glyphs');
+    if (!defs || !defs.closest) {
+      return;
+    }
+    var glyphs = defs.closest('svg');
+    if (!glyphs) {
+      return;
+    }
+    var previous = shadowRoot.querySelector('#MathJax_SVG_glyphs');
+    if (previous) {
+      var previousSvg = previous.closest('svg');
+      if (previousSvg) {
+        previousSvg.remove();
+      }
+    }
+    shadowRoot.appendChild(glyphs.cloneNode(true));
+  }
+
+  /**
+   * Attach the MathJax glyph cache to the target, if it is inside a shadow root
+   * and contains SVG output.
+   *
+   * @param {Element} target - The element (or shadow content root) typeset.
+   */
+  function copyGlyphsFor(target) {
+    var root = target.getRootNode ? target.getRootNode() : null;
+    if (root && root.host && target.querySelector('.MathJax_SVG')) {
+      copyMathJaxGlyphs(root);
+    }
+  }
+
+  /**
+   * Typeset the target with whichever MathJax API is loaded.
+   *
+   * @param {Element} target - The element (or shadow content root) to typeset.
+   * @returns {boolean} Whether the typeset pass was queued.
+   */
+  function queueTypeset(target) {
+    if (typeof MathJax === 'undefined' || MathJax === null) {
+      return false;
+    }
+    if (MathJax.startup && MathJax.startup.promise) {
+      MathJax.startup.promise.then(function () {
+        MathJax.typesetPromise([target]);
+      });
+      return true;
+    }
+    if (MathJax.Hub) {
+      MathJax.Hub.Queue(['Typeset', MathJax.Hub, target], function () {
+        copyGlyphsFor(target);
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Typeset the block's formulas once MathJax has finished starting up.
    *
    * The content is rendered server-side, so MathJax does not revisit it on its
@@ -149,19 +217,22 @@
    * API as a fallback. For themed blocks the formulas live in the shadow tree,
    * so `target` is the shadow content root rather than the host element.
    *
+   * `window.MathJax` can be the page's config placeholder before MathJax.js
+   * loads, so wait for the real object instead of dropping the pass.
+   *
    * @param {Element} target - The element (or shadow content root) to typeset.
    */
   function typesetMath(target) {
-    if (typeof MathJax === 'undefined' || MathJax === null) {
+    if (queueTypeset(target)) {
       return;
     }
-    if (MathJax.startup && MathJax.startup.promise) {
-      MathJax.startup.promise.then(function () {
-        MathJax.typesetPromise([target]);
-      });
-    } else if (MathJax.Hub) {
-      MathJax.Hub.Queue(['Typeset', MathJax.Hub, target]);
-    }
+    var attempts = 0;
+    var timer = setInterval(function () {
+      attempts += 1;
+      if (queueTypeset(target) || attempts > 100) {
+        clearInterval(timer);
+      }
+    }, 100);
   }
 
   /**
