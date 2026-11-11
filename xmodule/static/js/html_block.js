@@ -86,6 +86,94 @@
   }
 
   /**
+   * The root font size the theme's rem lengths are authored against.
+   */
+  var THEME_REM_BASE_PX = 16;
+
+  /**
+   * Converted stylesheet text, keyed by URL.
+   *
+   * The block script is loaded once per page and shared by every Text block on
+   * it, so the fetch and the rewrite happen once and the other blocks reuse the
+   * text instead of fetching and rewriting the same 700 KB again.
+   */
+  var convertedStylesheets = {};
+
+  /**
+   * Whether the theme's rem lengths need converting for this page.
+   *
+   * Studio's base styles set `html { font-size: 62.5% }`, so 1rem is 10px in
+   * the legacy UI, while the theme sizes everything in rem assuming 1rem is
+   * 16px. The Authoring MFE renders the unit, and with it this block, inside an
+   * iframe, which is where that base applies. The LMS page, and the learning
+   * MFE iframe around it, keep the default 16px, so they need no conversion.
+   *
+   * @returns {boolean}
+   */
+  function needsRemConversion() {
+    if (window.self === window.top) {
+      return false;
+    }
+    var rootPx = parseFloat(window.getComputedStyle(document.documentElement).fontSize);
+    return rootPx > 0 && rootPx < THEME_REM_BASE_PX;
+  }
+
+  /**
+   * Rewrite the theme's rem lengths as pixels.
+   *
+   * Setting the document root back to 100% would fix the block but also restyle
+   * every other block in the same iframe, because they all share the document
+   * and its rem basis. Converting the copy of the theme that is injected into
+   * this block's shadow root keeps the correction inside the block.
+   *
+   * `url()` payloads (the theme inlines SVG icons as data URLs) and quoted
+   * strings are copied through untouched: a rem length can only appear in a
+   * declaration around them, not inside their payload.
+   *
+   * @param {string} css - Stylesheet text.
+   * @returns {string} The same CSS with `Nrem` replaced by pixels.
+   */
+  function convertRemUnits(css) {
+    return css.split(/(url\([^)]*\)|"[^"]*"|'[^']*')/).map(function (chunk, index) {
+      if (index % 2 === 1) {
+        return chunk;
+      }
+      return chunk.replace(
+        /(-?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?)rem\b/g,
+        function (match, value) {
+          var pixels = parseFloat(value) * THEME_REM_BASE_PX;
+          return (Math.round(pixels * 10000) / 10000) + 'px';
+        },
+      );
+    }).join('');
+  }
+
+  /**
+   * Fetch a theme stylesheet and convert its rem lengths.
+   *
+   * The result is cached per URL so a unit with several themed blocks fetches
+   * and rewrites each stylesheet once.
+   *
+   * @param {string} url - Stylesheet URL.
+   * @returns {Promise<string>} The converted CSS text.
+   */
+  function fetchConvertedStylesheet(url) {
+    if (!convertedStylesheets[url]) {
+      convertedStylesheets[url] = fetch(url).then(function (response) {
+        if (!response.ok) {
+          throw new Error('HTTP ' + response.status);
+        }
+        return response.text();
+      }).then(convertRemUnits).catch(function (error) {
+        // Let a later block retry a transient failure.
+        delete convertedStylesheets[url];
+        throw error;
+      });
+    }
+    return convertedStylesheets[url];
+  }
+
+  /**
    * Attach a stylesheet inside the shadow root only.
    *
    * The theme declares its custom properties on `:root, :host`, so inside the
@@ -94,7 +182,7 @@
    * block sharing the page, since Paragon core carries top-level rules for bare
    * element selectors.
    */
-  function addStylesheet(shadowRoot, url) {
+  function addLinkedStylesheet(shadowRoot, url) {
     return new Promise(function (resolve) {
       var link = document.createElement('link');
       link.rel = 'stylesheet';
@@ -102,6 +190,46 @@
       link.onload = resolve;
       link.onerror = resolve;
       shadowRoot.appendChild(link);
+    });
+  }
+
+  /**
+   * Attach a stylesheet to the shadow root.
+   *
+   * In the legacy Studio iframe the stylesheet is fetched, its rem lengths are
+   * converted, and it is injected as a `<style>` so the document root does not
+   * have to change. Everywhere else the browser loads it as a `<link>`.
+   *
+   * The placeholder element is appended before the fetch resolves so the
+   * cascade order still follows the URL order: the brand override has to come
+   * after the Paragon stylesheet it layers on.
+   *
+   * @param {ShadowRoot} shadowRoot
+   * @param {string} url
+   * @returns {Promise} Resolves once the stylesheet is attached.
+   */
+  function addStylesheet(shadowRoot, url) {
+    if (!needsRemConversion()) {
+      return addLinkedStylesheet(shadowRoot, url);
+    }
+    return new Promise(function (resolve) {
+      var style = document.createElement('style');
+      shadowRoot.appendChild(style);
+      fetchConvertedStylesheet(url).then(function (css) {
+        style.textContent = css;
+        resolve();
+      }).catch(function (error) {
+        // A theme host without CORS cannot be fetched. Fall back to a linked
+        // stylesheet in the same position: the theme still applies, only at
+        // the document root's rem size.
+        console.error('Text XBlock: failed to inline the theme stylesheet:', error);
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = url;
+        link.onload = resolve;
+        link.onerror = resolve;
+        shadowRoot.replaceChild(link, style);
+      });
     });
   }
 
@@ -223,20 +351,6 @@
   }
 
   /**
-   * Correct the root font size when the block is rendered inside an iframe.
-   *
-   * Studio's base styles set `html { font-size: 62.5% }`, so 1rem is 10px in the
-   * legacy UI, while the theme sizes everything in rem assuming 1rem is 16px.
-   * The Authoring MFE renders the unit, and with it this block, inside an
-   * iframe, so the correction is scoped there and the LMS page is left alone.
-   */
-  function normalizeRootFontSize() {
-    if (window.self !== window.top) {
-      document.documentElement.style.fontSize = '100%';
-    }
-  }
-
-  /**
    * Copy MathJax's SVG glyph definitions into the shadow root.
    *
    * MathJax 2 renders SVG output as `<svg><use href="#glyph">`, pointing at a
@@ -352,8 +466,6 @@
       typesetMath(element);
       return;
     }
-
-    normalizeRootFontSize();
 
     getThemes(initArgs.mfe_config_api).then(function (themes) {
       var urls = [...themes.core, ...themes.theme];
