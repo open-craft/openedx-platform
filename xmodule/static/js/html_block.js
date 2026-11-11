@@ -127,13 +127,81 @@
       }
     });
     return Promise.all(loads).then(function () {
-      return (document.fonts && document.fonts.ready) ? document.fonts.ready : undefined;
+      // Force a layout so the browser starts fetching the fonts the shadow
+      // content uses, then wait for every known face. Waiting on
+      // document.fonts alone is not enough on the first render: the faces are
+      // not requested until something lays the styled content out, and MathJax
+      // bakes the measured font into the SVG output.
+      if (shadowRoot.host && shadowRoot.host.getBoundingClientRect) {
+        shadowRoot.host.getBoundingClientRect();
+      }
+      var frames = new Promise(function (resolve) {
+        if (window.requestAnimationFrame) {
+          window.requestAnimationFrame(function () {
+            window.requestAnimationFrame(resolve);
+          });
+        } else {
+          resolve();
+        }
+      });
+      return frames.then(function () {
+        if (!document.fonts) {
+          return undefined;
+        }
+        // Do not wait on individual faces: an unreachable font source can
+        // leave a face load pending forever. `ready` settles when the browser
+        // finishes what it started, and the timeout keeps a slow CDN from
+        // blocking the typeset entirely.
+        var timeout = new Promise(function (resolve) {
+          setTimeout(resolve, 1500);
+        });
+        return Promise.race([document.fonts.ready, timeout]);
+      });
     });
   }
 
   /**
    * Move the block's server-rendered children into a shadow root.
    */
+  /**
+   * Wait until the page has finished loading and laid out.
+   *
+   * MathJax measures its `ex` size from a hidden element in the document body.
+   * If it typesets before the first layout, that measurement is wrong and the
+   * resulting SVG carries a huge glyph scale, which is the "some glyphs are
+   * enormous" symptom.
+   *
+   * @returns {Promise} Resolves once the page is loaded and painted.
+   */
+  function waitForPageLayout() {
+    var loaded = new Promise(function (resolve) {
+      if (document.readyState === 'complete') {
+        resolve();
+        return;
+      }
+      var done = false;
+      var finish = function () {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      };
+      window.addEventListener('load', finish, { once: true });
+      setTimeout(finish, 3000);
+    });
+    return loaded.then(function () {
+      return new Promise(function (resolve) {
+        if (window.requestAnimationFrame) {
+          window.requestAnimationFrame(function () {
+            window.requestAnimationFrame(resolve);
+          });
+        } else {
+          setTimeout(resolve, 0);
+        }
+      });
+    });
+  }
+
   function sandbox(element) {
     if (element.shadowRoot) {
       return element.shadowRoot.querySelector('.xblock-root');
@@ -218,19 +286,26 @@
    * @param {Element} target - The element (or shadow content root) to typeset.
    * @returns {boolean} Whether the typeset pass was queued.
    */
-  function queueTypeset(target) {
+  function queueTypeset(target, done) {
     if (typeof MathJax === 'undefined' || MathJax === null) {
       return false;
     }
     if (MathJax.startup && MathJax.startup.promise) {
       MathJax.startup.promise.then(function () {
-        MathJax.typesetPromise([target]);
+        return MathJax.typesetPromise([target]);
+      }).then(function () {
+        if (done) {
+          done();
+        }
       });
       return true;
     }
     if (MathJax.Hub) {
       MathJax.Hub.Queue(['Typeset', MathJax.Hub, target], function () {
         copyGlyphsFor(target);
+        if (done) {
+          done();
+        }
       });
       return true;
     }
@@ -244,22 +319,22 @@
    * own; the legacy inline initializer used to queue this typesetting pass, and
    * it has to keep working for both rendering paths. Ulmo ships MathJax 2.7.5,
    * which exposes `MathJax.Hub`, so use its queue and keep the MathJax 3 promise
-   * API as a fallback. For themed blocks the formulas live in the shadow tree,
-   * so `target` is the shadow content root rather than the host element.
+   * API as a fallback.
    *
    * `window.MathJax` can be the page's config placeholder before MathJax.js
    * loads, so wait for the real object instead of dropping the pass.
    *
-   * @param {Element} target - The element (or shadow content root) to typeset.
+   * @param {Element} target - The element to typeset.
+   * @param {function} [done] - Called after the typeset pass completes.
    */
-  function typesetMath(target) {
-    if (queueTypeset(target)) {
+  function typesetMath(target, done) {
+    if (queueTypeset(target, done)) {
       return;
     }
     var attempts = 0;
     var timer = setInterval(function () {
       attempts += 1;
-      if (queueTypeset(target) || attempts > 100) {
+      if (queueTypeset(target, done) || attempts > 100) {
         clearInterval(timer);
       }
     }, 100);
@@ -280,12 +355,21 @@
     }
 
     normalizeRootFontSize();
-    var root = sandbox(element);
 
     getThemes(initArgs.mfe_config_api).then(function (themes) {
-      return waitForStylesheets(root.getRootNode(), [...themes.core, ...themes.theme]);
-    }).then(function () {
-      typesetMath(root);
+      var urls = [...themes.core, ...themes.theme];
+      return waitForPageLayout().then(function () {
+        return new Promise(function (resolve) {
+          // Typeset while the content is still in the light DOM: MathJax 2
+          // lays inline math out with a wrong scale inside a shadow tree. Move
+          // the finished output afterwards.
+          typesetMath(element, resolve);
+        });
+      }).then(function () {
+        var root = sandbox(element);
+        copyGlyphsFor(root);
+        return waitForStylesheets(root.getRootNode(), urls);
+      });
     });
   }
 
