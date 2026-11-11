@@ -95,10 +95,40 @@
    * element selectors.
    */
   function addStylesheet(shadowRoot, url) {
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = url;
-    shadowRoot.appendChild(link);
+    return new Promise(function (resolve) {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      link.onload = resolve;
+      link.onerror = resolve;
+      shadowRoot.appendChild(link);
+    });
+  }
+
+  /**
+   * Attach the theme stylesheets to the shadow root and wait for them, and for
+   * their fonts, before anything measures the content.
+   *
+   * MathJax measures the font when it typesets and bakes the result into the
+   * SVG output. If the theme CSS arrives while it is typesetting, the formulas
+   * get a wrong scale, which is what made some glyphs huge.
+   *
+   * @param {ShadowRoot} shadowRoot - The root to attach the stylesheets to.
+   * @param {string[]} urls - Stylesheet URLs, in load order.
+   * @returns {Promise} Resolves once the stylesheets and fonts are ready.
+   */
+  function waitForStylesheets(shadowRoot, urls) {
+    var seen = {};
+    var loads = [];
+    urls.forEach(function (url) {
+      if (!seen[url]) {
+        seen[url] = true;
+        loads.push(addStylesheet(shadowRoot, url));
+      }
+    });
+    return Promise.all(loads).then(function () {
+      return (document.fonts && document.fonts.ready) ? document.fonts.ready : undefined;
+    });
   }
 
   /**
@@ -251,16 +281,11 @@
 
     normalizeRootFontSize();
     var root = sandbox(element);
-    typesetMath(root);
 
     getThemes(initArgs.mfe_config_api).then(function (themes) {
-      var seen = {};
-      [...themes.core, ...themes.theme].forEach(function (url) {
-        if (!seen[url]) {
-          seen[url] = true;
-          addStylesheet(root.getRootNode(), url);
-        }
-      });
+      return waitForStylesheets(root.getRootNode(), [...themes.core, ...themes.theme]);
+    }).then(function () {
+      typesetMath(root);
     });
   }
 
