@@ -12,11 +12,11 @@ from opaque_keys.edx.keys import CourseKey
 from rest_framework.decorators import api_view
 
 from cms.djangoapps.contentstore.transcript_storage_handlers import (
-    validate_transcript_upload_data,
-    upload_transcript,
     delete_video_transcript,
     handle_transcript_credentials,
     handle_transcript_download,
+    upload_transcript,
+    validate_transcript_upload_data,
 )
 from common.djangoapps.student.auth import has_studio_write_access
 from common.djangoapps.util.json_request import JsonResponse, expect_json
@@ -108,8 +108,11 @@ def transcript_upload_handler(request):
     Transcript file should be in SRT(SubRip) format.
 
     Returns
-        - A 400 if any of the validation fails
-        - A 200 if transcript has been uploaded successfully
+        - A 400 if any of the validation fails: a required parameter or the file is
+          missing, ``new_language_code`` already has a transcript when it differs from
+          ``language_code``, or the file is not valid SRT / UTF-8.
+        - A 201 if a transcript was created for a language that had none.
+        - A 200 if an existing transcript for that language was replaced.
     """
     error = validate_transcript_upload_data(data=request.POST, files=request.FILES)
     if error:

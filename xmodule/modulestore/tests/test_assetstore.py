@@ -6,10 +6,12 @@ too.
 
 import unittest
 from datetime import datetime, timedelta
-import pytest
-import ddt
+from shutil import rmtree
+from tempfile import mkdtemp
 from zoneinfo import ZoneInfo
 
+import ddt
+import pytest
 from django.test import TestCase
 from opaque_keys.edx.keys import CourseKey
 from opaque_keys.edx.locator import CourseLocator
@@ -21,9 +23,18 @@ from xmodule.modulestore.exceptions import ItemNotFoundError
 from xmodule.modulestore.tests.factories import CourseFactory
 from xmodule.modulestore.tests.utils import (
     SPLIT_MODULESTORE_SETUP,
+    TEST_DATA_DIR,
     MixedModulestoreBuilder,
-    XmlModulestoreBuilder
+    XmlModulestoreBuilder,
 )
+from xmodule.modulestore.xml_exporter import export_course_to_xml
+from xmodule.modulestore.xml_importer import import_course_from_xml
+
+# These tests exercise the deprecated asset metadata APIs directly.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:Asset metadata in the modulestore is deprecated:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:xmodule.assetstore is deprecated:DeprecationWarning"),
+]
 
 
 class AssetStoreTestData:
@@ -70,7 +81,7 @@ class TestSortedAssetList(unittest.TestCase):
 
     def setUp(self):
         super().setUp()
-        asset_list = [dict(list(zip(AssetStoreTestData.asset_fields, asset))) for asset in AssetStoreTestData.all_asset_data]  # lint-amnesty, pylint: disable=line-too-long
+        asset_list = [dict(list(zip(AssetStoreTestData.asset_fields, asset))) for asset in AssetStoreTestData.all_asset_data]  # pylint: disable=line-too-long  # noqa: B905
         self.sorted_asset_list_by_filename = SortedAssetList(iterable=asset_list)
         self.sorted_asset_list_by_last_edit = SortedAssetList(iterable=asset_list, key=lambda x: x['edited_on'])
         self.course_key = CourseLocator('org', 'course', 'run')
@@ -113,7 +124,7 @@ class TestMongoAssetMetadataStorage(TestCase):
         """
         So we can use the below date comparison
         """
-        for attr in mdata1.ATTRS_ALLOWED_TO_UPDATE:  # lint-amnesty, pylint: disable=redefined-outer-name
+        for attr in mdata1.ATTRS_ALLOWED_TO_UPDATE:  # pylint: disable=redefined-outer-name  # noqa: F402
             if attr == "edited_on":
                 continue  # The edited_on gets updated during save, so comparing it makes tests flaky.
             if isinstance(getattr(mdata1, attr), datetime):
@@ -153,7 +164,7 @@ class TestMongoAssetMetadataStorage(TestCase):
         Setup assets. Save in store if given
         """
         for i, asset in enumerate(AssetStoreTestData.all_asset_data):
-            asset_dict = dict(list(zip(AssetStoreTestData.asset_fields[1:], asset[1:])))
+            asset_dict = dict(list(zip(AssetStoreTestData.asset_fields[1:], asset[1:])))  # noqa: B905
             if i in (0, 1) and course1_key:
                 asset_key = course1_key.make_asset_key('asset', asset[0])
                 asset_md = AssetMetadata(asset_key, **asset_dict)
@@ -231,7 +242,7 @@ class TestMongoAssetMetadataStorage(TestCase):
         """
         with storebuilder.build() as (__, store):
             course = CourseFactory.create(modulestore=store)
-            fake_course_id = CourseKey.from_string("{}nothere/{}nothere/{}nothere".format(
+            fake_course_id = CourseKey.from_string("{}nothere/{}nothere/{}nothere".format(  # noqa: UP032
                 course.id.org, course.id.course, course.id.run
             ))
             new_asset_loc = fake_course_id.make_asset_key('asset', 'burnside.jpg')
@@ -574,6 +585,58 @@ class TestMongoAssetMetadataStorage(TestCase):
 
             assert len(store.get_all_asset_metadata(course.id, 'different')) == 1
 
+    @ddt.data(SPLIT_MODULESTORE_SETUP)
+    def test_asset_metadata_api_is_deprecated(self, storebuilder):
+        """
+        The modulestore asset metadata APIs and AssetMetadata emit DeprecationWarnings.
+        """
+        with storebuilder.build() as (__, store):
+            course = CourseFactory.create(modulestore=store)
+            asset_key = course.id.make_asset_key('asset', 'pic1.jpg')
+            with self.assertWarnsRegex(DeprecationWarning, 'Asset metadata in the modulestore is deprecated'):
+                store.get_all_asset_metadata(course.id, 'asset')
+            with self.assertWarnsRegex(DeprecationWarning, 'Asset metadata in the modulestore is deprecated'):
+                store.find_asset_metadata(asset_key)
+            with self.assertWarnsRegex(DeprecationWarning, 'xmodule.assetstore is deprecated'):
+                AssetMetadata(asset_key)
+
+    @ddt.data(SPLIT_MODULESTORE_SETUP)
+    def test_import_ignores_asset_metadata(self, storebuilder):
+        """
+        Importing a course whose assets/assets.xml lists assets does not store
+        any asset metadata.
+
+        We deliberately ignore it because assetstore is deprecated and
+        assets.xml has been unused for years.
+        """
+        with storebuilder.build() as (contentstore, store):
+            courses = import_course_from_xml(
+                store, ModuleStoreEnum.UserID.test, TEST_DATA_DIR, source_dirs=['manual-testing-complete'],
+                static_content_store=contentstore, create_if_not_present=True, raise_on_failure=True,
+            )
+            assert len(courses) == 1
+            assert store.get_all_asset_metadata(courses[0].id, None) == []
+
+    @ddt.data(SPLIT_MODULESTORE_SETUP)
+    def test_export_writes_empty_asset_metadata(self, storebuilder):
+        """
+        Exporting a course always writes an empty assets/assets.xml.
+
+        We do this just for backwards compatibility, but the assets.xml file
+        hasn't been used in any meaningful way in years.
+        """
+        with storebuilder.build() as (contentstore, store):
+            course = CourseFactory.create(modulestore=store)
+            self.setup_assets(course.id, None, store)
+            assert len(store.get_all_asset_metadata(course.id, 'asset')) == 2
+
+            export_dir = mkdtemp()
+            self.addCleanup(rmtree, export_dir)
+            export_course_to_xml(store, contentstore, course.id, export_dir, 'exported_course')
+
+            with open(f'{export_dir}/exported_course/assets/assets.xml', 'rb') as assets_xml:
+                assert assets_xml.read() == b'<assets/>'
+
     @ddt.data('XML_MODULESTORE_BUILDER', 'MIXED_MODULESTORE_BUILDER')
     def test_xml_not_yet_implemented(self, storebuilderName):
         """
@@ -617,6 +680,6 @@ class TestMongoAssetMetadataStorage(TestCase):
             store.copy_all_asset_metadata(course1.id, course2.id, ModuleStoreEnum.UserID.test * 101)
             assert len(store.get_all_asset_metadata(course1.id, 'asset')) == 0
             assert len(store.get_all_asset_metadata(course2.id, 'asset')) == 0
-            all_assets = store.get_all_asset_metadata(
+            all_assets = store.get_all_asset_metadata(  # noqa: F841
                 course2.id, 'asset', sort=('displayname', ModuleStoreEnum.SortOrder.ascending)
             )

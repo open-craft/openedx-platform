@@ -9,7 +9,7 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from requests.exceptions import HTTPError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.status import HTTP_406_NOT_ACCEPTABLE, HTTP_409_CONFLICT, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
+from rest_framework.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_406_NOT_ACCEPTABLE, HTTP_409_CONFLICT
 from rest_framework.views import APIView
 
 from common.djangoapps.course_modes.models import CourseMode
@@ -24,6 +24,7 @@ from openedx.core.djangoapps.enrollments.errors import InvalidEnrollmentAttribut
 from openedx.core.djangoapps.enrollments.views import EnrollmentCrossDomainSessionAuth
 from openedx.core.djangoapps.user_api.preferences.api import update_email_opt_in
 from openedx.core.lib.api.authentication import BearerAuthenticationAllowInactiveUser
+from openedx.core.lib.log_utils import get_username_or_pii_safe_user_id_for_log
 from openedx.features.course_experience.url_helpers import make_learning_mfe_courseware_url
 
 from ...constants import Messages
@@ -82,10 +83,12 @@ class BasketsView(APIView):
             except Exception:  # pylint: disable=broad-except
                 # log the error, return silently
                 log.exception(
-                    'Failed to handle marketing opt-in flag: user="%s", course="%s"', user.username, course_key
+                    'Failed to handle marketing opt-in flag: user="%s", course="%s"',
+                    get_username_or_pii_safe_user_id_for_log(user),
+                    course_key,
                 )
 
-    def post(self, request, *args, **kwargs):  # lint-amnesty, pylint: disable=unused-argument
+    def post(self, request, *args, **kwargs):  # pylint: disable=unused-argument
         """
         Attempt to enroll the user.
         """
@@ -172,7 +175,7 @@ class BasketsView(APIView):
                     HTTP_403_FORBIDDEN
                 )
 
-            mode = CourseMode.AUDIT if audit_mode else CourseMode.HONOR  # lint-amnesty, pylint: disable=unused-variable
+            mode = CourseMode.AUDIT if audit_mode else CourseMode.HONOR  # pylint: disable=unused-variable  # noqa: F841
             self._handle_marketing_opt_in(request, course_key, user)
             return DetailResponse(msg)
         else:
@@ -194,7 +197,7 @@ class BasketsView(APIView):
             DetailResponse: The response with the error message and status code.
         """
         log.exception(log_message, str(exception))
-        error_msg = f"{log_message.format(str(exception))} for user {user.username} in course {course_id}: {str(exception)}"  # lint-amnesty, pylint: disable=line-too-long
+        error_msg = f"{log_message.format(str(exception))} for user {user.username} in course {course_id}: {str(exception)}"  # pylint: disable=line-too-long
         return DetailResponse(error_msg, status=status_code)
 
 

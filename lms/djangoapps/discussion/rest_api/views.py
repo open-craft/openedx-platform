@@ -4,14 +4,14 @@ Discussion API views
 import logging
 import uuid
 
-import edx_api_doc_tools as apidocs
-
 from django.contrib.auth import get_user_model
 from django.core.exceptions import BadRequest, ValidationError
 from django.shortcuts import get_object_or_404
-from drf_yasg import openapi
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from edx_rest_framework_extensions.auth.session.authentication import SessionAuthenticationAllowInactiveUser
+from forum import api as forum_api
 from opaque_keys.edx.keys import CourseKey
 from rest_framework import permissions, status
 from rest_framework.authentication import SessionAuthentication
@@ -21,31 +21,28 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
-from xmodule.modulestore.django import modulestore
-
 from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.util.file import store_uploaded_file
 from lms.djangoapps.course_api.blocks.api import get_blocks
 from lms.djangoapps.course_goals.models import UserActivity
+from lms.djangoapps.discussion.django_comment_client import settings as cc_settings
+from lms.djangoapps.discussion.django_comment_client.utils import get_group_id_for_comments_service
 from lms.djangoapps.discussion.rate_limit import is_content_creation_rate_limited
 from lms.djangoapps.discussion.rest_api.permissions import IsAllowedToBulkDelete
 from lms.djangoapps.discussion.rest_api.tasks import delete_course_post_for_user
 from lms.djangoapps.discussion.toggles import ONLY_VERIFIED_USERS_CAN_POST
-from lms.djangoapps.discussion.django_comment_client import settings as cc_settings
-from lms.djangoapps.discussion.django_comment_client.utils import get_group_id_for_comments_service
 from lms.djangoapps.instructor.access import update_forum_role
 from openedx.core.djangoapps.discussions.config.waffle import ENABLE_NEW_STRUCTURE_DISCUSSIONS
 from openedx.core.djangoapps.discussions.models import DiscussionsConfiguration, Provider
 from openedx.core.djangoapps.discussions.serializers import DiscussionSettingsSerializer
 from openedx.core.djangoapps.django_comment_common import comment_client
 from openedx.core.djangoapps.django_comment_common.models import CourseDiscussionSettings, Role
-from openedx.core.djangoapps.django_comment_common.comment_client.comment import Comment
-from openedx.core.djangoapps.django_comment_common.comment_client.thread import Thread
 from openedx.core.djangoapps.user_api.accounts.permissions import CanReplaceUsername, CanRetireUser
 from openedx.core.djangoapps.user_api.models import UserRetirementStatus
 from openedx.core.lib.api.authentication import BearerAuthentication, BearerAuthenticationAllowInactiveUser
 from openedx.core.lib.api.parsers import MergePatchParser
 from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, view_auth_classes
+from xmodule.modulestore.django import modulestore
 
 from ..rest_api.api import (
     create_comment,
@@ -57,10 +54,10 @@ from ..rest_api.api import (
     get_course_discussion_user_stats,
     get_course_topics,
     get_course_topics_v2,
+    get_learner_active_thread_list,
     get_response_comments,
     get_thread,
     get_thread_list,
-    get_learner_active_thread_list,
     get_user_comments,
     get_v2_course_topics_as_v1,
     update_comment,
@@ -88,10 +85,10 @@ from ..rest_api.serializers import (
 from .utils import (
     create_blocks_params,
     create_topics_v3_structure,
-    is_captcha_enabled,
-    verify_recaptcha_token,
     get_course_id_from_thread_id,
+    is_captcha_enabled,
     is_only_student,
+    verify_recaptcha_token,
 )
 
 log = logging.getLogger(__name__)
@@ -105,15 +102,15 @@ class CourseView(DeveloperErrorViewMixin, APIView):
     General discussion metadata API.
     """
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter("course_id", apidocs.ParameterLocation.PATH, description="Course ID")
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course ID")
         ],
         responses={
             200: CourseMetadataSerailizer(read_only=True, required=False),
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         }
     )
     def get(self, request, course_id):
@@ -136,15 +133,15 @@ class CourseViewV2(DeveloperErrorViewMixin, APIView):
     General discussion metadata API v2.
     """
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter("course_id", apidocs.ParameterLocation.PATH, description="Course ID")
+            OpenApiParameter("course_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Course ID")
         ],
         responses={
             200: CourseMetadataSerailizer(read_only=True, required=False),
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         }
     )
     def get(self, request, course_id):
@@ -301,32 +298,34 @@ class CourseTopicsViewV2(DeveloperErrorViewMixin, APIView):
     [API Documentation](/api-docs/?filter=discussion#/discussion/discussion_v2_course_topics_read)
     """
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter(
+            OpenApiParameter(
                 'course_id',
-                apidocs.ParameterLocation.PATH,
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
                 description="Course ID",
             ),
-            apidocs.string_parameter(
+            OpenApiParameter(
                 'topic_id',
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 description="Comma-separated list of topic ids to filter",
             ),
-            openapi.Parameter(
+            OpenApiParameter(
                 'order_by',
-                apidocs.ParameterLocation.QUERY,
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
                 required=False,
-                type=openapi.TYPE_STRING,
                 enum=list(TopicOrdering),
                 description="Sort ordering for topics",
             ),
         ],
         responses={
             200: DiscussionTopicSerializerV2(read_only=True, required=False),
-            401: "The requester is not authenticated.",
-            403: "The requester cannot access the specified course.",
-            404: "The requested course does not exist.",
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The requester cannot access the specified course."),
+            404: OpenApiResponse(description="The requested course does not exist."),
         }
     )
     def get(self, request, course_id):
@@ -1573,7 +1572,6 @@ class BulkDeleteUserPosts(DeveloperErrorViewMixin, APIView):
     def post(self, request, course_id):
         """
         Implements the delete user posts endpoint.
-        TODO: Add support for MySQLBackend as well
         """
         username = request.GET.get("username", None)
         execute_task = request.GET.get("execute", "false").lower() == "true"
@@ -1597,8 +1595,12 @@ class BulkDeleteUserPosts(DeveloperErrorViewMixin, APIView):
             log.info(f"<<Bulk Delete>> {username} enrolled in {enrollments}")
         log.info(f"<<Bulk Delete>> Posts for {username} in {course_ids} - for {course_or_org} {course_id}")
 
-        comment_count = Comment.get_user_comment_count(user.id, course_ids)
-        thread_count = Thread.get_user_threads_count(user.id, course_ids)
+        thread_count = 0
+        comment_count = 0
+        for cid in course_ids:
+            counts = forum_api.get_user_post_counts(user_id=str(user.id), course_id=cid)
+            thread_count += counts.get("thread_count", 0)
+            comment_count += counts.get("comment_count", 0)
         log.info(f"<<Bulk Delete>> {username} in {course_ids} - Count thread {thread_count}, comment {comment_count}")
 
         if execute_task:

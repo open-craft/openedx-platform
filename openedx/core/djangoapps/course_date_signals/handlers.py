@@ -1,18 +1,19 @@
 """Signal handlers for writing course dates into edx_when."""
 
 
-from datetime import timedelta
 import logging
+from datetime import timedelta
 
+from django.db import transaction
 from django.dispatch import receiver
 from edx_when.api import FIELDS_TO_EXTRACT, set_dates_for_course
 from xblock.fields import Scope
 
 from cms.djangoapps.contentstore.config.waffle import CUSTOM_RELATIVE_DATES
 from openedx.core.lib.graph_traversals import get_children, leaf_filter, traverse_pre_order
-from xmodule.modulestore import ModuleStoreEnum  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.django import SignalHandler, modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.util.misc import is_xblock_an_assignment  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore import ModuleStoreEnum  # pylint: disable=wrong-import-order
+from xmodule.modulestore.django import SignalHandler, modulestore  # pylint: disable=wrong-import-order
+from xmodule.util.misc import is_xblock_an_assignment  # pylint: disable=wrong-import-order
 
 from .models import SelfPacedRelativeDatesConfig
 from .utils import spaced_out_sections
@@ -33,12 +34,12 @@ def _field_values(fields, xblock):
             try:
                 result[field.name] = field.read_from(xblock)
             except TypeError as exception:
-                exception_message = "{message}, Block-location:{location}, Field-name:{field_name}".format(
+                exception_message = "{message}, Block-location:{location}, Field-name:{field_name}".format(  # noqa: UP032  # pylint: disable=line-too-long
                     message=str(exception),
                     location=str(xblock.location),
                     field_name=field.name
                 )
-                raise TypeError(exception_message)  # lint-amnesty, pylint: disable=raise-missing-from
+                raise TypeError(exception_message)  # pylint: disable=raise-missing-from  # noqa: B904
     return result
 
 
@@ -53,7 +54,7 @@ def _has_assignment_blocks(item):
     )
 
 
-def _gather_graded_items(root, due):  # lint-amnesty, pylint: disable=missing-function-docstring
+def _gather_graded_items(root, due):  # pylint: disable=missing-function-docstring
     items = [root]
     has_non_ora_scored_content = False
     collected_items = []
@@ -181,3 +182,23 @@ def extract_dates(sender, course_key, **kwargs):  # pylint: disable=unused-argum
         set_dates_for_course(course_key, date_items)
     except Exception:  # pylint: disable=broad-except
         log.exception('Unable to set dates for %s on course publish', course_key)
+
+
+@receiver(SignalHandler.course_published)
+def update_assignment_dates(sender, course_key, **kwargs):  # pylint: disable=unused-argument
+    """
+    Receive the course_published signal and enqueue assignment-date syncing.
+
+    Complements ``extract_dates`` (does not replace it). ``extract_dates`` runs
+    synchronously and writes each block's raw start/due/end fields into edx-when.
+    This receiver instead defers a Celery task (via ``transaction.on_commit``, so it
+    runs after publish and ``extract_dates`` commit) that reads the course's graded
+    subsections from the published modulestore and writes their assignment metadata
+    (title, subsection name) into edx-when's ContentDate model - which the raw field
+    extraction does not capture.
+    """
+    # import here, because signal is registered at startup, but items in tasks are not available yet
+    from .tasks import update_assignment_dates_for_course
+
+    course_key_str = str(course_key)
+    transaction.on_commit(lambda: update_assignment_dates_for_course.delay(course_key_str))

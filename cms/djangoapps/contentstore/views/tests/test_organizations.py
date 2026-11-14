@@ -3,7 +3,6 @@
 
 import json
 
-from django.conf import settings
 from django.test import TestCase
 from django.test.utils import override_settings
 from django.urls import reverse
@@ -27,17 +26,17 @@ class TestOrganizationListing(TestCase):
         self.org_short_names = ["alphaX", "betaX", "orgX"]
         for index, short_name in enumerate(self.org_short_names):
             add_organization(organization_data={
-                'name': 'Test Organization %s' % index,
+                'name': 'Test Organization %s' % index,  # noqa: UP031
                 'short_name': short_name,
-                'description': 'Testing Organization %s Description' % index,
+                'description': 'Testing Organization %s Description' % index,  # noqa: UP031
             })
 
     def test_organization_list(self):
         """Verify that the organization names list api returns list of organization short names."""
         response = self.client.get(self.org_names_listing_url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200)  # noqa: PT009
         org_names = json.loads(response.content.decode('utf-8'))
-        self.assertEqual(org_names, self.org_short_names)
+        self.assertEqual(org_names, self.org_short_names)  # noqa: PT009
 
 
 class TestOrganizationsForLibraries(TestCase):
@@ -60,9 +59,9 @@ class TestOrganizationsForLibraries(TestCase):
         cls.orgs = {}
         for index, short_name in enumerate(cls.org_short_names):
             cls.orgs[short_name] = add_organization(organization_data={
-                'name': 'Test Organization %s' % index,
+                'name': 'Test Organization %s' % index,  # noqa: UP031
                 'short_name': short_name,
-                'description': 'Testing Organization %s Description' % index,
+                'description': 'Testing Organization %s Description' % index,  # noqa: UP031
             })
 
         # Our user is an org staff for OrgStaffOrg
@@ -89,44 +88,32 @@ class TestOrganizationsForLibraries(TestCase):
         )
 
     @override_settings(
-        FEATURES={
-            **settings.FEATURES,
-            'ENABLE_ORGANIZATION_STAFF_ACCESS_FOR_CONTENT_LIBRARIES': False,
-            'ENABLE_CREATOR_GROUP': False,
-        }
+        ENABLE_CREATOR_GROUP=False,
+        ENABLE_ORGANIZATION_STAFF_ACCESS_FOR_CONTENT_LIBRARIES=False,
     )
     def test_both_toggles_disabled(self):
         allowed_orgs = get_allowed_organizations_for_libraries(self.library_author)
         assert allowed_orgs == []
 
     @override_settings(
-        FEATURES={
-            **settings.FEATURES,
-            'ENABLE_ORGANIZATION_STAFF_ACCESS_FOR_CONTENT_LIBRARIES': True,
-            'ENABLE_CREATOR_GROUP': True,
-        }
+        ENABLE_CREATOR_GROUP=True,
+        ENABLE_ORGANIZATION_STAFF_ACCESS_FOR_CONTENT_LIBRARIES=True,
     )
     def test_both_toggles_enabled(self):
         allowed_orgs = get_allowed_organizations_for_libraries(self.library_author)
         assert allowed_orgs == ["CreatorOrg", "OrgStaffOrg"]
 
     @override_settings(
-        FEATURES={
-            **settings.FEATURES,
-            'ENABLE_ORGANIZATION_STAFF_ACCESS_FOR_CONTENT_LIBRARIES': True,
-            'ENABLE_CREATOR_GROUP': False,
-        }
+        ENABLE_CREATOR_GROUP=False,
+        ENABLE_ORGANIZATION_STAFF_ACCESS_FOR_CONTENT_LIBRARIES=True,
     )
     def test_org_staff_enabled(self):
         allowed_orgs = get_allowed_organizations_for_libraries(self.library_author)
         assert allowed_orgs == ["OrgStaffOrg"]
 
     @override_settings(
-        FEATURES={
-            **settings.FEATURES,
-            'ENABLE_ORGANIZATION_STAFF_ACCESS_FOR_CONTENT_LIBRARIES': False,
-            'ENABLE_CREATOR_GROUP': True,
-        }
+        ENABLE_CREATOR_GROUP=True,
+        ENABLE_ORGANIZATION_STAFF_ACCESS_FOR_CONTENT_LIBRARIES=False,
     )
     def test_creator_group_enabled(self):
         allowed_orgs = get_allowed_organizations_for_libraries(self.library_author)

@@ -5,10 +5,8 @@ Utilities for view tests.
 
 import json
 
-from cms.djangoapps.contentstore.tests.utils import CourseTestCase
-from xmodule.modulestore.tests.factories import BlockFactory  # lint-amnesty, pylint: disable=wrong-import-order
-
-from ...helpers import xblock_studio_url
+from cms.djangoapps.contentstore.tests.utils import CourseTestCase, get_url
+from xmodule.modulestore.tests.factories import BlockFactory  # pylint: disable=wrong-import-order
 
 
 class StudioPageTestCase(CourseTestCase):
@@ -25,12 +23,12 @@ class StudioPageTestCase(CourseTestCase):
 
     def get_page_html(self, xblock):
         """
-        Returns the HTML for the page representing the xblock.
+        Returns the HTML for the page representing the xblock, as rendered by
+        container_embed_handler (the chromeless container page the Authoring MFE loads).
         """
-        url = xblock_studio_url(xblock)
-        self.assertIsNotNone(url)
+        url = get_url('container_embed_handler', xblock.location)
         resp = self.client.get_html(url)
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 200)  # noqa: PT009
         return resp.content.decode(resp.charset)
 
     def get_preview_html(self, xblock, view_name):
@@ -39,7 +37,7 @@ class StudioPageTestCase(CourseTestCase):
         """
         preview_url = f'/xblock/{xblock.location}/{view_name}'
         resp = self.client.get_json(preview_url)
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 200)  # noqa: PT009
         resp_content = json.loads(resp.content.decode('utf-8'))
         return resp_content['html']
 
@@ -98,6 +96,6 @@ class StudioPageTestCase(CourseTestCase):
         Validate that the specified HTML has specific action..
         """
         if can_action:
-            self.assertIn(expected_html, html)
+            self.assertIn(expected_html, html)  # noqa: PT009
         else:
-            self.assertNotIn(expected_html, html)
+            self.assertNotIn(expected_html, html)  # noqa: PT009

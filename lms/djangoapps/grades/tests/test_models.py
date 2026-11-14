@@ -30,7 +30,7 @@ from lms.djangoapps.grades.models import (
     PersistentCourseGrade,
     PersistentSubsectionGrade,
     PersistentSubsectionGradeOverride,
-    VisibleBlocks
+    VisibleBlocks,
 )
 
 
@@ -48,7 +48,7 @@ class BlockRecordListTestCase(TestCase):
         )
 
     def test_empty_block_record_set(self):
-        empty_json = '{{"blocks":[],"course_key":"{}","version":{}}}'.format(
+        empty_json = '{{"blocks":[],"course_key":"{}","version":{}}}'.format(  # noqa: UP032
             str(self.course_key),
             BLOCK_RECORD_LIST_VERSION,
         )
@@ -286,16 +286,6 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
         assert isinstance(grade.first_attempted, datetime)
         assert grade.earned_all == 6.0
 
-    def test_update_or_create_event(self):
-        with patch('lms.djangoapps.grades.events.tracker') as tracker_mock:
-            grade = PersistentSubsectionGrade.update_or_create_grade(**self.params)
-        self._assert_tracker_emitted_event(tracker_mock, grade)
-
-    def test_create_event(self):
-        with patch('lms.djangoapps.grades.events.tracker') as tracker_mock:
-            grade = PersistentSubsectionGrade.update_or_create_grade(**self.params)
-        self._assert_tracker_emitted_event(tracker_mock, grade)
-
     def test_grade_override(self):
         """
         Creating a subsection grade override should NOT change the score values
@@ -322,37 +312,13 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
         assert grade.possible_all == override.possible_all_override
         assert grade.possible_graded == override.possible_graded_override
 
-    def _assert_tracker_emitted_event(self, tracker_mock, grade):
-        """
-        Helper function to ensure that the mocked event tracker
-        was called with the expected info based on the passed grade.
-        """
-        tracker_mock.emit.assert_called_with(
-            'edx.grades.subsection.grade_calculated',
-            {
-                'user_id': str(grade.user_id),
-                'course_id': str(grade.course_id),
-                'block_id': str(grade.usage_key),
-                'course_version': str(grade.course_version),
-                'weighted_total_earned': grade.earned_all,
-                'weighted_total_possible': grade.possible_all,
-                'weighted_graded_earned': grade.earned_graded,
-                'weighted_graded_possible': grade.possible_graded,
-                'first_attempted': str(grade.first_attempted),
-                'subtree_edited_timestamp': str(grade.subtree_edited_timestamp),
-                'event_transaction_id': str(get_event_transaction_id()),
-                'event_transaction_type': str(get_event_transaction_type()),
-                'visible_blocks_hash': str(grade.visible_blocks_id),
-            }
-        )
-
     def test_clear_subsection_grade(self):
         PersistentSubsectionGrade.update_or_create_grade(**self.params)
         deleted = PersistentSubsectionGrade.delete_subsection_grades_for_learner(
             self.user.id, self.course_key
         )
-        self.assertEqual(deleted, 1)
-        self.assertFalse(PersistentSubsectionGrade.objects.filter(
+        self.assertEqual(deleted, 1)  # noqa: PT009
+        self.assertFalse(PersistentSubsectionGrade.objects.filter(  # noqa: PT009
             user_id=self.user.id, course_id=self.course_key).exists()
         )
 
@@ -366,7 +332,7 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
             feature=GradeOverrideFeatureEnum.gradebook,
         )
         deleted = PersistentSubsectionGrade.delete_subsection_grades_for_learner(self.user.id, self.course_key)
-        self.assertEqual(deleted, 2)
+        self.assertEqual(deleted, 2)  # noqa: PT009
 
 
 @ddt.ddt
@@ -452,7 +418,7 @@ class PersistentCourseGradesTest(GradesModelTestCase):
         with freeze_time(now()):
             grade = PersistentCourseGrade.update_or_create(**self.params)
             assert now() == grade.passed_timestamp
-            self.assertEqual(mock.call_count, 1)
+            self.assertEqual(mock.call_count, 1)  # noqa: PT009
 
     def test_create_and_read_grade(self):
         created_grade = PersistentCourseGrade.update_or_create(**self.params)
@@ -541,12 +507,12 @@ class PersistentCourseGradesTest(GradesModelTestCase):
         )
 
         # assert after deleteing grade for a single user and course
-        with self.assertRaises(PersistentCourseGrade.DoesNotExist):
+        with self.assertRaises(PersistentCourseGrade.DoesNotExist):  # noqa: PT027
             PersistentCourseGrade.read(self.params['user_id'], self.course_key)
 
         another_user_grade = PersistentCourseGrade.read(other_user_params['user_id'], self.course_key)
-        self.assertIsNotNone(another_user_grade)
+        self.assertIsNotNone(another_user_grade)  # noqa: PT009
 
-        self.assertTrue(PersistentCourseGrade.objects.filter(
+        self.assertTrue(PersistentCourseGrade.objects.filter(  # noqa: PT009
             user_id=self.params['user_id'], course_id=other_course_key).exists()
         )

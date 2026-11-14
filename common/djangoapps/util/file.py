@@ -20,7 +20,7 @@ class FileValidationException(Exception):
     """
     An exception thrown during file validation.
     """
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass
 
 
 def store_uploaded_file(
@@ -115,9 +115,8 @@ def course_filename_prefix_generator(course_id, separator='_'):
         course_id.run
     ])
 
-    enable_course_filename_ccx_suffix = settings.FEATURES.get(
-        'ENABLE_COURSE_FILENAME_CCX_SUFFIX',
-        False
+    enable_course_filename_ccx_suffix = getattr(
+        settings, 'ENABLE_COURSE_FILENAME_CCX_SUFFIX', False
     )
 
     if enable_course_filename_ccx_suffix and getattr(course_id, 'ccx', None):

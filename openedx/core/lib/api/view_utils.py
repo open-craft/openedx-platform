@@ -13,7 +13,7 @@ from edx_rest_framework_extensions.auth.session.authentication import SessionAut
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from rest_framework import serializers, status
-from rest_framework.exceptions import APIException, ErrorDetail
+from rest_framework.exceptions import APIException, ErrorDetail, PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.mixins import RetrieveModelMixin, UpdateModelMixin
 from rest_framework.permissions import IsAuthenticated
@@ -90,6 +90,8 @@ class DeveloperErrorViewMixin:
         """
         if isinstance(exc, DeveloperErrorResponseException):
             return exc.response
+        elif isinstance(exc, PermissionDenied):
+            return self._make_error_response(exc.status_code, exc.detail, exc.get_codes())
         elif isinstance(exc, APIException):
             return self._make_error_response(exc.status_code, exc.detail)
         elif isinstance(exc, (Http404, ObjectDoesNotExist)):
@@ -97,7 +99,7 @@ class DeveloperErrorViewMixin:
         elif isinstance(exc, ValidationError):
             return self._make_validation_error_response(exc)
         else:
-            raise  # lint-amnesty, pylint: disable=misplaced-bare-raise
+            raise  # pylint: disable=misplaced-bare-raise
 
 
 class ExpandableFieldViewMixin:
@@ -156,7 +158,7 @@ def add_serializer_errors(serializer, data, field_errors):
         for key, error in errors.items():
             error = clean_errors(error)
             if key == 'bio':
-                user_message = _(f"The about me field must be at most {BIO_MAX_LENGTH} characters long.")  # lint-amnesty, pylint: disable=translation-of-non-string
+                user_message = _(f"The about me field must be at most {BIO_MAX_LENGTH} characters long.")  # pylint: disable=translation-of-non-string
             else:
                 user_message = _("This value is invalid.")
 
@@ -180,7 +182,7 @@ def build_api_error(message, **kwargs):
     """
     return {
         'developer_message': message.format(**kwargs),
-        'user_message': _(message).format(**kwargs),  # lint-amnesty, pylint: disable=translation-of-non-string
+        'user_message': _(message).format(**kwargs),  # pylint: disable=translation-of-non-string
     }
 
 
@@ -291,7 +293,7 @@ class LazySequence(Sequence):
                     self._data.append(next(self.iterable))
                 except StopIteration:
                     self._exhausted = True
-                    raise IndexError("Underlying sequence exhausted")  # lint-amnesty, pylint: disable=raise-missing-from
+                    raise IndexError("Underlying sequence exhausted")  # pylint: disable=raise-missing-from  # noqa: B904
 
             return self._data[index]
         elif isinstance(index, slice):
@@ -324,12 +326,12 @@ class LazySequence(Sequence):
 
     def __repr__(self):
         if self._exhausted:
-            return "LazySequence({!r}, {!r})".format(
+            return "LazySequence({!r}, {!r})".format(  # noqa: UP032
                 self._data,
                 self.est_len,
             )
         else:
-            return "LazySequence(itertools.chain({!r}, {!r}), {!r})".format(
+            return "LazySequence(itertools.chain({!r}, {!r}), {!r})".format(  # noqa: UP032
                 self._data,
                 self.iterable,
                 self.est_len,
@@ -347,10 +349,10 @@ class PaginatedAPIView(APIView):
         The paginator instance associated with the view, or `None`.
         """
         if not hasattr(self, '_paginator'):
-            if self.pagination_class is None:  # lint-amnesty, pylint: disable=no-member
+            if self.pagination_class is None:  # pylint: disable=no-member
                 self._paginator = None
             else:
-                self._paginator = self.pagination_class()  # lint-amnesty, pylint: disable=no-member
+                self._paginator = self.pagination_class()  # pylint: disable=no-member
         return self._paginator
 
     def paginate_queryset(self, queryset):

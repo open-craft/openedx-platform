@@ -13,12 +13,8 @@ from edx_django_utils.monitoring import set_custom_attribute
 from fs.osfs import OSFS
 from opaque_keys.edx.locator import CourseLocator, LibraryLocator
 from xblock.fields import Reference, ReferenceList, ReferenceValueDict, Scope
-from openedx.core.djangoapps.content_tagging.api import (
-    export_tags_in_csv_file,
-    get_object_tag_counts
-)
 
-from xmodule.assetstore import AssetMetadata
+from openedx.core.djangoapps.content_tagging.api import export_tags_in_csv_file, get_object_tag_counts
 from xmodule.contentstore.content import StaticContent
 from xmodule.exceptions import NotFoundError
 from xmodule.modulestore import LIBRARY_ROOT, EdxJSONEncoder, ModuleStoreEnum
@@ -207,19 +203,14 @@ class CourseExportManager(ExportManager):
             lxml.etree.ElementTree(root).write(course_xml, encoding='utf-8')
 
     def process_extra(self, root, courselike, root_courselike_dir, xml_centric_courselike_key, export_fs):
-        # Export the modulestore's asset metadata.
+        # Asset metadata in the modulestore is deprecated and is no longer exported, but we still write an empty
+        # assets/assets.xml file (which is all that it ever contained in practice) for backwards compatibility.
         set_custom_attribute("export_asset_started", str(courselike))
-        asset_dir = root_courselike_dir + '/' + AssetMetadata.EXPORTED_ASSET_DIR + '/'
+        asset_dir = root_courselike_dir + '/assets/'
         if not os.path.isdir(asset_dir):
             os.makedirs(asset_dir)
-        asset_root = lxml.etree.Element(AssetMetadata.ALL_ASSETS_XML_TAG)
-        course_assets = self.modulestore.get_all_asset_metadata(self.courselike_key, None)
-        for asset_md in course_assets:
-            # All asset types are exported using the "asset" tag - but their asset type is specified in each asset key.
-            asset = lxml.etree.SubElement(asset_root, AssetMetadata.ASSET_XML_TAG)
-            asset_md.to_xml(asset)
-        with OSFS(asset_dir).open(AssetMetadata.EXPORTED_ASSET_FILENAME, 'wb') as asset_xml_file:
-            lxml.etree.ElementTree(asset_root).write(asset_xml_file, encoding='utf-8')
+        with OSFS(asset_dir).open('assets.xml', 'wb') as asset_xml_file:
+            asset_xml_file.write(b'<assets/>')
 
         # export the static assets
         set_custom_attribute("export_static_assets_started", str(courselike))
@@ -385,7 +376,7 @@ def adapt_references(subtree, destination_course_key, export_fs):
                     field.write_to(subtree, field.read_from(subtree).map_into_course(destination_course_key))
             elif field_name == 'children':
                 # don't change the children field but do recurse over the children
-                [adapt_references(child, destination_course_key, export_fs) for child in subtree.get_children()]  # lint-amnesty, pylint: disable=expression-not-assigned
+                [adapt_references(child, destination_course_key, export_fs) for child in subtree.get_children()]  # pylint: disable=expression-not-assigned
             elif isinstance(field, ReferenceList):
                 field.write_to(
                     subtree,
@@ -394,7 +385,7 @@ def adapt_references(subtree, destination_course_key, export_fs):
             elif isinstance(field, ReferenceValueDict):
                 field.write_to(
                     subtree, {
-                        key: ele.map_into_course(destination_course_key) for key, ele in field.read_from(subtree).items()  # lint-amnesty, pylint: disable=line-too-long
+                        key: ele.map_into_course(destination_course_key) for key, ele in field.read_from(subtree).items()  # pylint: disable=line-too-long
                     }
                 )
 
@@ -414,7 +405,7 @@ def _export_field_content(xblock_item, item_dir):
                                                    sort_keys=True, indent=4).encode('utf-8'))
 
 
-def export_extra_content(export_fs, modulestore, source_course_key, dest_course_key, category_type, dirname, file_suffix=''):  # lint-amnesty, pylint: disable=line-too-long, missing-function-docstring
+def export_extra_content(export_fs, modulestore, source_course_key, dest_course_key, category_type, dirname, file_suffix=''):  # pylint: disable=line-too-long, missing-function-docstring
     items = modulestore.get_items(source_course_key, qualifiers={'category': category_type})
 
     if len(items) > 0:

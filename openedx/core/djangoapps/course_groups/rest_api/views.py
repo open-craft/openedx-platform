@@ -1,30 +1,27 @@
 """
 REST API views for content group configurations.
 """
-import edx_api_doc_tools as apidocs
-from common.djangoapps.util.db import MYSQL_MAX_INT, generate_int_id
+from django.conf import settings
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from xmodule.modulestore.exceptions import ItemNotFoundError
-from xmodule.partitions.partitions import MINIMUM_UNUSED_PARTITION_ID, UserPartition
 
 from lms.djangoapps.instructor import permissions
-from openedx.core.djangoapps.course_groups.constants import (
-    COHORT_SCHEME,
-    CONTENT_GROUP_CONFIGURATION_DESCRIPTION,
-    CONTENT_GROUP_CONFIGURATION_NAME,
-)
+from openedx.core.djangoapps.course_groups.constants import COHORT_SCHEME
 from openedx.core.djangoapps.course_groups.partition_scheme import get_cohorted_user_partition
 from openedx.core.djangoapps.course_groups.rest_api.serializers import (
     ContentGroupConfigurationSerializer,
     ContentGroupsListResponseSerializer,
 )
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin
 from openedx.core.lib.courses import get_course_by_id
+from xmodule.modulestore.exceptions import ItemNotFoundError
 
 
 class GroupConfigurationsListView(DeveloperErrorViewMixin, APIView):
@@ -34,20 +31,21 @@ class GroupConfigurationsListView(DeveloperErrorViewMixin, APIView):
     permission_classes = (IsAuthenticated, permissions.InstructorPermission)
     permission_name = permissions.VIEW_DASHBOARD
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter(
+            OpenApiParameter(
                 "course_id",
-                apidocs.ParameterLocation.PATH,
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
                 description="The course key (e.g., course-v1:org+course+run)",
             ),
         ],
         responses={
-            200: "Successfully retrieved content groups",
-            400: "Invalid course key",
-            401: "Authentication required",
-            403: "User does not have permission to access this course",
-            404: "Course not found",
+            200: OpenApiResponse(description="Successfully retrieved content groups"),
+            400: OpenApiResponse(description="Invalid course key"),
+            401: OpenApiResponse(description="Authentication required"),
+            403: OpenApiResponse(description="User does not have permission to access this course"),
+            404: OpenApiResponse(description="Course not found"),
         },
     )
     def get(self, request, course_id):
@@ -72,26 +70,26 @@ class GroupConfigurationsListView(DeveloperErrorViewMixin, APIView):
 
         content_group_partition = get_cohorted_user_partition(course)
 
-        if content_group_partition is None:
-            used_ids = {p.id for p in course.user_partitions}
-            content_group_partition = UserPartition(
-                id=generate_int_id(MINIMUM_UNUSED_PARTITION_ID, MYSQL_MAX_INT, used_ids),
-                name=str(CONTENT_GROUP_CONFIGURATION_NAME),
-                description=str(CONTENT_GROUP_CONFIGURATION_DESCRIPTION),
-                groups=[],
-                scheme_id=COHORT_SCHEME
-            )
+        # Extract partition ID and groups, or None/empty list if no partition exists
+        if content_group_partition is not None:
+            partition_id = content_group_partition.id
+            groups = [group.to_json() for group in content_group_partition.groups]
+        else:
+            partition_id = None
+            groups = []
 
-        context = {
-            "all_group_configurations": [content_group_partition.to_json()],
-            "should_show_enrollment_track": False,
-            "should_show_experiment_groups": True,
-            "context_course": None,
-            "group_configuration_url": f"/api/cohorts/v2/courses/{course_id}/group_configurations",
-            "course_outline_url": f"/api/contentstore/v1/courses/{course_id}",
+        # Build full Studio URL for content group configuration
+        mfe_config = configuration_helpers.get_value("MFE_CONFIG", settings.MFE_CONFIG)
+        studio_base_url = mfe_config.get("STUDIO_BASE_URL", "")
+        studio_content_groups_link = f"{studio_base_url}/course/{course_id}/group_configurations"
+
+        response_data = {
+            "id": partition_id,
+            "groups": groups,
+            "studio_content_groups_link": studio_content_groups_link,
         }
 
-        serializer = ContentGroupsListResponseSerializer(context)
+        serializer = ContentGroupsListResponseSerializer(response_data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -102,25 +100,27 @@ class GroupConfigurationDetailView(DeveloperErrorViewMixin, APIView):
     permission_classes = (IsAuthenticated, permissions.InstructorPermission)
     permission_name = permissions.VIEW_DASHBOARD
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[
-            apidocs.string_parameter(
+            OpenApiParameter(
                 "course_id",
-                apidocs.ParameterLocation.PATH,
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
                 description="The course key",
             ),
-            apidocs.path_parameter(
+            OpenApiParameter(
                 "configuration_id",
-                int,
+                OpenApiTypes.INT,
+                OpenApiParameter.PATH,
                 description="The ID of the content group configuration",
             ),
         ],
         responses={
-            200: "Content group configuration details",
-            400: "Invalid course key",
-            401: "Authentication required",
-            403: "User does not have permission to access this course",
-            404: "Content group configuration not found",
+            200: OpenApiResponse(description="Content group configuration details"),
+            400: OpenApiResponse(description="Invalid course key"),
+            401: OpenApiResponse(description="Authentication required"),
+            403: OpenApiResponse(description="User does not have permission to access this course"),
+            404: OpenApiResponse(description="Content group configuration not found"),
         },
     )
     def get(self, request, course_id, configuration_id):

@@ -1,4 +1,4 @@
-"""  # lint-amnesty, pylint: disable=cyclic-import
+"""  # pylint: disable=cyclic-import
 Tests for django admin commands in the verify_student module
 
 """
@@ -77,7 +77,7 @@ class TestVerifyStudentCommand(TestCase):
             created_at__gte=earliest_allowed_verification_date()
         )
 
-        self.assertEqual(list(map(repr, verification1)), list(map(repr, verification2)))
+        self.assertEqual(list(map(repr, verification1)), list(map(repr, verification2)))  # noqa: PT009
 
     def test_user_doesnot_exist_log(self):
         """
@@ -95,7 +95,7 @@ class TestVerifyStudentCommand(TestCase):
              ),
             (LOGGER_NAME,
              'ERROR',
-             "Failed emails:['unknown@unknown.com']"
+             "Failed emails for manual verification:['unknown@unknown.com']"
              )
         )
         with LogCapture(LOGGER_NAME, level=logging.INFO) as logger:
