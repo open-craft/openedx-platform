@@ -372,3 +372,52 @@ class ExtractedHtmlBlockIndexingTestCase(_HtmlBlockIndexingTestCaseBase):
 @override_settings(USE_EXTRACTED_HTML_BLOCK=False)
 class BuiltInHtmlBlockIndexingTestCase(_HtmlBlockIndexingTestCaseBase):
     __test__ = True
+
+
+@override_settings(USE_EXTRACTED_HTML_BLOCK=False)
+class BuiltInHtmlBlockThemingTestCase(TestCase):
+    """
+    Tests for the use_mfe_theming rendering of the built-in HTML block.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.html_class = html_block.reset_class()
+
+    def _rendered_fragment(self, use_mfe_theming):
+        block = self.html_class(
+            get_test_system(),
+            DictFieldData({
+                "data": "<p>This is a test</p>",
+                "use_mfe_theming": use_mfe_theming,
+            }),
+            Mock(),
+        )
+        return block.student_view({})
+
+    def test_default_use_mfe_theming_is_false(self):
+        """Existing blocks must keep the field's default and render unchanged."""
+        block = self.html_class(get_test_system(), DictFieldData({}), Mock())
+        assert block.use_mfe_theming is False
+
+    def test_unthemed_block_loads_legacy_assets(self):
+        fragment = self._rendered_fragment(False)
+        resources = [str(resource.data) for resource in fragment._resources]
+        assert any("HtmlBlockDisplay" in resource for resource in resources)
+
+    def test_themed_block_skips_legacy_assets(self):
+        fragment = self._rendered_fragment(True)
+        resources = [str(resource.data) for resource in fragment._resources]
+        assert not any("HtmlBlockDisplay" in resource for resource in resources)
+
+    def test_themed_block_initializes_the_sandbox_script(self):
+        fragment = self._rendered_fragment(True)
+        assert fragment.js_init_fn == "HtmlBlock"
+        assert fragment.json_init_args["use_mfe_theming"] is True
+        assert fragment.json_init_args["mfe_config_api"].endswith("/api/mfe_config/v1")
+
+    def test_themed_block_ships_the_sandbox_script(self):
+        fragment = self._rendered_fragment(True)
+        resources = [str(resource.data) for resource in fragment._resources]
+        assert any("attachShadow" in resource for resource in resources)

@@ -135,7 +135,7 @@ class ItemTest(CourseTestCase):
         return key
 
     def create_xblock(
-        self, parent_usage_key=None, display_name=None, category=None, boilerplate=None
+        self, parent_usage_key=None, display_name=None, category=None, boilerplate=None, metadata=None
     ):  # lint-amnesty, pylint: disable=missing-function-docstring
         data = {
             "parent_locator": str(self.usage_key)
@@ -147,6 +147,8 @@ class ItemTest(CourseTestCase):
             data["display_name"] = display_name
         if boilerplate is not None:
             data["boilerplate"] = boilerplate
+        if metadata is not None:
+            data["metadata"] = metadata
         return self.client.ajax_post(reverse("xblock_handler"), json.dumps(data))
 
     def _create_vertical(self, parent_usage_key=None):
@@ -635,6 +637,16 @@ class TestCreateItem(ItemTest):
             category="problem", boilerplate="nosuchboilerplate.yaml"
         )
         self.assertEqual(resp.status_code, 200)
+
+    def test_create_with_metadata(self):
+        """
+        Metadata supplied when creating the block is applied to it.
+        """
+        resp = self.create_xblock(category="html", metadata={"use_mfe_theming": True})
+        self.assertEqual(resp.status_code, 200)
+        usage_key = self.response_usage_key(resp)
+        html_block = self.get_item_from_modulestore(usage_key)
+        self.assertTrue(html_block.use_mfe_theming)
 
     def test_create_with_future_date(self):
         self.assertEqual(self.course.start, datetime(2030, 1, 1, tzinfo=UTC))
