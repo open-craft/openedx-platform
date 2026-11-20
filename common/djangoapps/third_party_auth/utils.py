@@ -3,24 +3,22 @@ Utility functions for third_party_auth
 """
 
 import datetime
-import logging
-from uuid import UUID
+import ipaddress
+import socket
+from socket import getaddrinfo
+from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import dateutil.parser
 import requests
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.conf import settings
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.utils.timezone import now
-from enterprise.models import EnterpriseCustomerIdentityProvider, EnterpriseCustomerUser
 from lxml import etree
 from onelogin.saml2.utils import OneLogin_Saml2_Utils
-from requests import exceptions
 from social_core.pipeline.social_auth import associate_by_email
-from common.djangoapps.student.models import (
-    email_exists_or_retired,
-    username_exists_or_retired
-)
 
+from common.djangoapps.student.models import email_exists_or_retired, username_exists_or_retired
 from common.djangoapps.third_party_auth.models import OAuth2ProviderConfig, SAMLProviderData
 from openedx.core.djangolib.markup import Text
 
@@ -28,45 +26,175 @@ from . import provider
 
 SAML_XML_NS = 'urn:oasis:names:tc:SAML:2.0:metadata'  # The SAML Metadata XML namespace
 
-log = logging.getLogger(__name__)
+# fetch_saml_metadata_response follows redirects itself so that it can validate
+# each hop, so the limit requests applies when it follows them does not apply
+# here and we need our own. This is the same number requests uses; it is more
+# than any IdP needs, the point is only that there is a limit.
+SAML_METADATA_MAX_REDIRECTS = 30
+
+# Cloud instance metadata addresses that are not link-local, so the link-local
+# check does not cover them. fd00:ec2::254 is the AWS metadata service over IPv6.
+CLOUD_METADATA_IP_ADDRESSES = frozenset({
+    ipaddress.ip_address('fd00:ec2::254'),
+})
 
 
 class MetadataParseError(Exception):
     """ An error occurred while parsing the SAML metadata from an IdP """
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass
 
 
-def fetch_metadata_xml(url):
+class SAMLMetadataURLError(Exception):
+    """ A SAML metadata URL failed security validation """
+    pass  # pylint: disable=unnecessary-pass
+
+
+def _check_saml_metadata_address(addr):
     """
-    Fetches IDP metadata from provider url
-    Returns: xml document
+    Raise SAMLMetadataURLError if a SAML metadata URL's IP address is not safe to fetch.
+    """
+    # An IPv4-mapped IPv6 address (::ffff:a.b.c.d) reaches the IPv4 address.
+    if addr.version == 6 and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+
+    # Loopback, link-local, reserved, unspecified and multicast ranges are never
+    # legitimate SAML IdP addresses regardless of deployment topology.
+    if any([
+        addr.is_loopback,
+        addr.is_link_local,
+        addr.is_reserved,
+        addr.is_unspecified,
+        addr.is_multicast,
+        addr in CLOUD_METADATA_IP_ADDRESSES,
+    ]):
+        raise SAMLMetadataURLError(
+            f"SAML metadata URL hostname is a forbidden IP address: {addr}"
+        )
+
+    if addr.is_global:
+        return
+
+    # Private ranges are blocked by default but can be allowed via Django settings
+    # for deployments where the SAML IdP lives on the same private network.
+    if addr.is_private:
+        if settings.SAML_METADATA_URL_ALLOW_PRIVATE_IPS:
+            return
+        raise SAMLMetadataURLError(
+            f"SAML metadata URL hostname is a private IP address: {addr}. "
+            "Set SAML_METADATA_URL_ALLOW_PRIVATE_IPS = True in Django settings to allow this."
+        )
+
+    # Anything else (e.g. shared address space 100.64.0.0/10) is not publicly routable.
+    raise SAMLMetadataURLError(
+        f"SAML metadata URL hostname is not a publicly routable IP address: {addr}"
+    )
+
+
+def validate_saml_metadata_url(url):
+    """
+    Validate that a SAML metadata URL is safe to fetch.
+
+    Enforces HTTPS and blocks requests to loopback, link-local, reserved,
+    unspecified and multicast IP addresses, and to known cloud metadata
+    addresses. Link-local specifically covers cloud instance metadata endpoints
+    (169.254.0.0/16, e.g. the AWS metadata service at 169.254.169.254).
+    Reserved addresses (e.g. 240.0.0.0/4) are IETF-assigned ranges that are
+    never routable on real networks.
+
+    Private IP ranges (RFC 1918: 10.x, 172.16.x, 192.168.x) are also blocked by
+    default, since most Open edX deployments fetch SAML metadata from public IdPs.
+    Operators running in a private network where the SAML IdP has a private IP can
+    opt out by setting SAML_METADATA_URL_ALLOW_PRIVATE_IPS = True in Django settings.
+
+    Hostnames are resolved and every address they resolve to is checked. The
+    HTTP client resolves the hostname again when it connects, so a DNS record
+    that changes between the two lookups is not caught here; because the URL
+    must use HTTPS and certificates are verified, such a connection fails the
+    TLS handshake. Operators are still encouraged to complement this with
+    network-level egress filtering that blocks outbound connections from the
+    Open edX server to link-local (169.254.0.0/16) and RFC 1918 private address
+    ranges.
+
+    This only checks one URL. Use fetch_saml_metadata_response to fetch, which
+    also checks every redirect.
+
+    Raises SAMLMetadataURLError if the URL fails validation.
+    """
+    parsed = urlparse(url)
+
+    if parsed.scheme != 'https':
+        raise SAMLMetadataURLError(
+            f"SAML metadata URL must use HTTPS, got scheme: {parsed.scheme!r}"
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise SAMLMetadataURLError("SAML metadata URL has no hostname")
+
+    try:
+        addrs = [ipaddress.ip_address(hostname)]
+    except ValueError:
+        # hostname is a domain name, not a numeric IP literal; resolve it.
+        addrs = _resolve_saml_metadata_hostname(hostname, parsed.port or 443)
+
+    for addr in addrs:
+        _check_saml_metadata_address(addr)
+
+
+def _resolve_saml_metadata_hostname(hostname, port):
+    """
+    Resolve a SAML metadata URL's hostname to the list of IP addresses it points at.
+
+    Raises SAMLMetadataURLError if the hostname does not resolve or resolves to
+    something that is not an IP address.
     """
     try:
-        log.info("Fetching %s", url)
-        if not url.lower().startswith('https'):
-            log.warning("This SAML metadata URL is not secure! It should use HTTPS. (%s)", url)
-        response = requests.get(url, verify=True)  # May raise HTTPError or SSLError or ConnectionError
-        response.raise_for_status()  # May raise an HTTPError
+        addrinfo = getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError) as error:
+        raise SAMLMetadataURLError(
+            f"SAML metadata URL hostname could not be resolved: {hostname}"
+        ) from error
 
+    addrs = []
+    for *_, sockaddr in addrinfo:
+        # A link-local IPv6 result can carry a zone index ("fe80::1%eth0").
+        # ipaddress accepts that, but an address with a zone compares unequal to
+        # the same address without one, so "fd00:ec2::254%eth0" would get past
+        # the CLOUD_METADATA_IP_ADDRESSES check. Strip the zone before checking.
+        address = str(sockaddr[0]).split('%', 1)[0]
         try:
-            parser = etree.XMLParser(remove_comments=True)
-            xml = etree.fromstring(response.content, parser)
-        except etree.XMLSyntaxError:  # lint-amnesty, pylint: disable=try-except-raise
-            raise
-        # TODO: Can use OneLogin_Saml2_Utils to validate signed XML if anyone is using that
-        return xml
-    except (exceptions.SSLError, exceptions.HTTPError, exceptions.RequestException, MetadataParseError) as error:
-        # Catch and process exception in case of errors during fetching and processing saml metadata.
-        # Here is a description of each exception.
-        # SSLError is raised in case of errors caused by SSL (e.g. SSL cer verification failure etc.)
-        # HTTPError is raised in case of unexpected status code (e.g. 500 error etc.)
-        # RequestException is the base exception for any request related error that "requests" lib raises.
-        # MetadataParseError is raised if there is error in the fetched meta data (e.g. missing @entityID etc.)
-        log.exception(str(error), exc_info=error)
-        raise error
-    except etree.XMLSyntaxError as error:
-        log.exception(str(error), exc_info=error)
-        raise error
+            addrs.append(ipaddress.ip_address(address))
+        except ValueError as error:
+            raise SAMLMetadataURLError(
+                f"SAML metadata URL hostname resolved to an invalid address: {address!r}"
+            ) from error
+    return addrs
+
+
+def fetch_saml_metadata_response(url):
+    """
+    Fetch a SAML metadata URL, validating it and every redirect it follows.
+
+    Redirects are followed by hand so that each Location is checked with
+    validate_saml_metadata_url before it is requested; this keeps a redirect
+    from reaching a plain-HTTP or internal address.
+
+    Raises SAMLMetadataURLError if any URL fails validation or there are too
+    many redirects, and the requests exceptions for network errors. The caller
+    checks the status of the returned response.
+    """
+    for _ in range(SAML_METADATA_MAX_REDIRECTS + 1):
+        validate_saml_metadata_url(url)
+        response = requests.get(url, verify=True, timeout=30, allow_redirects=False)
+        if not response.is_redirect:
+            return response
+        location = response.headers['Location']
+        response.close()
+        url = urljoin(url, location)
+
+    raise SAMLMetadataURLError(
+        f"SAML metadata URL redirected more than {SAML_METADATA_MAX_REDIRECTS} times"
+    )
 
 
 def parse_metadata_xml(xml, entity_id):
@@ -129,7 +257,7 @@ def parse_metadata_xml(xml, entity_id):
         # The only binding supported by python-saml and python-social-auth is HTTP-Redirect:
         sso_url = sso_bindings['urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']
     except KeyError:
-        raise MetadataParseError("Unable to find SSO URL with HTTP-Redirect binding.")  # lint-amnesty, pylint: disable=raise-missing-from
+        raise MetadataParseError("Unable to find SSO URL with HTTP-Redirect binding.")  # pylint: disable=raise-missing-from  # noqa: B904
     return public_keys, sso_url, expires_at
 
 
@@ -198,49 +326,12 @@ def create_or_update_bulk_saml_provider_data(entity_id, public_keys, sso_url, ex
     return new_records_created
 
 
-def convert_saml_slug_provider_id(provider):  # lint-amnesty, pylint: disable=redefined-outer-name
-    """
-    Provider id is stored with the backend type prefixed to it (ie "saml-")
-    Slug is stored without this prefix.
-    This just converts between them whenever you expect the opposite of what you currently have.
-
-    Arguments:
-        provider (string): provider_id or slug
-
-    Returns:
-        (string): Opposite of what you inputted (slug -> provider_id; provider_id -> slug)
-    """
-    if provider.startswith('saml-'):
-        return provider[5:]
-    else:
-        return 'saml-' + provider
-
-
-def validate_uuid4_string(uuid_string):
-    """
-    Returns True if valid uuid4 string, or False
-    """
-    try:
-        UUID(uuid_string, version=4)
-    except ValueError:
-        return False
-    return True
-
-
 def is_saml_provider(backend, kwargs):
     """ Verify that the third party provider uses SAML """
     current_provider = provider.Registry.get_from_pipeline({'backend': backend, 'kwargs': kwargs})
     saml_providers_list = list(provider.Registry.get_enabled_by_backend_name('tpa-saml'))
     return (current_provider and
             current_provider.slug in [saml_provider.slug for saml_provider in saml_providers_list]), current_provider
-
-
-def is_enterprise_customer_user(provider_id, user):
-    """ Verify that the user linked to enterprise customer of current identity provider"""
-    enterprise_idp = EnterpriseCustomerIdentityProvider.objects.get(provider_id=provider_id)
-
-    return EnterpriseCustomerUser.objects.filter(enterprise_customer=enterprise_idp.enterprise_customer,
-                                                 user_id=user.id).exists()
 
 
 def is_oauth_provider(backend_name, **kwargs):

@@ -29,12 +29,14 @@ class MongoUtilsTests(TestCase):
         Test that read_preference parameter gets converted to a valid pymongo read preference.
         """
         host = 'localhost'
-        db = 'test_read_preference_%s' % uuid4().hex
+        db = 'test_read_preference_%s' % uuid4().hex  # noqa: UP031
         # Support for read_preference given in constant name form (ie. PRIMARY, SECONDARY_PREFERRED)
         connection = connect_to_mongodb(db, host, read_preference=enum_name)
+        self.addCleanup(connection.client.close)
         assert connection.client.read_preference == expected_read_preference
         # Support for read_preference given as mongos name.
         connection = connect_to_mongodb(db, host, read_preference=mongos_name)
+        self.addCleanup(connection.client.close)
         assert connection.client.read_preference == expected_read_preference
 
     @ddt.data(True, False)
@@ -43,6 +45,7 @@ class MongoUtilsTests(TestCase):
         Test that the MongoDB client is created with retryReads=[True | False].
         """
         host = 'localhost'
-        db = 'test_retry_reads_%s_%s' % (str(is_retry_enabled).lower(), uuid4().hex)
+        db = 'test_retry_reads_%s_%s' % (str(is_retry_enabled).lower(), uuid4().hex)  # noqa: UP031
         connection = connect_to_mongodb(db, host, retry_reads=is_retry_enabled)
+        self.addCleanup(connection.client.close)
         assert connection.client.options.retry_reads is is_retry_enabled

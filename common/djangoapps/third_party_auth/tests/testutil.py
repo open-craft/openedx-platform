@@ -6,12 +6,12 @@ Used by Django and non-Django tests; must not have Django deps.
 
 
 import os.path
+import socket
 from contextlib import contextmanager
 from unittest import mock
 
 import django.test
-from django.conf import settings
-from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
+from django.contrib.auth.models import User  # pylint: disable=imported-auth-user
 from django.contrib.sites.models import Site
 from mako.template import Template
 from oauth2_provider.models import Application
@@ -20,14 +20,29 @@ from common.djangoapps.third_party_auth.models import (
     LTIProviderConfig,
     OAuth2ProviderConfig,
     SAMLConfiguration,
-    SAMLProviderConfig
+    SAMLProviderConfig,
 )
 from common.djangoapps.third_party_auth.models import cache as config_cache
 from openedx.core.djangolib.testing.utils import CacheIsolationMixin
 from openedx.core.storage import OverwriteStorage
 
-AUTH_FEATURES_KEY = 'ENABLE_THIRD_PARTY_AUTH'
-AUTH_FEATURE_ENABLED = AUTH_FEATURES_KEY in settings.FEATURES
+
+def mock_saml_metadata_dns(*addresses):
+    """
+    Patch the DNS lookup done when validating SAML metadata URLs.
+
+    Tests use made-up IdP hostnames, so make them resolve to the given addresses
+    (a public one by default) instead of going to the network.
+    """
+    addresses = addresses or ('93.184.215.14',)
+    return mock.patch(
+        'common.djangoapps.third_party_auth.utils.getaddrinfo',
+        return_value=[
+            (socket.AF_INET6 if ':' in address else socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '',
+             (address, 443))
+            for address in addresses
+        ],
+    )
 
 
 def patch_mako_templates():

@@ -4,8 +4,21 @@ Tests for the search index update handlers
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from django.test import LiveServerTestCase, override_settings
+from django.test import LiveServerTestCase, TestCase, override_settings
 from freezegun import freeze_time
+from opaque_keys.edx.locator import (
+    LibraryCollectionLocator,
+    LibraryContainerLocator,
+    LibraryLocatorV2,
+    LibraryUsageLocatorV2,
+)
+from openedx_events.content_authoring.data import (
+    ContentLibraryData,
+    ContentObjectChangedData,
+    LibraryBlockData,
+    LibraryCollectionData,
+    LibraryContainerData,
+)
 from organizations.tests.factories import OrganizationFactory
 
 from common.djangoapps.student.tests.factories import UserFactory
@@ -14,13 +27,11 @@ from openedx.core.djangolib.testing.utils import skip_unless_cms
 from xmodule.modulestore.tests.django_utils import (
     TEST_DATA_SPLIT_MODULESTORE,
     ModuleStoreTestCase,
-    ImmediateOnCommitMixin,
 )
-
 
 try:
     # This import errors in the lms because content.search is not an installed app there.
-    from .. import api
+    from .. import api, handlers
     from ..models import SearchAccess
 except RuntimeError:
     SearchAccess = {}
@@ -30,7 +41,7 @@ except RuntimeError:
 @patch("openedx.core.djangoapps.content.search.api.MeilisearchClient")
 @override_settings(MEILISEARCH_ENABLED=True)
 @skip_unless_cms
-class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveServerTestCase):
+class TestUpdateIndexHandlers(ModuleStoreTestCase, LiveServerTestCase):
     """
     Test that the search index is updated when XBlocks and Library Blocks are modified
     """
@@ -44,10 +55,6 @@ class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveS
         self.user_id = self.user.id
 
         self.orgA = OrganizationFactory.create(short_name="orgA")
-
-        self.patcher = patch("openedx.core.djangoapps.content_tagging.tasks.modulestore", return_value=self.store)
-        self.addCleanup(self.patcher.stop)
-        self.patcher.start()
 
         api.clear_meilisearch_client()  # Clear the Meilisearch client to avoid leaking state from other tests
 
@@ -63,8 +70,10 @@ class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveS
         course_access, _ = SearchAccess.objects.get_or_create(context_key=course.id)
 
         # Create XBlocks
-        created_date = datetime(2023, 4, 5, 6, 7, 8, tzinfo=timezone.utc)
-        with freeze_time(created_date):
+        created_date = datetime(2023, 4, 5, 6, 7, 8, tzinfo=timezone.utc)  # noqa: UP017
+        # Note: because TestCase keeps the transaction open, we need self.captureOnCommitCallbacks(execute=True) to
+        # ensure events get emitted here as if this part were its own transaction as it normally would be.
+        with freeze_time(created_date), self.captureOnCommitCallbacks(execute=True):
             sequential = self.store.create_child(self.user_id, course.location, "sequential", "test_sequential")
         doc_sequential = {
             "id": "block-v1orgatest_coursetest_runtypesequentialblocktest_sequential-0cdb9395",
@@ -86,8 +95,9 @@ class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveS
         }
 
         meilisearch_client.return_value.index.return_value.update_documents.assert_called_with([doc_sequential])
+        meilisearch_client.return_value.index.assert_called_with(api.STUDIO_COURSE_INDEX_NAME)
 
-        with freeze_time(created_date):
+        with freeze_time(created_date), self.captureOnCommitCallbacks(execute=True):
             vertical = self.store.create_child(self.user_id, sequential.location, "vertical", "test_vertical")
         doc_vertical = {
             "id": "block-v1orgatest_coursetest_runtypeverticalblocktest_vertical-011f143b",
@@ -117,8 +127,8 @@ class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveS
         # Update the XBlock
         sequential = self.store.get_item(sequential.location, self.user_id)  # Refresh the XBlock
         sequential.display_name = "Updated Sequential"
-        modified_date = datetime(2024, 5, 6, 7, 8, 9, tzinfo=timezone.utc)
-        with freeze_time(modified_date):
+        modified_date = datetime(2024, 5, 6, 7, 8, 9, tzinfo=timezone.utc)  # noqa: UP017
+        with freeze_time(modified_date), self.captureOnCommitCallbacks(execute=True):
             self.store.update_item(sequential, self.user_id)
 
         # The display name and the child's breadcrumbs should be updated
@@ -132,11 +142,32 @@ class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveS
         ])
 
         # Delete the XBlock
-        self.store.delete_item(vertical.location, self.user_id)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.store.delete_item(vertical.location, self.user_id)
 
         meilisearch_client.return_value.index.return_value.delete_document.assert_called_with(
             "block-v1orgatest_coursetest_runtypeverticalblocktest_vertical-011f143b"
         )
+        assert {c.args[0] for c in meilisearch_client.return_value.index.call_args_list} == {
+            api.STUDIO_COURSE_INDEX_NAME
+        }
+
+    def test_library_creation_creates_search_access(self, meilisearch_client):
+        """
+        Test that creating a library automatically creates a SearchAccess record.
+        This is required for course creators to search library content immediately after creation.
+        """
+        # Create a library
+        library = library_api.create_library(
+            org=self.orgA,
+            slug="test_lib",
+            title="Test Library",
+            description="Test library for SearchAccess creation",
+        )
+
+        assert SearchAccess.objects.filter(context_key=library.key).exists()
+        search_access = SearchAccess.objects.get(context_key=library.key)
+        assert search_access.context_key == library.key
 
     def test_create_delete_library_block(self, meilisearch_client):
         # Create library
@@ -146,12 +177,16 @@ class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveS
             title="Library Org A",
             description="This is a library from Org A",
         )
-        lib_access, _ = SearchAccess.objects.get_or_create(context_key=library.key)
+        lib_access = SearchAccess.objects.get(context_key=library.key)
 
         # Populate it with a problem, freezing the date so we can verify created date serializes correctly.
-        created_date = datetime(2023, 4, 5, 6, 7, 8, tzinfo=timezone.utc)
-        with freeze_time(created_date):
+        created_date = datetime(2023, 4, 5, 6, 7, 8, tzinfo=timezone.utc)  # noqa: UP017
+
+        # Note: because TestCase keeps the transaction open, we need self.captureOnCommitCallbacks(execute=True) to
+        # ensure events get emitted here as if this part were its own transaction as it normally would be.
+        with freeze_time(created_date), self.captureOnCommitCallbacks(execute=True):
             problem = library_api.create_library_block(library.key, "problem", "Problem1")
+
         doc_problem = {
             "id": "lborgalib_aproblemproblem1-ca3186e9",
             "type": "library_block",
@@ -180,15 +215,15 @@ class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveS
         meilisearch_client.return_value.index.return_value.update_documents.assert_called_with([doc_problem])
 
         # Edit the problem block, freezing the date so we can verify modified date serializes correctly
-        modified_date = datetime(2024, 5, 6, 7, 8, 9, tzinfo=timezone.utc)
-        with freeze_time(modified_date):
+        modified_date = datetime(2024, 5, 6, 7, 8, 9, tzinfo=timezone.utc)  # noqa: UP017
+        with freeze_time(modified_date), self.captureOnCommitCallbacks(execute=True):
             library_api.set_library_block_olx(problem.usage_key, "<problem />")
         doc_problem["modified"] = modified_date.timestamp()
         meilisearch_client.return_value.index.return_value.update_documents.assert_called_with([doc_problem])
 
         # Publish the content library, freezing the date so we can verify last_published date serializes correctly
-        published_date = datetime(2024, 6, 7, 8, 9, 10, tzinfo=timezone.utc)
-        with freeze_time(published_date):
+        published_date = datetime(2024, 6, 7, 8, 9, 10, tzinfo=timezone.utc)  # noqa: UP017
+        with freeze_time(published_date), self.captureOnCommitCallbacks(execute=True):
             library_api.publish_changes(library.key)
         doc_problem["last_published"] = published_date.timestamp()
         doc_problem["published"] = {"display_name": "Blank Problem"}
@@ -196,18 +231,99 @@ class TestUpdateIndexHandlers(ImmediateOnCommitMixin, ModuleStoreTestCase, LiveS
         meilisearch_client.return_value.index.return_value.update_documents.assert_called_with([doc_problem])
 
         # Delete the Library Block
-        library_api.delete_library_block(problem.usage_key)
+        with self.captureOnCommitCallbacks(execute=True):
+            library_api.delete_library_block(problem.usage_key)
 
         meilisearch_client.return_value.index.return_value.delete_document.assert_called_with(
             "lborgalib_aproblemproblem1-ca3186e9"
         )
 
         # Restore the Library Block
-        library_api.restore_library_block(problem.usage_key)
+        with self.captureOnCommitCallbacks(execute=True):
+            library_api.restore_library_block(problem.usage_key)
         meilisearch_client.return_value.index.return_value.update_documents.assert_any_call([doc_problem])
-        meilisearch_client.return_value.index.return_value.update_documents.assert_any_call(
-            [{'id': doc_problem['id'], 'collections': {'display_name': [], 'key': []}}]
+        assert {c.args[0] for c in meilisearch_client.return_value.index.call_args_list} == {
+            api.STUDIO_LIBRARY_INDEX_NAME
+        }
+
+
+@override_settings(MEILISEARCH_ENABLED=True)
+@skip_unless_cms
+class TestInlineWritesBoundTheWait(TestCase):
+    """
+    The handlers that index library changes inline pass SYNC_INDEX_WAIT_TIMEOUT, so a backed-up Meilisearch
+    task queue cannot hold the Studio request open.
+    """
+
+    library_key = LibraryLocatorV2.from_string("lib:orgA:lib1")
+    usage_key = LibraryUsageLocatorV2.from_string("lb:orgA:lib1:problem:p1")
+    collection_key = LibraryCollectionLocator.from_string("lib-collection:orgA:lib1:c1")
+    container_key = LibraryContainerLocator.from_string("lct:orgA:lib1:unit:u1")
+
+    def assert_bounded(self, task):
+        task.apply.assert_called_once()
+        assert task.apply.call_args.kwargs["kwargs"] == {"wait_timeout": api.SYNC_INDEX_WAIT_TIMEOUT}
+
+    @patch("openedx.core.djangoapps.content.search.handlers.delete_library_block_index_doc")
+    def test_library_block_deleted(self, task):
+        handlers.library_block_deleted(
+            library_block=LibraryBlockData(library_key=self.library_key, usage_key=self.usage_key)
         )
-        meilisearch_client.return_value.index.return_value.update_documents.assert_any_call(
-            [{'id': doc_problem['id'], 'tags': {}}]
+        self.assert_bounded(task)
+
+    @patch("openedx.core.djangoapps.content.search.handlers.update_content_library_index_docs")
+    def test_content_library_created(self, task):
+        handlers.content_library_created_handler(content_library=ContentLibraryData(library_key=self.library_key))
+        self.assert_bounded(task)
+
+    @patch("openedx.core.djangoapps.content.search.handlers.update_content_library_index_docs")
+    def test_content_library_updated(self, task):
+        handlers.content_library_updated_handler(content_library=ContentLibraryData(library_key=self.library_key))
+        self.assert_bounded(task)
+
+    @patch("openedx.core.djangoapps.content.search.handlers.update_library_collection_index_doc")
+    def test_library_collection_updated(self, task):
+        handlers.library_collection_updated_handler(
+            library_collection=LibraryCollectionData(collection_key=self.collection_key)
         )
+        self.assert_bounded(task)
+
+    @patch("openedx.core.djangoapps.content.search.handlers.update_library_collection_index_doc")
+    def test_background_collection_update_is_not_bounded(self, task):
+        handlers.library_collection_updated_handler(
+            library_collection=LibraryCollectionData(collection_key=self.collection_key, background=True)
+        )
+        task.delay.assert_called_once_with(str(self.collection_key))
+        task.apply.assert_not_called()
+
+    @patch("openedx.core.djangoapps.content.search.handlers.update_library_container_index_doc")
+    def test_library_container_updated(self, task):
+        handlers.library_container_updated_handler(
+            library_container=LibraryContainerData(container_key=self.container_key)
+        )
+        self.assert_bounded(task)
+
+    @patch("openedx.core.djangoapps.content.search.handlers.lib_api.get_container", new=MagicMock())
+    @patch("openedx.core.djangoapps.content.search.handlers.update_library_container_index_doc")
+    def test_library_container_published(self, task):
+        handlers.library_container_published_handler(
+            library_container=LibraryContainerData(container_key=self.container_key)
+        )
+        self.assert_bounded(task)
+
+    @patch("openedx.core.djangoapps.content.search.handlers.delete_library_container_index_doc")
+    def test_library_container_deleted(self, task):
+        handlers.library_container_deleted(library_container=LibraryContainerData(container_key=self.container_key))
+        self.assert_bounded(task)
+
+    @patch("openedx.core.djangoapps.content.search.handlers.upsert_item_containers_index_docs")
+    @patch("openedx.core.djangoapps.content.search.handlers.upsert_item_collections_index_docs")
+    @patch("openedx.core.djangoapps.content.search.handlers.upsert_content_object_tags_index_doc")
+    def test_content_object_associations_changed(self, tags, collections, containers):
+        handlers.content_object_associations_changed_handler(
+            content_object=ContentObjectChangedData(object_id=str(self.usage_key))
+        )
+        for upsert in (tags, collections, containers):
+            for upsert_call in upsert.call_args_list:
+                assert upsert_call.kwargs == {"wait_timeout": api.SYNC_INDEX_WAIT_TIMEOUT}
+        assert containers.call_count == 3

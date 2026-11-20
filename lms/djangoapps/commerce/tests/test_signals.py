@@ -8,25 +8,25 @@ import json
 from unittest import mock
 from urllib.parse import urljoin
 
-import pytest
 import ddt
-import httpretty
+import pytest
+import responses
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.test.utils import override_settings
 from opaque_keys.edx.keys import CourseKey
 from requests import Timeout
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.signals import REFUND_ORDER
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
+from common.test.utils import assert_dict_contains_subset
+from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 
 from ..models import CommerceConfiguration
 from ..utils import _generate_refund_notification_body, _send_refund_notification, create_zendesk_ticket
 from . import JSON
 from .mocks import mock_create_refund, mock_process_refund
-from common.test.utils import assert_dict_contains_subset
 
 ZENDESK_URL = 'http://zendesk.example.com/'
 ZENDESK_USER = 'test@example.com'
@@ -42,6 +42,9 @@ class TestRefundSignal(ModuleStoreTestCase):
 
     def setUp(self):
         super().setUp()
+        responses.start()
+        self.addCleanup(responses.stop)
+        self.addCleanup(responses.reset)
 
         # Ensure the E-Commerce service user exists
         UserFactory(username=settings.ECOMMERCE_SERVICE_WORKER_USERNAME, is_staff=True)
@@ -152,8 +155,8 @@ class TestRefundSignal(ModuleStoreTestCase):
         failed_refund_id = 2
 
         with mock_create_refund(status=201, response=[refund_id, failed_refund_id]):
-            with mock_process_refund(refund_id, reset_on_exit=False):
-                with mock_process_refund(failed_refund_id, status=500, reset_on_exit=False):
+            with mock_process_refund(refund_id):
+                with mock_process_refund(failed_refund_id, status=500):
                     self.send_signal()
                     assert mock_send_notification.called
                     mock_send_notification.assert_called_with(self.course_enrollment.user, [failed_refund_id])
@@ -180,12 +183,12 @@ class TestRefundSignal(ModuleStoreTestCase):
         refund_id = 1
 
         with mock_create_refund(status=201, response=[refund_id]):
-            with mock_process_refund(refund_id, reset_on_exit=False):
+            with mock_process_refund(refund_id):
                 self.send_signal()
                 assert not mock_send_notification.called
 
-                last_request = httpretty.last_request()
-                self.assertDictEqual(json.loads(last_request.body.decode('utf8')), {'action': 'approve_payment_only'})
+                last_request = responses.calls[-1].request
+                self.assertDictEqual(json.loads(last_request.body), {'action': 'approve_payment_only'})  # noqa: PT009  # pylint: disable=line-too-long
 
     @mock.patch('lms.djangoapps.commerce.utils._send_refund_notification')
     def test_notification_no_refund(self, mock_send_notification):
@@ -261,7 +264,7 @@ class TestRefundSignal(ModuleStoreTestCase):
 
     def _mock_zendesk_api(self, status=201):
         """ Mock Zendesk's ticket creation API. """
-        httpretty.register_uri(httpretty.POST, urljoin(ZENDESK_URL, '/api/v2/tickets.json'), status=status,
+        responses.add(responses.POST, urljoin(ZENDESK_URL, '/api/v2/tickets.json'), status=status,
                                body='{}', content_type=JSON)
 
     def call_create_zendesk_ticket(self, name='Test user', email='user@example.com', subject='Test Ticket',
@@ -289,7 +292,7 @@ class TestRefundSignal(ModuleStoreTestCase):
             assert not success
             assert mock_post.called
 
-    @httpretty.activate
+    @responses.activate
     def test_create_zendesk_ticket(self):
         """ Verify the Zendesk API is called. """
         self._mock_zendesk_api()
@@ -301,13 +304,13 @@ class TestRefundSignal(ModuleStoreTestCase):
         tags = ['auto_refund']
         ticket_created = self.call_create_zendesk_ticket(name, email, subject, body, tags)
         assert ticket_created
-        last_request = httpretty.last_request()
+        last_request = responses.calls[-1].request
 
         # Verify the headers
         expected = {
             'content-type': JSON,
             'Authorization': 'Basic {}'.format(base64.b64encode(
-                f'{ZENDESK_USER}/token:{ZENDESK_API_KEY}'.encode('utf8')).decode('utf8')
+                f'{ZENDESK_USER}/token:{ZENDESK_API_KEY}'.encode('utf8')).decode('utf8')  # noqa: UP012
             )
         }
         assert_dict_contains_subset(self, expected, last_request.headers)
@@ -324,7 +327,7 @@ class TestRefundSignal(ModuleStoreTestCase):
                 'tags': ['LMS'] + tags
             }
         }
-        response_dict = json.loads(last_request.body.decode('utf8'))
+        response_dict = json.loads(last_request.body)
         response_dict['ticket']['tags'].sort()
         expected['ticket']['tags'].sort()
-        self.assertDictEqual(response_dict, expected)
+        self.assertDictEqual(response_dict, expected)  # noqa: PT009

@@ -1,5 +1,8 @@
 """
 Classes representing asset metadata.
+
+Deprecated: asset metadata in the modulestore is never populated by Studio, and this whole module will be removed.
+Use ``xmodule.contentstore.django.contentstore()`` to access course assets instead.
 """
 
 
@@ -9,9 +12,17 @@ from zoneinfo import ZoneInfo
 
 import dateutil.parser
 from lxml import etree
-from opaque_keys.edx.keys import AssetKey, CourseKey
+from opaque_keys.edx.keys import AssetKey, CourseKey  # noqa: F401
+
+from xmodule.util.deprecation import deprecated
+
+DEPRECATION_MESSAGE = (
+    "xmodule.assetstore is deprecated and will be removed. "
+    "Use xmodule.contentstore.django.contentstore() to access course assets instead."
+)
 
 
+@deprecated(DEPRECATION_MESSAGE)
 class AssetMetadata:
     """
     Stores the metadata associated with a particular course asset. The asset metadata gets stored
@@ -177,7 +188,7 @@ class AssetMetadata:
                     continue
                 elif tag == 'locked':
                     # Boolean.
-                    value = True if value == "true" else False  # lint-amnesty, pylint: disable=simplifiable-if-expression
+                    value = True if value == "true" else False  # pylint: disable=simplifiable-if-expression
                 elif value == 'None':
                     # None.
                     value = None
@@ -229,6 +240,7 @@ class AssetMetadata:
             asset.to_xml(asset_node)
 
 
+@deprecated(DEPRECATION_MESSAGE)
 class CourseAssetsFromStorage:
     """
     Wrapper class for asset metadata lists returned from modulestore storage.

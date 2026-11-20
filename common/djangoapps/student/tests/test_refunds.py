@@ -9,7 +9,8 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import ddt
-import httpretty
+import responses
+
 # Explicitly import the cache from ConfigurationModel so we can reset it after each test
 from config_models.models import cache
 from django.test.client import Client
@@ -26,8 +27,10 @@ from lms.djangoapps.certificates.data import CertificateStatuses
 from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
 from openedx.core.djangoapps.commerce.utils import ECOMMERCE_DATE_FORMAT
 from openedx.core.djangolib.testing.utils import skip_unless_lms
-from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    SharedModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 log = logging.getLogger(__name__)
 TEST_API_URL = 'http://www-internal.example.com/api'
@@ -126,7 +129,7 @@ class RefundableTest(SharedModuleStoreTestCase):
         (timedelta(days=2), timedelta(days=1), timedelta(days=2), 1),
     )
     @ddt.unpack
-    @httpretty.activate
+    @responses.activate
     @override_settings(ECOMMERCE_API_URL=TEST_API_URL)
     def test_refund_cutoff_date(self, order_date_delta, course_start_delta, expected_date_delta, days):
         """
@@ -140,11 +143,11 @@ class RefundableTest(SharedModuleStoreTestCase):
         date_placed = order_date.strftime(ECOMMERCE_DATE_FORMAT)
         expected_content = f'{{"date_placed": "{date_placed}"}}'
 
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             f'{TEST_API_URL}/orders/{self.ORDER_NUMBER}/',
             status=200, body=expected_content,
-            adding_headers={'Content-Type': JSON}
+            content_type=JSON
         )
 
         self.enrollment.course_overview.start = course_start
@@ -175,7 +178,7 @@ class RefundableTest(SharedModuleStoreTestCase):
         (datetime.now(ZoneInfo("UTC")) - timedelta(minutes=5), False),
     )
     @ddt.unpack
-    @httpretty.activate
+    @responses.activate
     @override_settings(ECOMMERCE_API_URL=TEST_API_URL)
     def test_is_order_voucher_refundable(self, voucher_expiration_date, expected):
         """
@@ -183,11 +186,11 @@ class RefundableTest(SharedModuleStoreTestCase):
         """
         voucher_expiration_date_str = voucher_expiration_date.strftime(ECOMMERCE_DATE_FORMAT)
         response = json.dumps({"vouchers": [{"end_datetime": voucher_expiration_date_str}]})
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             f'{TEST_API_URL}/orders/{self.ORDER_NUMBER}/',
             status=200, body=response,
-            adding_headers={'Content-Type': JSON}
+            content_type=JSON
         )
 
         self.enrollment.attributes.create(
@@ -202,7 +205,7 @@ class RefundableTest(SharedModuleStoreTestCase):
         """ Assert that the None is returned when no order number attribute is found."""
         assert self.enrollment.refund_cutoff_date() is None
 
-    @httpretty.activate
+    @responses.activate
     @override_settings(ECOMMERCE_API_URL=TEST_API_URL)
     def test_is_order_voucher_refundable_no_attributes(self, ):
         """ Assert that False is returned when no order number or vouchers attribute is found in response."""
@@ -211,11 +214,11 @@ class RefundableTest(SharedModuleStoreTestCase):
 
         # no voucher information in orders api response
         response = json.dumps({"vouchers": []})
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             f'{TEST_API_URL}/orders/{self.ORDER_NUMBER}/',
             status=200, body=response,
-            adding_headers={'Content-Type': JSON}
+            content_type=JSON
         )
 
         self.enrollment.attributes.create(
@@ -227,11 +230,11 @@ class RefundableTest(SharedModuleStoreTestCase):
         assert self.enrollment.is_order_voucher_refundable() is False
 
         response = json.dumps({"vouchers": None})
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             f'{TEST_API_URL}/orders/{self.ORDER_NUMBER}/',
             status=200, body=response,
-            adding_headers={'Content-Type': JSON}
+            content_type=JSON
         )
         assert self.enrollment.is_order_voucher_refundable() is False
 
@@ -276,7 +279,7 @@ class RefundableTest(SharedModuleStoreTestCase):
         assert self.enrollment.refund_cutoff_date() == (order_date + refund_config.refund_window)
         mock_ecommerce_api_client.assert_not_called()
 
-    @httpretty.activate
+    @responses.activate
     @override_settings(ECOMMERCE_API_URL=TEST_API_URL)
     def test_multiple_refunds_dashbaord_page_error(self):
         """ Order with mutiple refunds will not throw 500 error when dashboard page will access."""
@@ -284,15 +287,15 @@ class RefundableTest(SharedModuleStoreTestCase):
         order_date = now + timedelta(days=1)
         expected_content = f'{{"date_placed": "{order_date.strftime(ECOMMERCE_DATE_FORMAT)}"}}'
 
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             f'{TEST_API_URL}/orders/{self.ORDER_NUMBER}/',
             status=200, body=expected_content,
-            adding_headers={'Content-Type': JSON}
+            content_type=JSON
         )
 
         # creating multiple attributes for same order.
-        for attribute_count in range(2):  # pylint: disable=unused-variable
+        for attribute_count in range(2):  # pylint: disable=unused-variable  # noqa: B007
             self.enrollment.attributes.create(
                 enrollment=self.enrollment,
                 namespace='order',

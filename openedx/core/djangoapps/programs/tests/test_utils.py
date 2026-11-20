@@ -6,16 +6,17 @@ import uuid
 from collections import namedtuple
 from copy import deepcopy
 from unittest import mock
+from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 import ddt
-import httpretty
+import responses
 from django.conf import settings
 from django.test import TestCase
 from django.test.utils import override_settings
 from django.urls import reverse
 from edx_toggles.toggles.testutils import override_waffle_switch
-from opaque_keys.edx.keys import CourseKey  # lint-amnesty, pylint: disable=wrong-import-order
-from zoneinfo import ZoneInfo
+from opaque_keys.edx.keys import CourseKey  # pylint: disable=wrong-import-order
 from testfixtures import LogCapture
 
 from common.djangoapps.course_modes.models import CourseMode
@@ -33,7 +34,7 @@ from openedx.core.djangoapps.catalog.tests.factories import (
     EntitlementFactory,
     ProgramFactory,
     SeatFactory,
-    generate_course_run_key
+    generate_course_run_key,
 )
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.programs import ALWAYS_CALCULATE_PROGRAM_PRICE_AS_ANONYMOUS_USER
@@ -45,7 +46,7 @@ from openedx.core.djangoapps.programs.utils import (
     ProgramProgressMeter,
     get_certificates,
     get_logged_in_program_certificate_url,
-    is_user_enrolled_in_program_type
+    is_user_enrolled_in_program_type,
 )
 from openedx.core.djangoapps.site_configuration.tests.factories import SiteFactory
 from openedx.core.djangolib.testing.utils import skip_unless_lms
@@ -57,6 +58,12 @@ from xmodule.modulestore.tests.factories import CourseFactory as ModuleStoreCour
 ECOMMERCE_URL_ROOT = 'https://ecommerce.example.com'
 UTILS_MODULE = 'openedx.core.djangoapps.programs.utils'
 LOGGER_NAME = 'openedx.core.djangoapps.programs.utils'
+
+
+def _last_request_query():
+    """Return the parsed query string of the most recent mocked request."""
+    return parse_qs(urlparse(responses.calls[-1].request.url).query)
+
 
 
 @ddt.ddt
@@ -486,7 +493,7 @@ class TestProgramProgressMeter(ModuleStoreTestCase):
         programs = data[:3]
         assert meter.engaged_programs == programs
 
-    def test_simulate_progress(self, mock_get_programs):  # lint-amnesty, pylint: disable=too-many-statements
+    def test_simulate_progress(self, mock_get_programs):  # pylint: disable=too-many-statements
         """Simulate the entirety of a user's progress through a program."""
         today = datetime.datetime.now(ZoneInfo("UTC"))
         two_days_ago = today - datetime.timedelta(days=2)
@@ -744,7 +751,7 @@ class TestProgramProgressMeter(ModuleStoreTestCase):
 
         meter = ProgramProgressMeter(self.site, self.user)
         available_dates = meter.completed_programs_with_available_dates
-        self.assertDictEqual(available_dates, {
+        self.assertDictEqual(available_dates, {  # noqa: PT009
             program_complete['uuid']: datetime.datetime(2017, 1, 1)
         })
 
@@ -773,7 +780,7 @@ class TestProgramProgressMeter(ModuleStoreTestCase):
         self._create_certificates(unknown['key'], status='unknown')
 
         meter = ProgramProgressMeter(self.site, self.user)
-        self.assertCountEqual(
+        self.assertCountEqual(  # noqa: PT009
             meter.completed_course_runs,
             [
                 {'course_run_id': str(downloadable['key']), 'type': CourseMode.VERIFIED},
@@ -821,7 +828,7 @@ class TestProgramProgressMeter(ModuleStoreTestCase):
         self._create_enrollments(course_run_key)
         meter = ProgramProgressMeter(self.site, self.user)
         mock_completed_course_runs.return_value = [{'course_run_id': course_run_key, 'type': CourseMode.VERIFIED}]
-        assert meter._is_course_complete(course) is True  # lint-amnesty, pylint: disable=protected-access
+        assert meter._is_course_complete(course) is True  # pylint: disable=protected-access
 
     def test_detail_url_for_mobile_only(self, mock_get_programs):
         """
@@ -1158,11 +1165,11 @@ class TestProgramDataExtender(ModuleStoreTestCase):
             - program has a course with more than one published course run
         """
         course_run_1 = CourseRunFactory(
-            key=str(ModuleStoreCourseFactory().id),  # lint-amnesty, pylint: disable=no-member
+            key=str(ModuleStoreCourseFactory().id),  # pylint: disable=no-member
             status='published'
         )
         course_run_2 = CourseRunFactory(
-            key=str(ModuleStoreCourseFactory().id),  # lint-amnesty, pylint: disable=no-member
+            key=str(ModuleStoreCourseFactory().id),  # pylint: disable=no-member
             status='published'
         )
         course = CourseFactory(course_runs=[course_run_1, course_run_2], entitlements=[])
@@ -1170,14 +1177,14 @@ class TestProgramDataExtender(ModuleStoreTestCase):
             courses=[
                 CourseFactory(course_runs=[
                     CourseRunFactory(
-                        key=str(ModuleStoreCourseFactory().id),  # lint-amnesty, pylint: disable=no-member
+                        key=str(ModuleStoreCourseFactory().id),  # pylint: disable=no-member
                         status='published'
                     )
                 ]),
                 course,
                 CourseFactory(course_runs=[
                     CourseRunFactory(
-                        key=str(ModuleStoreCourseFactory().id),  # lint-amnesty, pylint: disable=no-member
+                        key=str(ModuleStoreCourseFactory().id),  # pylint: disable=no-member
                         status='published'
                     )
                 ])
@@ -1380,7 +1387,7 @@ class TestGetCertificates(TestCase):
             # Give all course runs a certificate URL, but only expect one to come
             # back. This verifies the break in the function under test that ensures
             # only one certificate per course comes back.
-            for index, course_run in enumerate(course['course_runs']):  # lint-amnesty, pylint: disable=unused-variable
+            for index, course_run in enumerate(course['course_runs']):  # pylint: disable=unused-variable  # noqa: B007
                 course_run['certificate_url'] = self.course_certificate_url
                 course_run['may_certify'] = True
 
@@ -1423,7 +1430,7 @@ class TestGetCertificates(TestCase):
         """
         # make the first course have no certification, the second have no url...
         for course_index, course in enumerate(self.program['courses']):
-            for index, course_run in enumerate(course['course_runs']):  # lint-amnesty, pylint: disable=unused-variable
+            for index, course_run in enumerate(course['course_runs']):  # pylint: disable=unused-variable  # noqa: B007
                 if course_index == 0:
                     course_run['may_certify'] = False
                 elif course_index == 1:
@@ -1508,7 +1515,7 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
         Returns:
             seat: seat for which the discount is applicable
         """
-        self.ecommerce_service = EcommerceService()  # lint-amnesty, pylint: disable=attribute-defined-outside-init
+        self.ecommerce_service = EcommerceService()  # pylint: disable=attribute-defined-outside-init
         seat = self.program['courses'][0]['course_runs'][0]['seats'][0]
         self.program['applicable_seat_types'] = [seat['type']]
         return seat
@@ -1529,7 +1536,7 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
     def test_instructors(self):
         data = ProgramMarketingDataExtender(self.program, self.user).extend()
 
-        self.program.update(self.instructors['instructors'])  # lint-amnesty, pylint: disable=no-member
+        self.program.update(self.instructors['instructors'])  # pylint: disable=no-member
         assert data == self.program
 
     def test_course_pricing(self):
@@ -1567,7 +1574,7 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
 
         assert data['courses'][0]['course_runs'][0]['can_enroll'] == can_enroll
 
-    @httpretty.activate
+    @responses.activate
     def test_fetching_program_discounted_price(self):
         """
         Authenticated users eligible for one click purchase should see the purchase button
@@ -1580,8 +1587,8 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
             'currency': 'USD',
             'total_incl_tax': 50.0
         }
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             self.ECOMMERCE_CALCULATE_DISCOUNT_ENDPOINT,
             body=json.dumps(mock_discount_data),
             content_type='application/json'
@@ -1590,11 +1597,11 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
         data = ProgramMarketingDataExtender(self.program, self.user).extend()
         self._update_discount_data(mock_discount_data)
 
-        assert httpretty.last_request().querystring.get('username')[0] == self.user.username  # lint-amnesty, pylint: disable=no-member, line-too-long
+        assert _last_request_query().get('username')[0] == self.user.username
         assert data['skus'] == [course['course_runs'][0]['seats'][0]['sku'] for course in self.program['courses']]
         assert data['discount_data'] == mock_discount_data
 
-    @httpretty.activate
+    @responses.activate
     @override_waffle_switch(ALWAYS_CALCULATE_PROGRAM_PRICE_AS_ANONYMOUS_USER, True)
     def test_fetching_program_price_when_forced_as_anonymous_user(self):
         """
@@ -1607,16 +1614,16 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
             'currency': 'USD',
             'total_incl_tax': 50.0
         }
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             self.ECOMMERCE_CALCULATE_DISCOUNT_ENDPOINT,
             body=json.dumps(mock_discount_data),
             content_type='application/json'
         )
         ProgramMarketingDataExtender(self.program, self.user).extend()
-        assert httpretty.last_request().querystring.get('is_anonymous')[0] == 'True'  # lint-amnesty, pylint: disable=no-member, line-too-long
+        assert _last_request_query().get('is_anonymous')[0] == 'True'
 
-    @httpretty.activate
+    @responses.activate
     def test_fetching_program_discounted_price_as_anonymous_user(self):
         """
         Anonymous users should see the purchase button same way the authenticated users do
@@ -1628,8 +1635,8 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
             'currency': 'USD',
             'total_incl_tax': 50.0
         }
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             self.ECOMMERCE_CALCULATE_DISCOUNT_ENDPOINT,
             body=json.dumps(mock_discount_data),
             content_type='application/json'
@@ -1639,7 +1646,7 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
         data = ProgramMarketingDataExtender(self.program, user).extend()
         self._update_discount_data(mock_discount_data)
 
-        assert httpretty.last_request().querystring.get('is_anonymous', None) is not None  # lint-amnesty, pylint: disable=no-member, line-too-long
+        assert _last_request_query().get('is_anonymous', None) is not None
         assert data['skus'] == [course['course_runs'][0]['seats'][0]['sku'] for course in self.program['courses']]
         assert data['discount_data'] == mock_discount_data
 
@@ -1652,15 +1659,15 @@ class TestProgramMarketingDataExtender(ModuleStoreTestCase):
 
         assert len(data['skus']) == 0
 
-    @httpretty.activate
+    @responses.activate
     def test_fetching_program_discounted_price_api_exception_caught(self):
         """
         User should be able to do a one click purchase of a program even if the ecommerce API throws an exception
         during the calculation of program discounted price.
         """
         self._prepare_program_for_discounted_price_calculation_endpoint()
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             self.ECOMMERCE_CALCULATE_DISCOUNT_ENDPOINT,
             status=400,
             content_type='application/json'
@@ -1737,14 +1744,14 @@ class TestProgramEnrollment(SharedModuleStoreTestCase):
         mock_get_programs_by_type.return_value = [self.program, second_program]
 
         # While most of a programs courses would likely come with a paid mode, if the course in question is now expired,
-        # then get_paid_modes_for_course would return an empty list. Even with no paid modes, if we request paid modes only  # lint-amnesty, pylint: disable=line-too-long
+        # then get_paid_modes_for_course would return an empty list. Even with no paid modes, if we request paid modes only  # pylint: disable=line-too-long
         # we should return False
         mock_get_paid_modes_for_course.return_value = []
         # raise Exception((mock_get_programs_by_type, mock_get_paid_modes_for_course))
         assert not is_user_enrolled_in_program_type(user=self.user, program_type_slug=self.MICROBACHELORS, paid_modes_only=True)
 
         # We should continue to return false even if they do contain paid modes
-        Mode = namedtuple('Mode', ['slug'])  # lint-amnesty, pylint: disable=unused-variable
+        Mode = namedtuple('Mode', ['slug'])  # pylint: disable=unused-variable  # noqa: F841
         # mock_get_paid_modes_for_course.return_value = [Mode(CourseMode.VERIFIED)]
         assert not is_user_enrolled_in_program_type(user=self.user, program_type_slug=self.MICROBACHELORS, paid_modes_only=True)
 

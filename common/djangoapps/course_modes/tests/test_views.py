@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo
 
 import ddt
 import freezegun
-import httpretty
 from django.conf import settings
 from django.test import override_settings
 from django.urls import reverse
@@ -22,15 +21,16 @@ from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, U
 from common.djangoapps.util.testing import UrlResetMixin
 from common.djangoapps.util.tests.mixins.discovery import CourseCatalogServiceMockMixin
 from lms.djangoapps.commerce.tests import test_utils as ecomm_test_utils
-from lms.djangoapps.commerce.tests.mocks import mock_payment_processors
 from lms.djangoapps.verify_student.services import IDVerificationService
 from openedx.core.djangoapps.catalog.tests.mixins import CatalogIntegrationMixin
 from openedx.core.djangoapps.embargo.test_utils import restrict_course
 from openedx.core.djangoapps.theming.tests.test_util import with_comprehensive_theme
 from openedx.core.djangolib.testing.utils import skip_unless_lms
-from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 # Name of the method to mock for Content Type Gating.
 GATING_METHOD_NAME = 'openedx.features.content_type_gating.models.ContentTypeGatingConfig.enabled_for_enrollment'
@@ -41,13 +41,13 @@ CDL_METHOD_NAME = 'openedx.features.course_duration_limits.models.CourseDuration
 
 @ddt.ddt
 @skip_unless_lms
+@override_settings(MODE_CREATION_FOR_TESTING=True)
 class CourseModeViewTest(CatalogIntegrationMixin, UrlResetMixin, ModuleStoreTestCase, CourseCatalogServiceMockMixin):
     """
     Course Mode View tests
     """
     URLCONF_MODULES = ['common.djangoapps.course_modes.urls']
 
-    @patch.dict(settings.FEATURES, {'MODE_CREATION_FOR_TESTING': True})
     def setUp(self):
         super().setUp()
         now = datetime.now(ZoneInfo("UTC"))
@@ -61,7 +61,6 @@ class CourseModeViewTest(CatalogIntegrationMixin, UrlResetMixin, ModuleStoreTest
         self.client.login(username=self.user.username, password="edx")
 
     @skip_unless_lms
-    @httpretty.activate
     @ddt.data(
         # is_active?, enrollment_mode, redirect?, has_started
         (True, 'verified', True, False),
@@ -146,7 +145,6 @@ class CourseModeViewTest(CatalogIntegrationMixin, UrlResetMixin, ModuleStoreTest
         self.assertRedirects(response, '/test_basket/add/?sku=TEST', fetch_redirect_response=False)
         ecomm_test_utils.update_commerce_config(enabled=False)
 
-    @httpretty.activate
     @ddt.data(
         '',
         '1,,2',
@@ -183,38 +181,62 @@ class CourseModeViewTest(CatalogIntegrationMixin, UrlResetMixin, ModuleStoreTest
         # TODO: Fix it so that response.templates works w/ mako templates, and then assert
         # that the right template rendered
 
-    @httpretty.activate
-    @patch('common.djangoapps.course_modes.views.enterprise_customer_for_request')
-    @patch('common.djangoapps.course_modes.views.get_course_final_price')
+    @patch('openedx_filters.learning.filters.CourseModePriceRequested.run_filter')
     @ddt.data(
-        (1.0, True),
-        (50.0, False),
-        (0.0, True),
-        (None, False),
+        (100, 149, True),    # discounted_price, base_price, has_discount
+        (149, 149, False),   # no discount
+        (50, 149, True),     # significant discount
+        (0, 149, True),      # free course
     )
     @ddt.unpack
     def test_display_after_discounted_price(
         self,
         discounted_price,
-        is_enterprise_enabled,
-        mock_get_course_final_price,
-        mock_enterprise_customer_for_request
+        base_price,
+        has_discount,
+        mock_run_filter,
     ):
-        verified_mode = CourseModeFactory.create(mode_slug='verified', course_id=self.course.id, sku='dummy')
+        """
+        Test that the discounted price is displayed when an enterprise customer applies a discount.
+
+        The discounted price is calculated through the CourseModePriceRequested filter,
+        which invokes the CalculateEnterpriseDiscountedPrice pipeline step from edx-enterprise.
+        """
+        verified_mode = CourseModeFactory.create(
+            mode_slug='verified',
+            course_id=self.course.id,
+            sku='dummy',
+            min_price=base_price,
+        )
         CourseEnrollmentFactory(
             is_active=True,
             course_id=self.course.id,
             user=self.user
         )
 
-        mock_enterprise_customer_for_request.return_value = {'name': 'dummy'} if is_enterprise_enabled else {}
-        mock_get_course_final_price.return_value = discounted_price
+        # Capture the actual call and verify it was made
+        mock_run_filter.return_value = (self.user, verified_mode, discounted_price)
+
         url = reverse('course_modes_choose', args=[self.course.id])
         response = self.client.get(url)
 
-        if is_enterprise_enabled:
-            self.assertContains(response, discounted_price)
-        self.assertContains(response, verified_mode.min_price)
+        # Verify the filter was called with correct user and price
+        assert mock_run_filter.called
+        call_args = mock_run_filter.call_args
+        assert call_args.kwargs['user'] == self.user
+        assert call_args.kwargs['price'] == base_price
+        # The course_mode_data should be a Mode object with the verified mode's slug
+        assert call_args.kwargs['course_mode_data'].slug == 'verified'
+
+        # Verify the response is successful
+        assert response.status_code == 200
+
+        # The discounted price should always be displayed
+        self.assertContains(response, str(discounted_price))
+
+        # When there's a discount, the original price should be used as the "contribution" value
+        if has_discount:
+            self.assertContains(response, f'name="contribution" value="{base_price}"')
 
     @ddt.data('professional', 'no-id-professional')
     def test_professional_enrollment(self, mode):
@@ -275,8 +297,7 @@ class CourseModeViewTest(CatalogIntegrationMixin, UrlResetMixin, ModuleStoreTest
         else:
             self.fail("Must provide a valid redirect URL name")
 
-        with mock_payment_processors(expect_called=None):
-            self.assertRedirects(response, redirect_url, fetch_redirect_response=False,)
+        self.assertRedirects(response, redirect_url, fetch_redirect_response=False)
 
     def test_choose_mode_audit_enroll_on_post(self):
         audit_mode = 'audit'
@@ -430,7 +451,6 @@ class CourseModeViewTest(CatalogIntegrationMixin, UrlResetMixin, ModuleStoreTest
 
     @skip_unless_lms
     @with_comprehensive_theme("edx.org")
-    @httpretty.activate
     def test_hide_nav(self):
         # Create the course modes
         for mode in ["honor", "verified"]:
@@ -487,7 +507,7 @@ class CourseModeViewTest(CatalogIntegrationMixin, UrlResetMixin, ModuleStoreTest
 
         # Choose mode (POST request)
         response = self.client.post(url, post_params)
-        self.assertEqual(response.status_code, status_code)
+        self.assertEqual(response.status_code, status_code)  # noqa: PT009
 
         if has_perm:
             self.assertContains(response, error_msg)
@@ -499,7 +519,7 @@ class CourseModeViewTest(CatalogIntegrationMixin, UrlResetMixin, ModuleStoreTest
             self.assertContains(response, search_courses_url)
             self.assertContains(response, '<span>Explore all courses</span>')
         else:
-            self.assertTrue(CourseEnrollment.is_enrollment_closed(self.user, self.course))
+            self.assertTrue(CourseEnrollment.is_enrollment_closed(self.user, self.course))  # noqa: PT009
 
     def _assert_fbe_page(self, response, min_price=None, **_):
         """
@@ -640,7 +660,7 @@ class TrackSelectionEmbargoTest(UrlResetMixin, ModuleStoreTestCase):
 
     URLCONF_MODULES = ['openedx.core.djangoapps.embargo']
 
-    @patch.dict(settings.FEATURES, {'EMBARGO': True})
+    @override_settings(EMBARGO=True)
     def setUp(self):
         super().setUp()
 
@@ -656,13 +676,12 @@ class TrackSelectionEmbargoTest(UrlResetMixin, ModuleStoreTestCase):
         # Construct the URL for the track selection page
         self.url = reverse('course_modes_choose', args=[str(self.course.id)])
 
-    @patch.dict(settings.FEATURES, {'EMBARGO': True})
+    @override_settings(EMBARGO=True)
     def test_embargo_restrict(self):
         with restrict_course(self.course.id) as redirect_url:
             response = self.client.get(self.url)
             self.assertRedirects(response, redirect_url)
 
-    @httpretty.activate
     def test_embargo_allow(self):
         response = self.client.get(self.url)
         assert response.status_code == 200

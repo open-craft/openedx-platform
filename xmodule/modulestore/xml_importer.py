@@ -32,7 +32,6 @@ from datetime import datetime, timezone
 import xblock
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.translation import gettext as _
-from lxml import etree
 from opaque_keys.edx.keys import UsageKey
 from opaque_keys.edx.locator import LibraryLocator
 from openedx_events.content_authoring.data import CourseData
@@ -44,7 +43,6 @@ from xblock.runtime import DictKeyValueStore, KvsFieldData
 
 from common.djangoapps.util.monitoring import monitor_import_failure
 from openedx.core.djangoapps.content_tagging.api import import_course_tags_from_csv
-from xmodule.assetstore import AssetMetadata
 from xmodule.contentstore.content import StaticContent
 from xmodule.errortracker import make_error_tracker
 from xmodule.modulestore import ModuleStoreEnum
@@ -52,7 +50,7 @@ from xmodule.modulestore.django import ASSET_IGNORE_REGEX
 from xmodule.modulestore.exceptions import DuplicateCourseError
 from xmodule.modulestore.mongo.base import MongoRevisionKey
 from xmodule.modulestore.store_utilities import draft_node_constructor, get_draft_subtree_roots
-from xmodule.modulestore.xml import XMLImportingModuleStoreRuntime, LibraryXMLModuleStore, XMLModuleStore
+from xmodule.modulestore.xml import LibraryXMLModuleStore, XMLImportingModuleStoreRuntime, XMLModuleStore
 from xmodule.tabs import CourseTabList
 from xmodule.util.misc import escape_invalid_characters
 from xmodule.x_module import XModuleMixin
@@ -120,7 +118,7 @@ class LocationMixin(XBlockMixin):
         )
 
 
-class StaticContentImporter:  # lint-amnesty, pylint: disable=missing-class-docstring
+class StaticContentImporter:  # pylint: disable=missing-class-docstring
     def __init__(self, static_content_store, course_data_path, target_id):
         self.static_content_store = static_content_store
         self.target_id = target_id
@@ -128,7 +126,7 @@ class StaticContentImporter:  # lint-amnesty, pylint: disable=missing-class-docs
         try:
             with open(course_data_path / 'policies/assets.json') as f:
                 self.policy = json.load(f)
-        except (OSError, ValueError) as err:  # lint-amnesty, pylint: disable=unused-variable
+        except (OSError, ValueError) as err:  # pylint: disable=unused-variable  # noqa: F841
             # xml backed courses won't have this file, only exported courses;
             # so, its absence is not really an exception.
             self.policy = {}
@@ -137,11 +135,11 @@ class StaticContentImporter:  # lint-amnesty, pylint: disable=missing-class-docs
         mimetypes.add_type('application/octet-stream', '.srt')
         self.mimetypes_list = list(mimetypes.types_map.values())
 
-    def import_static_content_directory(self, content_subdir=DEFAULT_STATIC_CONTENT_SUBDIR, verbose=False):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def import_static_content_directory(self, content_subdir=DEFAULT_STATIC_CONTENT_SUBDIR, verbose=False):  # pylint: disable=missing-function-docstring
         remap_dict = {}
 
         static_dir = self.course_data_path / content_subdir
-        for dirname, _, filenames in os.walk(static_dir):
+        for dirname, _, filenames in os.walk(static_dir):  # noqa: F402
             for filename in filenames:
 
                 file_path = os.path.join(dirname, filename)
@@ -163,7 +161,7 @@ class StaticContentImporter:  # lint-amnesty, pylint: disable=missing-class-docs
 
         return remap_dict
 
-    def import_static_file(self, full_file_path, base_dir):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def import_static_file(self, full_file_path, base_dir):  # pylint: disable=missing-function-docstring
         filename = os.path.basename(full_file_path)
         try:
             with open(full_file_path, 'rb') as f:
@@ -209,7 +207,7 @@ class StaticContentImporter:  # lint-amnesty, pylint: disable=missing-class-docs
         # then commit the content
         try:
             self.static_content_store.save(content)
-        except Exception as err:  # lint-amnesty, pylint: disable=broad-except
+        except Exception as err:  # pylint: disable=broad-except
             msg = f'Error importing {file_subpath}, error={err}'
             log.exception(f'Course import {self.target_id}: {msg}')
             monitor_import_failure(self.target_id, 'Updating', exception=err)
@@ -360,54 +358,6 @@ class ImportManager:
                 content_subdir=simport, verbose=self.verbose
             )
 
-    def import_asset_metadata(self, data_dir, course_id):
-        """
-        Read in assets XML file, parse it, and add all asset metadata to the modulestore.
-        """
-        asset_dir = path(data_dir) / AssetMetadata.EXPORTED_ASSET_DIR
-        assets_filename = AssetMetadata.EXPORTED_ASSET_FILENAME
-        asset_xml_file = asset_dir / assets_filename
-
-        def make_asset_id(course_id, asset_xml):
-            """
-            Construct an asset ID out of a complete asset XML section.
-            """
-            asset_type = None
-            asset_name = None
-            for child in asset_xml.iterchildren():
-                if child.tag == AssetMetadata.ASSET_TYPE_ATTR:
-                    asset_type = child.text
-                elif child.tag == AssetMetadata.ASSET_BASENAME_ATTR:
-                    asset_name = child.text
-            return course_id.make_asset_key(asset_type, asset_name)
-
-        all_assets = []
-        try:
-            xml_data = etree.parse(asset_xml_file).getroot()
-            assert xml_data.tag == AssetMetadata.ALL_ASSETS_XML_TAG
-            for asset in xml_data.iterchildren():
-                if asset.tag == AssetMetadata.ASSET_XML_TAG:
-                    # Construct the asset key.
-                    asset_key = make_asset_id(course_id, asset)
-                    asset_md = AssetMetadata(asset_key)
-                    asset_md.from_xml(asset)
-                    all_assets.append(asset_md)
-        except OSError:
-            # file does not exist.
-            logging.info(f'Course import {course_id}: No {assets_filename} file present.')
-            return
-        except Exception as exc:  # pylint: disable=W0703
-            if self.raise_on_failure:  # lint-amnesty, pylint: disable=no-else-raise
-                monitor_import_failure(course_id, 'Updating', exception=exc)
-                logging.exception(f'Course import {course_id}: Error while parsing {assets_filename}.')
-                raise ErrorReadingFileException(assets_filename)  # pylint: disable=raise-missing-from
-            else:
-                return
-
-        # Now add all asset metadata to the modulestore.
-        if len(all_assets) > 0:
-            self.store.save_asset_metadata_list(all_assets, all_assets[0].edited_by, import_only=True)
-
     def import_courselike(self, runtime, courselike_key, dest_id, source_courselike):
         """
         Import the base block
@@ -448,7 +398,7 @@ class ImportManager:
         """
         Updates any special static items, such as PDF coursebooks.
         """
-        pass  # lint-amnesty, pylint: disable=unnecessary-pass
+        pass  # pylint: disable=unnecessary-pass
 
     @abstractmethod
     def get_dest_id(self, courselike_key):
@@ -524,7 +474,7 @@ class ImportManager:
                         log.exception(
                             f'Course import {dest_id}: failed to import block location {child.location}'
                         )
-                        raise BlockFailedToImport(child.display_name, child.location)  # pylint: disable=raise-missing-from
+                        raise BlockFailedToImport(child.display_name, child.location)  # pylint: disable=raise-missing-from  # noqa: B904
 
                     depth_first(child)
 
@@ -549,7 +499,7 @@ class ImportManager:
                     f'Course import {dest_id}: failed to import block location {leftover}'
                 )
                 # pylint: disable=raise-missing-from
-                raise BlockFailedToImport(leftover.display_name, leftover.location)
+                raise BlockFailedToImport(leftover.display_name, leftover.location)  # noqa: B904
 
     def post_course_import(self, dest_id):
         """
@@ -575,8 +525,7 @@ class ImportManager:
                 # Import all static pieces.
                 self.import_static(data_path, dest_id)
 
-                # Import asset metadata stored in XML.
-                self.import_asset_metadata(data_path, dest_id)
+                # Note: assets/assets.xml (deprecated asset metadata) is intentionally ignored.
 
                 # Import all children
                 self.import_children(source_courselike, courselike, courselike_key, dest_id)
@@ -666,13 +615,13 @@ class CourseImportManager(ImportManager):
         # If we are importing into a course with a different course_id and wiki_slug is equal to either of these default
         # values then remap it so that the wiki does not point to the old wiki.
         if courselike_key != course.id:
-            original_unique_wiki_slug = '{}.{}.{}'.format(
+            original_unique_wiki_slug = '{}.{}.{}'.format(  # noqa: UP032
                 courselike_key.org,
                 courselike_key.course,
                 courselike_key.run
             )
             if course.wiki_slug in (original_unique_wiki_slug, courselike_key.course):
-                course.wiki_slug = '{}.{}.{}'.format(
+                course.wiki_slug = '{}.{}.{}'.format(  # noqa: UP032
                     course.id.org,
                     course.id.course,
                     course.id.run,
@@ -733,7 +682,7 @@ class CourseImportManager(ImportManager):
         # .. event_implemented_name: COURSE_IMPORT_COMPLETED
         # .. event_type: org.openedx.content_authoring.course.import.completed.v1
         COURSE_IMPORT_COMPLETED.send_event(
-            time=datetime.now(timezone.utc),
+            time=datetime.now(timezone.utc),  # noqa: UP017
             course=CourseData(
                 course_key=dest_id
             )
@@ -796,7 +745,7 @@ class LibraryImportManager(ImportManager):
         """
         Libraries have no special static items to import.
         """
-        pass  # lint-amnesty, pylint: disable=unnecessary-pass
+        pass  # pylint: disable=unnecessary-pass
 
     def import_children(self, source_courselike, courselike, courselike_key, dest_id):
         """
@@ -952,7 +901,10 @@ def _update_and_import_block(  # pylint: disable=too-many-statements
                 # Update library content block's children on draft branch
                 with store.branch_setting(branch_setting=ModuleStoreEnum.Branch.draft_preferred):
                     try:
-                        block.sync_from_library()
+                        draft_block = store.get_item(
+                            block.location.for_branch(ModuleStoreEnum.BranchName.draft)
+                            )
+                        draft_block.sync_from_library(upgrade_to_latest=True)
                     except ObjectDoesNotExist:
                         # If the source library does not exist, that's OK, the library content will still kinda work.
                         # Unfortunately, any setting defaults that are set in the library will be missing.
@@ -1132,7 +1084,7 @@ def check_block_metadata_editability(block):
     if len(illegal_keys) > 0:
         err_cnt = err_cnt + 1
         print(
-            ": found non-editable metadata on {url}. "
+            ": found non-editable metadata on {url}. "  # noqa: UP032
             "These metadata keys are not supported = {keys}".format(
                 url=str(block.location), keys=illegal_keys
             )
@@ -1191,7 +1143,7 @@ def create_xml_attributes(block, xml):
     block.xml_attributes = xml_attrs
 
 
-def validate_no_non_editable_metadata(module_store, course_id, category):  # lint-amnesty, pylint: disable=missing-function-docstring
+def validate_no_non_editable_metadata(module_store, course_id, category):  # pylint: disable=missing-function-docstring
     err_cnt = 0
     for block_loc in module_store.modules[course_id]:
         block = module_store.modules[course_id][block_loc]
@@ -1201,7 +1153,7 @@ def validate_no_non_editable_metadata(module_store, course_id, category):  # lin
     return err_cnt
 
 
-def validate_category_hierarchy(  # lint-amnesty, pylint: disable=missing-function-docstring
+def validate_category_hierarchy(  # pylint: disable=missing-function-docstring
         module_store, course_id, parent_category, expected_child_category):
     err_cnt = 0
 
@@ -1216,7 +1168,7 @@ def validate_category_hierarchy(  # lint-amnesty, pylint: disable=missing-functi
             if child_loc.block_type != expected_child_category:
                 err_cnt += 1
                 print(
-                    "ERROR: child {child} of parent {parent} was expected to be "
+                    "ERROR: child {child} of parent {parent} was expected to be "  # noqa: UP032
                     "category of {expected} but was {actual}".format(
                         child=child_loc, parent=parent.location,
                         expected=expected_child_category,
@@ -1227,7 +1179,7 @@ def validate_category_hierarchy(  # lint-amnesty, pylint: disable=missing-functi
     return err_cnt
 
 
-def validate_data_source_path_existence(path, is_err=True, extra_msg=None):  # lint-amnesty, pylint: disable=missing-function-docstring, redefined-outer-name
+def validate_data_source_path_existence(path, is_err=True, extra_msg=None):  # pylint: disable=missing-function-docstring, redefined-outer-name
     _cnt = 0
     if not os.path.exists(path):
         print(
@@ -1241,7 +1193,7 @@ def validate_data_source_path_existence(path, is_err=True, extra_msg=None):  # l
     return _cnt
 
 
-def validate_data_source_paths(data_dir, course_dir):  # lint-amnesty, pylint: disable=missing-function-docstring
+def validate_data_source_paths(data_dir, course_dir):  # pylint: disable=missing-function-docstring
     # check that there is a '/static/' directory
     course_path = data_dir / course_dir
     err_cnt = 0
@@ -1265,14 +1217,14 @@ def validate_course_policy(module_store, course_id):
     warn_cnt = 0
     for block in module_store.modules[course_id].values():
         if block.location.block_type == 'course':
-            if not block._field_data.has(block, 'rerandomize'):  # lint-amnesty, pylint: disable=protected-access
+            if not block._field_data.has(block, 'rerandomize'):  # pylint: disable=protected-access
                 warn_cnt += 1
                 print(
                     'WARN: course policy does not specify value for '
                     '"rerandomize" whose default is now "never". '
                     'The behavior of your course may change.'
                 )
-            if not block._field_data.has(block, 'showanswer'):  # lint-amnesty, pylint: disable=protected-access
+            if not block._field_data.has(block, 'showanswer'):  # pylint: disable=protected-access
                 warn_cnt += 1
                 print(
                     'WARN: course policy does not specify value for '
@@ -1282,7 +1234,7 @@ def validate_course_policy(module_store, course_id):
     return warn_cnt
 
 
-def perform_xlint(  # lint-amnesty, pylint: disable=missing-function-docstring
+def perform_xlint(  # pylint: disable=missing-function-docstring
         data_dir, source_dirs,
         default_class='xmodule.hidden_block.HiddenBlock',
         load_error_blocks=True,
@@ -1362,7 +1314,7 @@ def perform_xlint(  # lint-amnesty, pylint: disable=missing-function-docstring
 
     print("\n")
     print("------------------------------------------")
-    print("VALIDATION SUMMARY: {err} Errors   {warn} Warnings".format(
+    print("VALIDATION SUMMARY: {err} Errors   {warn} Warnings".format(  # noqa: UP032
         err=err_cnt,
         warn=warn_cnt
     ))

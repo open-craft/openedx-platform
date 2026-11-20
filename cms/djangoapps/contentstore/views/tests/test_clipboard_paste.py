@@ -5,23 +5,24 @@ APIs.
 """
 import ddt
 from opaque_keys.edx.keys import UsageKey
-from rest_framework.test import APIClient
+from openedx_content.api import signals as content_signals
 from openedx_events.content_authoring.signals import (
     LIBRARY_BLOCK_DELETED,
     XBLOCK_CREATED,
     XBLOCK_DELETED,
     XBLOCK_UPDATED,
 )
-from openedx_events.tests.utils import OpenEdxEventsTestMixin
-from openedx_tagging.core.tagging.models import Tag
+from openedx_events.testing import OpenEdxEventsTestMixin
+from openedx_tagging.models import Tag
 from organizations.models import Organization
-from xmodule.modulestore.django import contentstore, modulestore
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase, upload_file_to_course, ImmediateOnCommitMixin
-from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory, ToyCourseFactory, LibraryFactory
+from rest_framework.test import APIClient
 
 from cms.djangoapps.contentstore.utils import reverse_usage_url
 from openedx.core.djangoapps.content_libraries import api as library_api
 from openedx.core.djangoapps.content_tagging import api as tagging_api
+from xmodule.modulestore.django import contentstore, modulestore
+from xmodule.modulestore.tests.django_utils import ImmediateOnCommitMixin, ModuleStoreTestCase, upload_file_to_course
+from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory, LibraryFactory, ToyCourseFactory
 
 CLIPBOARD_ENDPOINT = "/api/content-staging/v1/clipboard/"
 XBLOCK_ENDPOINT = "/xblock/"
@@ -255,16 +256,19 @@ class ClipboardPasteTestCase(ModuleStoreTestCase):
                 tags=["tag_1", "tag_2"],
             )
 
-        # Tag our blocks using a taxonomy that isn't enabled for any orgs -- these tags won't be pasted
+        # Tag our blocks using a taxonomy that isn't enabled for any orgs -- these tags won't be pasted.
         taxonomy_no_org = tagging_api.create_taxonomy("test_taxonomy_no_org", "Test Taxonomy No Org")
         Tag.objects.create(taxonomy=taxonomy_no_org, value="tag_1")
         Tag.objects.create(taxonomy=taxonomy_no_org, value="tag_2")
+        # We have to temporarily make it apply to "all orgs", then we can apply the tags then change back to "no orgs":
+        tagging_api.set_taxonomy_orgs(taxonomy_no_org, all_orgs=True)
         for object_key in all_block_keys.values():
             tagging_api.tag_object(
                 object_id=str(object_key),
                 taxonomy=taxonomy_no_org,
                 tags=["tag_1", "tag_2"],
             )
+        tagging_api.set_taxonomy_orgs(taxonomy_no_org, all_orgs=False, orgs=[])
 
         return all_block_keys
 
@@ -405,6 +409,7 @@ class ClipboardPasteFromV2LibraryTestCase(OpenEdxEventsTestMixin, ImmediateOnCom
     Test Clipboard Paste functionality with a "new" (as of Sumac) library
     """
     ENABLED_OPENEDX_EVENTS = [
+        content_signals.ENTITIES_DRAFT_CHANGED.event_type,  # Required for library events to work
         LIBRARY_BLOCK_DELETED.event_type,
         XBLOCK_CREATED.event_type,
         XBLOCK_DELETED.event_type,
@@ -491,7 +496,8 @@ class ClipboardPasteFromV2LibraryTestCase(OpenEdxEventsTestMixin, ImmediateOnCom
             assert object_tag.is_copied
 
         # If we delete the upstream library block...
-        library_api.delete_library_block(self.lib_block_key)
+        with self.captureOnCommitCallbacks(execute=True):  # make event handlers fire now, within TestCase transaction
+            library_api.delete_library_block(self.lib_block_key)
 
         # ...the copied tags remain, but should no longer be marked as "copied"
         object_tags = tagging_api.get_object_tags(new_block_key)
@@ -622,7 +628,7 @@ class ClipboardPasteFromV1LibraryTestCase(ModuleStoreTestCase):
         Creates and returns a legacy content library with 1 problem
         """
         library = LibraryFactory.create(display_name='Library')
-        lib_block = BlockFactory.create(
+        lib_block = BlockFactory.create(  # noqa: F841
             parent_location=library.usage_key,
             category="problem",
             display_name="MCQ",

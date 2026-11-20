@@ -1,10 +1,12 @@
-# lint-amnesty, pylint: disable=missing-module-docstring
+# pylint: disable=missing-module-docstring
 
 from xmodule.contentstore.content import StaticContent
+from xmodule.util.deprecation import deprecated
 
 from .django import contentstore
 
 
+@deprecated("trashcan functionality is deprecated.")  # https://github.com/openedx/openedx-platform/issues/39260
 def empty_asset_trashcan(course_locs):
     '''
     This method will hard delete all assets (optionally within a course_id) from the trashcan
@@ -25,6 +27,7 @@ def empty_asset_trashcan(course_locs):
             store.delete(asset['asset_key'])
 
 
+@deprecated("trashcan functionality is deprecated.")  # https://github.com/openedx/openedx-platform/issues/39260
 def restore_asset_from_trashcan(location):
     '''
     This method will restore an asset which got soft deleted and put back in the original course
@@ -43,5 +46,5 @@ def restore_asset_from_trashcan(location):
         try:
             thumbnail_content = trash.find(content.thumbnail_location)
             store.save(thumbnail_content)
-        except Exception:  # lint-amnesty, pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except
             pass  # OK if this is left dangling

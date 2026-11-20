@@ -15,24 +15,23 @@ from collections import defaultdict, namedtuple
 from hashlib import sha1
 
 from django.apps import apps
-from django.db import models, IntegrityError, transaction
-from openedx_events.learning.data import CourseData, PersistentCourseGradeData
-from openedx_events.learning.signals import PERSISTENT_GRADE_SUMMARY_CHANGED
-
+from django.db import IntegrityError, models, transaction
 from django.utils.timezone import now
 from lazy import lazy
 from model_utils.models import TimeStampedModel
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
 from opaque_keys.edx.keys import CourseKey, UsageKey
+from openedx_events.learning.data import CourseData, PersistentCourseGradeData
+from openedx_events.learning.signals import PERSISTENT_GRADE_SUMMARY_CHANGED
 from simple_history.models import HistoricalRecords
 
 from lms.djangoapps.courseware.fields import UnsignedBigIntAutoField
-from lms.djangoapps.grades import events  # lint-amnesty, pylint: disable=unused-import
-from openedx.core.lib.cache_utils import get_cache
+from lms.djangoapps.grades import events  # pylint: disable=unused-import
 from lms.djangoapps.grades.signals.signals import (
     COURSE_GRADE_PASSED_FIRST_TIME,
-    COURSE_GRADE_PASSED_UPDATE_IN_LEARNER_PATHWAY
+    COURSE_GRADE_PASSED_UPDATE_IN_LEARNER_PATHWAY,
 )
+from openedx.core.lib.cache_utils import get_cache
 
 log = logging.getLogger(__name__)
 
@@ -229,7 +228,7 @@ class VisibleBlocks(models.Model):
             with transaction.atomic():
                 created_visual_blocks = cls.objects.bulk_create(visual_blocks)
         except IntegrityError:
-            log.warning('Falling back to create VisualBlocks one by one for user {} in course {}'.format(
+            log.warning('Falling back to create VisualBlocks one by one for user {} in course {}'.format(  # noqa: UP032
                 user_id,
                 course_key
             ))
@@ -364,7 +363,7 @@ class PersistentSubsectionGrade(TimeStampedModel):
         """
         Returns the "correct" usage key value with the run filled in.
         """
-        if self.usage_key.run is None:  # lint-amnesty, pylint: disable=no-member
+        if self.usage_key.run is None:  # pylint: disable=no-member
             # pylint: disable=unexpected-keyword-arg,no-value-for-parameter
             return self.usage_key.replace(course_key=self.course_id)
         else:
@@ -374,7 +373,7 @@ class PersistentSubsectionGrade(TimeStampedModel):
         """
         Returns a string representation of this model.
         """
-        return (
+        return (  # noqa: UP032
             "{} user: {}, course version: {}, subsection: {} ({}). {}/{} graded, {}/{} all, first_attempted: {}"
         ).format(
             type(self).__name__,
@@ -478,7 +477,6 @@ class PersistentSubsectionGrade(TimeStampedModel):
             grade.first_attempted = first_attempted
             grade.save()
 
-        cls._emit_grade_calculated_event(grade)
         return grade
 
     @classmethod
@@ -499,8 +497,6 @@ class PersistentSubsectionGrade(TimeStampedModel):
 
         grades = [PersistentSubsectionGrade(**params) for params in grade_params_iter]
         grades = cls.objects.bulk_create(grades)
-        for grade in grades:
-            cls._emit_grade_calculated_event(grade)
         return grades
 
     @classmethod
@@ -525,10 +521,6 @@ class PersistentSubsectionGrade(TimeStampedModel):
         """
         params['visible_blocks_id'] = params['visible_blocks'].hash_value
         del params['visible_blocks']
-
-    @staticmethod
-    def _emit_grade_calculated_event(grade):
-        events.subsection_grade_calculated(grade)
 
     @classmethod
     def _cache_key(cls, course_id):
@@ -648,7 +640,7 @@ class PersistentCourseGrade(TimeStampedModel):
             except KeyError:
                 # user's grade is not in the prefetched dict, so
                 # assume they have no grade
-                raise cls.DoesNotExist  # lint-amnesty, pylint: disable=raise-missing-from
+                raise cls.DoesNotExist  # pylint: disable=raise-missing-from  # noqa: B904
         except KeyError:
             # grades were not prefetched for the course, so fetch it
             return cls.objects.get(user_id=user_id, course_id=course_id)
@@ -748,7 +740,7 @@ class PersistentSubsectionGradeOverride(models.Model):
     class Meta:
         app_label = "grades"
 
-    grade = models.OneToOneField(PersistentSubsectionGrade, related_name='override', on_delete=models.CASCADE)
+    grade = models.OneToOneField(PersistentSubsectionGrade, related_name='override', on_delete=models.CASCADE)  # noqa: DJ012  # pylint: disable=line-too-long
 
     # Created/modified timestamps prevent race-conditions when using with async rescoring tasks
     created = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -761,9 +753,9 @@ class PersistentSubsectionGradeOverride(models.Model):
     earned_graded_override = models.FloatField(null=True, blank=True)
     possible_graded_override = models.FloatField(null=True, blank=True)
     # store the source of the system that caused the override
-    system = models.CharField(max_length=100, blank=True, null=True)
+    system = models.CharField(max_length=100, blank=True, null=True)  # noqa: DJ001
     # store the reason for the override
-    override_reason = models.CharField(max_length=300, blank=True, null=True)
+    override_reason = models.CharField(max_length=300, blank=True, null=True)  # noqa: DJ001
 
     _CACHE_NAMESPACE = "grades.models.PersistentSubsectionGradeOverride"
 
@@ -795,7 +787,7 @@ class PersistentSubsectionGradeOverride(models.Model):
         }
 
     @classmethod
-    def get_override(cls, user_id, usage_key):  # lint-amnesty, pylint: disable=missing-function-docstring
+    def get_override(cls, user_id, usage_key):  # pylint: disable=missing-function-docstring
         prefetch_values = get_cache(cls._CACHE_NAMESPACE).get((user_id, str(usage_key.course_key)), None)
         if prefetch_values is not None:
             return prefetch_values.get(usage_key)
@@ -810,7 +802,7 @@ class PersistentSubsectionGradeOverride(models.Model):
 
     @classmethod
     def update_or_create_override(
-        cls, requesting_user, subsection_grade_model, feature=None, action=None, **override_data  # lint-amnesty, pylint: disable=unused-argument
+        cls, requesting_user, subsection_grade_model, feature=None, action=None, **override_data  # pylint: disable=unused-argument
     ):
         """
         Creates or updates an override object for the given PersistentSubsectionGrade.

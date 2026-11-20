@@ -11,16 +11,15 @@ from pytz import UTC
 from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
 from lms.djangoapps.discussion.django_comment_client.tests.factories import RoleFactory
-from lms.djangoapps.discussion.rest_api.tests.utils import CommentsServiceMockMixin
 from lms.djangoapps.discussion.rest_api.utils import (
     discussion_open_for_user,
     get_archived_topics,
     get_course_staff_users_list,
     get_course_ta_users_list,
     get_moderator_users_list,
+    is_only_student,
     is_posting_allowed,
     remove_empty_sequentials,
-    is_only_student
 )
 from openedx.core.djangoapps.discussions.models import DiscussionsConfiguration, PostingRestriction
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
@@ -35,7 +34,7 @@ class DiscussionAPIUtilsTestCase(ModuleStoreTestCase):
     CREATE_USER = False
 
     def setUp(self):
-        super().setUp()  # lint-amnesty, pylint: disable=super-with-arguments
+        super().setUp()  # pylint: disable=super-with-arguments
 
         self.course = CourseFactory.create()
         self.course.discussion_blackouts = [datetime.now(UTC) - timedelta(days=3),
@@ -69,9 +68,9 @@ class DiscussionAPIUtilsTestCase(ModuleStoreTestCase):
         CourseInstructorRole(course_key=self.course.id).add_users(self.course_instructor_user)
 
     def test_discussion_open_for_user(self):
-        self.assertFalse(discussion_open_for_user(self.course, self.student))
-        self.assertTrue(discussion_open_for_user(self.course, self.moderator))
-        self.assertTrue(discussion_open_for_user(self.course, self.community_ta))
+        self.assertFalse(discussion_open_for_user(self.course, self.student))  # noqa: PT009
+        self.assertTrue(discussion_open_for_user(self.course, self.moderator))  # noqa: PT009
+        self.assertTrue(discussion_open_for_user(self.course, self.community_ta))  # noqa: PT009
 
     def test_course_staff_users_list(self):
         assert len(get_course_staff_users_list(self.course.id)) == 2
@@ -133,7 +132,7 @@ class TestRemoveEmptySequentials(unittest.TestCase):
         # Test that the function can handle an empty list
         data = []
         result = remove_empty_sequentials(data)
-        self.assertEqual(result, [])
+        self.assertEqual(result, [])  # noqa: PT009
 
     def test_no_empty_sequentials(self):
         # Test that the function does not remove any sequentials if they all have children
@@ -144,7 +143,7 @@ class TestRemoveEmptySequentials(unittest.TestCase):
             ]}
         ]
         result = remove_empty_sequentials(data)
-        self.assertEqual(result, data)
+        self.assertEqual(result, data)  # noqa: PT009
 
     def test_remove_empty_sequentials(self):
         # Test that the function removes empty sequentials
@@ -177,11 +176,11 @@ class TestRemoveEmptySequentials(unittest.TestCase):
             ]}
         ]
         result = remove_empty_sequentials(data)
-        self.assertEqual(result, expected_output)
+        self.assertEqual(result, expected_output)  # noqa: PT009
 
 
 @ddt.ddt
-class TestBlackoutDates(CommentsServiceMockMixin, ModuleStoreTestCase):
+class TestBlackoutDates(ModuleStoreTestCase):
     """
     Test for the is_posting_allowed function
     """
@@ -239,7 +238,7 @@ class TestBlackoutDates(CommentsServiceMockMixin, ModuleStoreTestCase):
         self._set_discussion_blackouts(date_ranges)
 
         posting_allowed = self._check_posting_allowed(restriction)
-        self.assertEqual(state, posting_allowed)
+        self.assertEqual(state, posting_allowed)  # noqa: PT009
 
     def test_posting_scheduled_future(self):
         """
@@ -254,4 +253,4 @@ class TestBlackoutDates(CommentsServiceMockMixin, ModuleStoreTestCase):
         self._set_discussion_blackouts(date_ranges)
 
         posting_allowed = self._check_posting_allowed(PostingRestriction.SCHEDULED)
-        self.assertTrue(posting_allowed)
+        self.assertTrue(posting_allowed)  # noqa: PT009

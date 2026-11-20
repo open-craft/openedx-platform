@@ -16,8 +16,10 @@ from lms.djangoapps.teams import api as teams_api
 from lms.djangoapps.teams.models import CourseTeam
 from lms.djangoapps.teams.tests.factories import CourseTeamFactory
 from openedx.core.lib.teams_config import TeamsConfig, TeamsetType
-from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    SharedModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 COURSE_KEY1 = CourseKey.from_string('course-v1:edx+history+1')
 COURSE_KEY2 = CourseKey.from_string('course-v1:edx+math+1')
@@ -190,6 +192,22 @@ class PythonAPITests(SharedModuleStoreTestCase):
         result = teams_api.get_team_for_user_course_topic(self.user1, str(COURSE_KEY1), TOPIC1)
         assert result == expected_result
 
+    @ddt.data(True, False)
+    @mock.patch('lms.djangoapps.teams.api.logger')
+    @mock.patch('lms.djangoapps.teams.api.CourseTeam.objects')
+    def test_get_team_multiple_teams_log_squelches_pii(self, squelch_pii, mocked_manager, mock_logger):
+        """
+        The multiple-teams error log identifies the user by id when SQUELCH_PII_IN_LOGS is enabled.
+        """
+        mocked_manager.get.side_effect = CourseTeam.MultipleObjectsReturned()
+        with self.settings(SQUELCH_PII_IN_LOGS=squelch_pii):
+            teams_api.get_team_for_user_course_topic(self.user1, str(COURSE_KEY1), TOPIC1)
+
+        expected_identifier = self.user1.id if squelch_pii else self.user1.username
+        mock_logger.error.assert_called_once_with(
+            f"user {expected_identifier} is on multiple teams within course {COURSE_KEY1} topic {TOPIC1}"
+        )
+
     def test_get_team_course_not_found(self):
         team = teams_api.get_team_for_user_course_topic(self.user1, 'nonsense/garbage/nonexistant', 'topic')
         assert team is None
@@ -212,13 +230,13 @@ class PythonAPITests(SharedModuleStoreTestCase):
         """
         A learner should not be able to get IDs from members of a team they are not a member of
         """
-        self.assertRaises(Exception, teams_api.anonymous_user_ids_for_team, self.user1, self.team2)
+        self.assertRaises(Exception, teams_api.anonymous_user_ids_for_team, self.user1, self.team2)  # noqa: B017, PT027
 
     def test_anonymous_user_ids_for_team_bad_user_or_team(self):
         """
         An exception should be thrown when a bad user or team are passed to the endpoint
         """
-        self.assertRaises(Exception, teams_api.anonymous_user_ids_for_team, None, self.team1)
+        self.assertRaises(Exception, teams_api.anonymous_user_ids_for_team, None, self.team1)  # noqa: B017, PT027
 
     def test_anonymous_user_ids_for_team_staff(self):
         """

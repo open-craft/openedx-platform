@@ -3,29 +3,28 @@ Collections API Views
 """
 from __future__ import annotations
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.utils.text import slugify
-from django.db import transaction
-
+from opaque_keys.edx.locator import LibraryLocatorV2
+from openedx_authz.authz import CREATE_LIBRARY_COLLECTION, DELETE_LIBRARY_COLLECTION, EDIT_LIBRARY_COLLECTION
+from openedx_content import api as content_api
+from openedx_content.models_api import Collection
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.viewsets import ModelViewSet
 from rest_framework.status import HTTP_204_NO_CONTENT
+from rest_framework.viewsets import ModelViewSet
 
-from opaque_keys.edx.locator import LibraryLocatorV2
-from openedx_authz.constants import permissions as authz_permissions
-from openedx_learning.api import authoring as authoring_api
-from openedx_learning.api.authoring_models import Collection
+from openedx.core.types.http import RestRequest
 
 from .. import api, permissions
 from ..models import ContentLibrary
-from .utils import convert_exceptions
 from .serializers import (
     ContentLibraryCollectionSerializer,
     ContentLibraryCollectionUpdateSerializer,
     ContentLibraryItemKeysSerializer,
 )
-from openedx.core.types.http import RestRequest
+from .utils import convert_exceptions
 
 
 class LibraryCollectionsView(ModelViewSet):
@@ -34,7 +33,10 @@ class LibraryCollectionsView(ModelViewSet):
     """
 
     serializer_class = ContentLibraryCollectionSerializer
-    lookup_field = 'key'
+    # URL kwarg is `key` for backwards compatibility.
+    # https://github.com/openedx/openedx-platform/issues/38406
+    lookup_field = 'collection_code'
+    lookup_url_kwarg = 'key'
 
     def __init__(self, *args, **kwargs) -> None:
         """
@@ -72,7 +74,7 @@ class LibraryCollectionsView(ModelViewSet):
         """
         content_library = self.get_content_library()
         assert content_library.learning_package_id
-        return authoring_api.get_collections(content_library.learning_package_id)
+        return content_api.get_collections(content_library.learning_package_id)
 
     def get_object(self) -> Collection:
         """
@@ -113,7 +115,7 @@ class LibraryCollectionsView(ModelViewSet):
         api.require_permission_for_library_key(
             content_library.library_key,
             request.user,
-            authz_permissions.CREATE_LIBRARY_COLLECTION
+            CREATE_LIBRARY_COLLECTION
         )
         create_serializer = ContentLibraryCollectionUpdateSerializer(data=request.data)
         create_serializer.is_valid(raise_exception=True)
@@ -152,7 +154,7 @@ class LibraryCollectionsView(ModelViewSet):
         api.require_permission_for_library_key(
             content_library.library_key,
             request.user,
-            authz_permissions.EDIT_LIBRARY_COLLECTION
+            EDIT_LIBRARY_COLLECTION
         )
         collection_key = kwargs["key"]
 
@@ -179,13 +181,13 @@ class LibraryCollectionsView(ModelViewSet):
         api.require_permission_for_library_key(
             content_library.library_key,
             request.user,
-            authz_permissions.DELETE_LIBRARY_COLLECTION
+            DELETE_LIBRARY_COLLECTION
         )
         collection = super().get_object()
         assert collection.learning_package_id
-        authoring_api.delete_collection(
+        content_api.delete_collection(
             collection.learning_package_id,
-            collection.key,
+            collection.collection_code,
             hard_delete=False,
         )
         return Response(None, status=HTTP_204_NO_CONTENT)
@@ -200,11 +202,11 @@ class LibraryCollectionsView(ModelViewSet):
         api.require_permission_for_library_key(
             content_library.library_key,
             request.user,
-            authz_permissions.EDIT_LIBRARY_COLLECTION
+            EDIT_LIBRARY_COLLECTION
         )
         assert content_library.learning_package_id
         collection_key = kwargs["key"]
-        authoring_api.restore_collection(
+        content_api.restore_collection(
             content_library.learning_package_id,
             collection_key,
         )
@@ -222,7 +224,7 @@ class LibraryCollectionsView(ModelViewSet):
         api.require_permission_for_library_key(
             content_library.library_key,
             request.user,
-            authz_permissions.EDIT_LIBRARY_COLLECTION
+            EDIT_LIBRARY_COLLECTION
         )
         collection_key = kwargs["key"]
 

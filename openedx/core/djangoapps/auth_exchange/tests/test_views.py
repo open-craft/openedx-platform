@@ -6,11 +6,9 @@ Tests for OAuth token exchange views
 
 import json
 import unittest
-from datetime import timedelta
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import ddt
-import httpretty
 from django.test import TestCase
 from django.test.utils import override_settings
 from django.urls import reverse
@@ -19,14 +17,14 @@ from oauth2_provider.models import Application
 from rest_framework.test import APIClient
 from social_django.models import Partial
 
-from openedx.core.djangoapps.oauth_dispatch import jwt as jwt_api
-from openedx.core.djangoapps.oauth_dispatch.adapters import DOTAdapter
-from openedx.core.djangoapps.oauth_dispatch.tests import factories as dot_factories
 from common.djangoapps.student.tests.factories import UserFactory
 from common.djangoapps.third_party_auth.tests.utils import (
     ThirdPartyOAuthTestMixinFacebook,
     ThirdPartyOAuthTestMixinGoogle,
 )
+from openedx.core.djangoapps.oauth_dispatch import jwt as jwt_api
+from openedx.core.djangoapps.oauth_dispatch.adapters import DOTAdapter
+from openedx.core.djangoapps.oauth_dispatch.tests import factories as dot_factories
 from openedx.core.djangolib.testing.utils import skip_unless_lms
 
 from .mixins import DOTAdapterMixin
@@ -116,7 +114,6 @@ class AccessTokenExchangeViewTest(AccessTokenExchangeTestMixin):
 
 
 @unittest.skipUnless(TPA_FEATURE_ENABLED, TPA_FEATURES_KEY + " not enabled")
-@httpretty.activate
 class DOTAccessTokenExchangeViewTestFacebook(
         DOTAdapterMixin,
         AccessTokenExchangeViewTest,
@@ -126,12 +123,11 @@ class DOTAccessTokenExchangeViewTestFacebook(
     """
     Rerun AccessTokenExchangeViewTestFacebook tests against DOT backend
     """
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass
 
 
 # This is necessary because cms does not implement third party auth
 @unittest.skipUnless(TPA_FEATURE_ENABLED, TPA_FEATURES_KEY + " not enabled")
-@httpretty.activate
 class DOTAccessTokenExchangeViewTestGoogle(
         DOTAdapterMixin,
         AccessTokenExchangeViewTest,
@@ -142,7 +138,7 @@ class DOTAccessTokenExchangeViewTestGoogle(
     Tests for AccessTokenExchangeView used with Google using
     django-oauth-toolkit backend.
     """
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass
 
 
 @skip_unless_lms
@@ -157,7 +153,7 @@ class TestLoginWithAccessTokenView(TestCase):
 
     def _get_response(self, access_token, token_type='Bearer'):
         url = reverse("login_with_access_token")
-        return self.client.post(url, HTTP_AUTHORIZATION=f"{token_type} {access_token}".encode('utf-8'))
+        return self.client.post(url, HTTP_AUTHORIZATION=f"{token_type} {access_token}".encode('utf-8'))  # noqa: UP012
 
     def _verify_response(self, access_token, expected_status_code, token_type='Bearer', expected_cookie_name=None):
         """
@@ -240,7 +236,7 @@ class TestLoginWithAccessTokenView(TestCase):
             'error_code': 'non_asymmetric_token',
             'developer_message': 'Only asymmetric jwt are supported.'
         }
-        self.assertDictEqual(error_msg, json.loads(response.content))
+        self.assertDictEqual(error_msg, json.loads(response.content))  # noqa: PT009
         assert '_auth_user_id' not in self.client.session
         assert response.status_code == 401
 
@@ -254,7 +250,7 @@ class TestLoginWithAccessTokenView(TestCase):
             'error_code': 'account_disabled',
             'developer_message': 'User account is disabled.'
         }
-        self.assertDictEqual(error_msg, json.loads(response.content))
+        self.assertDictEqual(error_msg, json.loads(response.content))  # noqa: PT009
         assert '_auth_user_id' not in self.client.session
         assert response.status_code == 401
 

@@ -5,7 +5,7 @@ import json
 import time
 from datetime import datetime
 from unittest import skip
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
 import ddt
 import pytest
@@ -17,26 +17,27 @@ from search.search_engine_base import SearchEngine
 from cms.djangoapps.contentstore.courseware_index import (
     CourseAboutSearchIndexer,
     CoursewareSearchIndexer,
-    LibrarySearchIndexer,
-    SearchIndexingError
+    SearchIndexingError,
 )
-from cms.djangoapps.contentstore.signals.handlers import listen_for_course_publish, listen_for_library_update
+from cms.djangoapps.contentstore.signals.handlers import listen_for_course_publish
 from cms.djangoapps.contentstore.tasks import update_search_index
 from cms.djangoapps.contentstore.tests.utils import CourseTestCase
 from cms.djangoapps.contentstore.utils import reverse_course_url, reverse_usage_url
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.course_modes.tests.factories import CourseModeFactory
 from openedx.core.djangoapps.models.course_details import CourseDetails
-from xmodule.library_tools import normalize_key_for_search  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore import ModuleStoreEnum  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.django import SignalHandler, modulestore  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.django_utils import (  # lint-amnesty, pylint: disable=wrong-import-order
-    ModuleStoreTestCase,
+from xmodule.modulestore import ModuleStoreEnum  # pylint: disable=wrong-import-order
+from xmodule.modulestore.django import SignalHandler, modulestore  # pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (  # pylint: disable=wrong-import-order
     TEST_DATA_SPLIT_MODULESTORE,
+    ModuleStoreTestCase,
     SharedModuleStoreTestCase,
 )
-from xmodule.modulestore.tests.factories import CourseFactory, BlockFactory, LibraryFactory  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.partitions.partitions import UserPartition  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.factories import (  # pylint: disable=wrong-import-order
+    BlockFactory,
+    CourseFactory,
+)
+from xmodule.partitions.partitions import UserPartition  # pylint: disable=wrong-import-order
 
 COURSE_CHILD_STRUCTURE = {
     "course": "chapter",
@@ -53,7 +54,7 @@ def create_children(store, parent, category, load_factor):
         child_object = BlockFactory.create(
             parent_location=parent.location,
             category=category,
-            display_name=f"{category} {child_index} {time.clock()}",  # lint-amnesty, pylint: disable=no-member
+            display_name=f"{category} {child_index} {time.clock()}",  # pylint: disable=no-member
             modulestore=store,
             publish_item=True,
             start=datetime(2015, 3, 1, tzinfo=UTC),
@@ -85,7 +86,7 @@ class MixedWithOptionsTestCase(ModuleStoreTestCase):
 
     def setup_course_base(self, store):
         """ base version of setup_course_base is a no-op """
-        pass  # lint-amnesty, pylint: disable=unnecessary-pass
+        pass  # pylint: disable=unnecessary-pass
 
     @lazy
     def searcher(self):
@@ -208,15 +209,15 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         """ indexing course tests """
         # Only published blocks should be in the index
         added_to_index = self.reindex_course(store)  # This reindex may not be necessary (it may already be indexed)
-        self.assertEqual(added_to_index, 3)
+        self.assertEqual(added_to_index, 3)  # noqa: PT009
         response = self.search()
-        self.assertEqual(response["total"], 3)
+        self.assertEqual(response["total"], 3)  # noqa: PT009
 
         # Publish the vertical as is, and any unpublished children should now be available
         self.publish_item(store, self.vertical.location)
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 4)
+        self.assertEqual(response["total"], 4)  # noqa: PT009
 
     def _test_not_indexing_unpublished_content(self, store):
         """ add a new one, only appers in index once added """
@@ -224,7 +225,7 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         self.publish_item(store, self.vertical.location)
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 4)
+        self.assertEqual(response["total"], 4)  # noqa: PT009
 
         # Now add a new unit to the existing vertical
         BlockFactory.create(
@@ -236,14 +237,14 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         )
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 4)
+        self.assertEqual(response["total"], 4)  # noqa: PT009
 
         # Now publish it and we should find it
         # Publish the vertical as is, and everything should be available
         self.publish_item(store, self.vertical.location)
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 5)
+        self.assertEqual(response["total"], 5)  # noqa: PT009
 
     def _test_delete_course_from_search_index_after_course_deletion(self, store):  # pylint: disable=invalid-name
         """
@@ -253,14 +254,14 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         # index the course in search_index (it may already be indexed)
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 1)
+        self.assertEqual(response["total"], 1)  # noqa: PT009
 
         # delete the course and look course in search_index
         store.delete_course(self.course.id, ModuleStoreEnum.UserID.test)
-        self.assertIsNone(store.get_course(self.course.id))
+        self.assertIsNone(store.get_course(self.course.id))  # noqa: PT009
         # Now, because of contentstore.signals.handlers.listen_for_course_delete, the index should already be updated:
         response = self.search()
-        self.assertEqual(response["total"], 0)
+        self.assertEqual(response["total"], 0)  # noqa: PT009
 
     def _test_deleting_item(self, store):
         """ test deleting an item """
@@ -268,19 +269,19 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         self.publish_item(store, self.vertical.location)
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 4)
+        self.assertEqual(response["total"], 4)  # noqa: PT009
 
         # just a delete should not change anything
         self.delete_item(store, self.html_unit.location)
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 4)
+        self.assertEqual(response["total"], 4)  # noqa: PT009
 
         # but after publishing, we should no longer find the html_unit
         self.publish_item(store, self.vertical.location)
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 3)
+        self.assertEqual(response["total"], 3)  # noqa: PT009
 
     def _test_start_date_propagation(self, store):
         """ make sure that the start date is applied at the right level """
@@ -291,7 +292,7 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         self.publish_item(store, self.vertical.location)
         self.reindex_course(store)
         response = self.search()
-        self.assertEqual(response["total"], 4)
+        self.assertEqual(response["total"], 4)  # noqa: PT009
 
         results = response["results"]
         date_map = {
@@ -301,19 +302,19 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
             str(self.html_unit.location): later_date,
         }
         for result in results:
-            self.assertEqual(result["data"]["start_date"], date_map[result["data"]["id"]])
+            self.assertEqual(result["data"]["start_date"], date_map[result["data"]["id"]])  # noqa: PT009
 
     @patch('django.conf.settings.SEARCH_ENGINE', None)
     def _test_search_disabled(self, store):
         """ if search setting has it as off, confirm that nothing is indexed """
         indexed_count = self.reindex_course(store)
-        self.assertFalse(indexed_count)
+        self.assertFalse(indexed_count)  # noqa: PT009
 
     def _test_time_based_index(self, store):
         """ Make sure that a time based request to index does not index anything too old """
         self.publish_item(store, self.vertical.location)
         indexed_count = self.reindex_course(store)
-        self.assertEqual(indexed_count, 4)
+        self.assertEqual(indexed_count, 4)  # noqa: PT009
 
         # Add a new sequential
         sequential2 = BlockFactory.create(
@@ -347,11 +348,11 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         # because it is in a common subtree but not of the original vertical
         # because the original sequential's subtree is too old
         new_indexed_count = self.index_recent_changes(store, before_time)
-        self.assertEqual(new_indexed_count, 5)
+        self.assertEqual(new_indexed_count, 5)  # noqa: PT009
 
         # full index again
         indexed_count = self.reindex_course(store)
-        self.assertEqual(indexed_count, 7)
+        self.assertEqual(indexed_count, 7)  # noqa: PT009
 
     def _test_course_about_property_index(self, store):
         """
@@ -365,8 +366,8 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         response = self.searcher.search(
             field_dictionary={"course": str(self.course.id)}
         )
-        self.assertEqual(response["total"], 1)
-        self.assertEqual(response["results"][0]["data"]["content"]["display_name"], display_name)
+        self.assertEqual(response["total"], 1)  # noqa: PT009
+        self.assertEqual(response["results"][0]["data"]["content"]["display_name"], display_name)  # noqa: PT009
 
     def _test_course_about_store_index(self, store):
         """
@@ -382,8 +383,8 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         response = self.searcher.search(
             field_dictionary={"course": str(self.course.id)}
         )
-        self.assertEqual(response["total"], 1)
-        self.assertEqual(response["results"][0]["data"]["content"]["short_description"], short_description)
+        self.assertEqual(response["total"], 1)  # noqa: PT009
+        self.assertEqual(response["results"][0]["data"]["content"]["short_description"], short_description)  # noqa: PT009  # pylint: disable=line-too-long
 
     def _test_course_about_mode_index(self, store):
         """
@@ -409,20 +410,20 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         response = self.searcher.search(
             field_dictionary={"course": str(self.course.id)}
         )
-        self.assertEqual(response["total"], 1)
-        self.assertIn(CourseMode.HONOR, response["results"][0]["data"]["modes"])
-        self.assertIn(CourseMode.VERIFIED, response["results"][0]["data"]["modes"])
+        self.assertEqual(response["total"], 1)  # noqa: PT009
+        self.assertIn(CourseMode.HONOR, response["results"][0]["data"]["modes"])  # noqa: PT009
+        self.assertIn(CourseMode.VERIFIED, response["results"][0]["data"]["modes"])  # noqa: PT009
 
     def _test_course_location_info(self, store):
         """ Test that course location information is added to index """
         self.publish_item(store, self.vertical.location)
         self.reindex_course(store)
         response = self.search(query_string="Html Content")
-        self.assertEqual(response["total"], 1)
+        self.assertEqual(response["total"], 1)  # noqa: PT009
 
         result = response["results"][0]["data"]
-        self.assertEqual(result["course_name"], "Search Index Test Course")
-        self.assertEqual(result["location"], ["Week 1", "Lesson 1", "Subsection 1"])
+        self.assertEqual(result["course_name"], "Search Index Test Course")  # noqa: PT009
+        self.assertEqual(result["location"], ["Week 1", "Lesson 1", "Subsection 1"])  # noqa: PT009
 
     def _test_course_location_null(self, store):
         """ Test that course location information is added to index """
@@ -451,17 +452,17 @@ class TestCoursewareSearchIndexer(MixedWithOptionsTestCase):
         )
         self.reindex_course(store)
         response = self.search(query_string="Find Me")
-        self.assertEqual(response["total"], 1)
+        self.assertEqual(response["total"], 1)  # noqa: PT009
 
         result = response["results"][0]["data"]
-        self.assertEqual(result["course_name"], "Search Index Test Course")
-        self.assertEqual(result["location"], ["Week 1", CoursewareSearchIndexer.UNNAMED_MODULE_NAME, "Subsection 2"])
+        self.assertEqual(result["course_name"], "Search Index Test Course")  # noqa: PT009
+        self.assertEqual(result["location"], ["Week 1", CoursewareSearchIndexer.UNNAMED_MODULE_NAME, "Subsection 2"])  # noqa: PT009  # pylint: disable=line-too-long
 
     @patch('django.conf.settings.SEARCH_ENGINE', 'search.tests.utils.ErroringIndexEngine')
     def _test_exception(self, store):
         """ Test that exception within indexing yields a SearchIndexingError """
         self.publish_item(store, self.vertical.location)
-        with self.assertRaises(SearchIndexingError):
+        with self.assertRaises(SearchIndexingError):  # noqa: PT027
             self.reindex_course(store)
 
     def test_indexing_course(self):
@@ -541,7 +542,7 @@ class TestLargeCourseDeletions(MixedWithOptionsTestCase):
         """ Check that the search within this course will yield the expected number of results """
 
         response = self.searcher.search(field_dictionary={"course": self.course_id})
-        self.assertEqual(response["total"], expected_count)
+        self.assertEqual(response["total"], expected_count)  # noqa: PT009
 
     def _do_test_large_course_deletion(self, store, load_factor):
         """ Test that deleting items from a course works even when present within a very large course """
@@ -604,7 +605,6 @@ class TestTaskExecution(SharedModuleStoreTestCase):
     def setUpClass(cls):
         super().setUpClass()
         SignalHandler.course_published.disconnect(listen_for_course_publish)
-        SignalHandler.library_updated.disconnect(listen_for_library_update)
         cls.course = CourseFactory.create(start=datetime(2015, 3, 1, tzinfo=UTC))
 
         cls.chapter = BlockFactory.create(
@@ -636,26 +636,9 @@ class TestTaskExecution(SharedModuleStoreTestCase):
             publish_item=False,
         )
 
-        cls.library = LibraryFactory.create()
-
-        cls.library_block1 = BlockFactory.create(
-            parent_location=cls.library.location,
-            category="html",
-            display_name="Html Content",
-            publish_item=False,
-        )
-
-        cls.library_block2 = BlockFactory.create(
-            parent_location=cls.library.location,
-            category="html",
-            display_name="Html Content 2",
-            publish_item=False,
-        )
-
     @classmethod
     def tearDownClass(cls):
         SignalHandler.course_published.connect(listen_for_course_publish)
-        SignalHandler.library_updated.connect(listen_for_library_update)
         super().tearDownClass()
 
     def test_task_indexing_course(self):
@@ -667,7 +650,7 @@ class TestTaskExecution(SharedModuleStoreTestCase):
         response = searcher.search(
             field_dictionary={"course": str(self.course.id)}
         )
-        self.assertEqual(response["total"], 0)
+        self.assertEqual(response["total"], 0)  # noqa: PT009
 
         listen_for_course_publish(self, self.course.id)
 
@@ -675,20 +658,7 @@ class TestTaskExecution(SharedModuleStoreTestCase):
         response = searcher.search(
             field_dictionary={"course": str(self.course.id)}
         )
-        self.assertEqual(response["total"], 3)
-
-    def test_task_library_update(self):
-        """ Making sure that the receiver correctly fires off the task when invoked by signal """
-        searcher = SearchEngine.get_search_engine(LibrarySearchIndexer.INDEX_NAME)
-        library_search_key = str(normalize_key_for_search(self.library.location.library_key))
-        response = searcher.search(field_dictionary={"library": library_search_key})
-        self.assertEqual(response["total"], 0)
-
-        listen_for_library_update(self, self.library.location.library_key)
-
-        # Note that this test will only succeed if celery is working in inline mode
-        response = searcher.search(field_dictionary={"library": library_search_key})
-        self.assertEqual(response["total"], 2)
+        self.assertEqual(response["total"], 3)  # noqa: PT009
 
     def test_ignore_ccx(self):
         """Test that we ignore CCX courses (it's too slow now)."""
@@ -697,162 +667,12 @@ class TestTaskExecution(SharedModuleStoreTestCase):
         # fall through to the normal indexing and raise an exception because
         # there is no data or backing course behind the course key.
         with patch('cms.djangoapps.contentstore.courseware_index.CoursewareSearchIndexer.index') as mock_index:
-            self.assertIsNone(
+            self.assertIsNone(  # noqa: PT009
                 update_search_index(
                     "ccx-v1:OpenEdX+FAKECOURSE+FAKERUN+ccx@1", "2020-09-28T16:41:57.150796"
                 )
             )
-            self.assertFalse(mock_index.called)
-
-
-@pytest.mark.django_db
-@ddt.ddt
-class TestLibrarySearchIndexer(MixedWithOptionsTestCase):
-    """ Tests the operation of the CoursewareSearchIndexer """
-
-    # libraries work only with split, so do library indexer
-    WORKS_WITH_STORES = (ModuleStoreEnum.Type.split, )
-
-    def setUp(self):
-        super().setUp()
-
-        self.library = None
-        self.html_unit1 = None
-        self.html_unit2 = None
-
-    def setup_course_base(self, store):
-        """
-        Set up the for the course outline tests.
-        """
-        self.library = LibraryFactory.create(modulestore=store)
-
-        self.html_unit1 = BlockFactory.create(
-            parent_location=self.library.location,
-            category="html",
-            display_name="Html Content",
-            modulestore=store,
-            publish_item=False,
-        )
-
-        self.html_unit2 = BlockFactory.create(
-            parent_location=self.library.location,
-            category="html",
-            display_name="Html Content 2",
-            modulestore=store,
-            publish_item=False,
-        )
-
-    INDEX_NAME = LibrarySearchIndexer.INDEX_NAME
-
-    def _get_default_search(self):
-        """ Returns field_dictionary for default search """
-        return {"library": str(self.library.location.library_key.replace(version_guid=None, branch=None))}
-
-    def reindex_library(self, store):
-        """ kick off complete reindex of the course """
-        return LibrarySearchIndexer.do_library_reindex(store, self.library.location.library_key)
-
-    def _get_contents(self, response):
-        """ Extracts contents from search response """
-        return [item['data']['content'] for item in response['results']]
-
-    def _test_indexing_library(self, store):
-        """ indexing course tests """
-        self.reindex_library(store)
-        response = self.search()
-        self.assertEqual(response["total"], 2)
-
-        added_to_index = self.reindex_library(store)
-        self.assertEqual(added_to_index, 2)
-        response = self.search()
-        self.assertEqual(response["total"], 2)
-
-    def _test_creating_item(self, store):
-        """ test updating an item """
-        self.reindex_library(store)
-        response = self.search()
-        self.assertEqual(response["total"], 2)
-
-        # updating a library item causes immediate reindexing
-        data = "Some data"
-        BlockFactory.create(
-            parent_location=self.library.location,
-            category="html",
-            display_name="Html Content 3",
-            data=data,
-            modulestore=store,
-            publish_item=False,
-        )
-
-        self.reindex_library(store)
-        response = self.search()
-        self.assertEqual(response["total"], 3)
-        html_contents = [cont['html_content'] for cont in self._get_contents(response)]
-        self.assertIn(data, html_contents)
-
-    def _test_updating_item(self, store):
-        """ test updating an item """
-        self.reindex_library(store)
-        response = self.search()
-        self.assertEqual(response["total"], 2)
-
-        # updating a library item causes immediate reindexing
-        new_data = "I'm new data"
-        self.html_unit1.data = new_data
-        self.update_item(store, self.html_unit1)
-        self.reindex_library(store)
-        response = self.search()
-        self.assertEqual(response["total"], 2)
-        html_contents = [cont['html_content'] for cont in self._get_contents(response)]
-        self.assertIn(new_data, html_contents)
-
-    def _test_deleting_item(self, store):
-        """ test deleting an item """
-        self.reindex_library(store)
-        response = self.search()
-        self.assertEqual(response["total"], 2)
-
-        # deleting a library item causes immediate reindexing
-        self.delete_item(store, self.html_unit1.location)
-        self.reindex_library(store)
-        response = self.search()
-        self.assertEqual(response["total"], 1)
-
-    @patch('django.conf.settings.SEARCH_ENGINE', None)
-    def _test_search_disabled(self, store):
-        """ if search setting has it as off, confirm that nothing is indexed """
-        indexed_count = self.reindex_library(store)
-        self.assertFalse(indexed_count)
-
-    @patch('django.conf.settings.SEARCH_ENGINE', 'search.tests.utils.ErroringIndexEngine')
-    def _test_exception(self, store):
-        """ Test that exception within indexing yields a SearchIndexingError """
-        with self.assertRaises(SearchIndexingError):
-            self.reindex_library(store)
-
-    @ddt.data(*WORKS_WITH_STORES)
-    def test_indexing_library(self, store_type):
-        self._perform_test_using_store(store_type, self._test_indexing_library)
-
-    @ddt.data(*WORKS_WITH_STORES)
-    def test_updating_item(self, store_type):
-        self._perform_test_using_store(store_type, self._test_updating_item)
-
-    @ddt.data(*WORKS_WITH_STORES)
-    def test_creating_item(self, store_type):
-        self._perform_test_using_store(store_type, self._test_creating_item)
-
-    @ddt.data(*WORKS_WITH_STORES)
-    def test_deleting_item(self, store_type):
-        self._perform_test_using_store(store_type, self._test_deleting_item)
-
-    @ddt.data(*WORKS_WITH_STORES)
-    def test_search_disabled(self, store_type):
-        self._perform_test_using_store(store_type, self._test_search_disabled)
-
-    @ddt.data(*WORKS_WITH_STORES)
-    def test_exception(self, store_type):
-        self._perform_test_using_store(store_type, self._test_exception)
+            self.assertFalse(mock_index.called)  # noqa: PT009
 
 
 class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
@@ -1173,9 +993,9 @@ class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
 
         # Only published blocks should be in the index
         added_to_index = self.reindex_course(self.store)
-        self.assertEqual(added_to_index, 16)
+        self.assertEqual(added_to_index, 16)  # noqa: PT009
         response = self.searcher.search(field_dictionary={"course": str(self.course.id)})
-        self.assertEqual(response["total"], 16)
+        self.assertEqual(response["total"], 16)  # noqa: PT009
 
         group_access_content = {'group_access': {666: [1]}}
 
@@ -1189,46 +1009,46 @@ class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
 
         with patch(settings.SEARCH_ENGINE + '.index') as mock_index:
             self.reindex_course(self.store)
-            self.assertTrue(mock_index.called)
+            self.assertTrue(mock_index.called)  # noqa: PT009
             indexed_content = self._get_index_values_from_call_args(mock_index)
-            self.assertIn(self._html_group_result(self.html_unit1, [1]), indexed_content)
-            self.assertIn(self._html_experiment_group_result(self.html_unit4, [str(2)]), indexed_content)
-            self.assertIn(self._html_experiment_group_result(self.html_unit5, [str(3)]), indexed_content)
-            self.assertIn(self._html_experiment_group_result(self.html_unit6, [str(4)]), indexed_content)
-            self.assertNotIn(self._html_experiment_group_result(self.html_unit6, [str(5)]), indexed_content)
-            self.assertIn(
+            self.assertIn(self._html_group_result(self.html_unit1, [1]), indexed_content)  # noqa: PT009
+            self.assertIn(self._html_experiment_group_result(self.html_unit4, [str(2)]), indexed_content)  # noqa: PT009
+            self.assertIn(self._html_experiment_group_result(self.html_unit5, [str(3)]), indexed_content)  # noqa: PT009
+            self.assertIn(self._html_experiment_group_result(self.html_unit6, [str(4)]), indexed_content)  # noqa: PT009
+            self.assertNotIn(self._html_experiment_group_result(self.html_unit6, [str(5)]), indexed_content)  # noqa: PT009  # pylint: disable=line-too-long
+            self.assertIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_0_vertical, [str(2)]),
                 indexed_content
             )
-            self.assertNotIn(
+            self.assertNotIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_1_vertical, [str(2)]),
                 indexed_content
             )
-            self.assertNotIn(
+            self.assertNotIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_2_vertical, [str(2)]),
                 indexed_content
             )
-            self.assertNotIn(
+            self.assertNotIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_0_vertical, [str(3)]),
                 indexed_content
             )
-            self.assertIn(
+            self.assertIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_1_vertical, [str(3)]),
                 indexed_content
             )
-            self.assertNotIn(
+            self.assertNotIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_2_vertical, [str(3)]),
                 indexed_content
             )
-            self.assertNotIn(
+            self.assertNotIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_0_vertical, [str(4)]),
                 indexed_content
             )
-            self.assertNotIn(
+            self.assertNotIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_1_vertical, [str(4)]),
                 indexed_content
             )
-            self.assertIn(
+            self.assertIn(  # noqa: PT009
                 self._vertical_experiment_group_result(self.condition_2_vertical, [str(4)]),
                 indexed_content
             )
@@ -1239,9 +1059,9 @@ class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
 
         with patch(settings.SEARCH_ENGINE + '.index') as mock_index:
             self.reindex_course(self.store)
-            self.assertTrue(mock_index.called)
+            self.assertTrue(mock_index.called)  # noqa: PT009
             indexed_content = self._get_index_values_from_call_args(mock_index)
-            self.assertIn(self._html_nogroup_result(self.html_unit1), indexed_content)
+            self.assertIn(self._html_nogroup_result(self.html_unit1), indexed_content)  # noqa: PT009
             mock_index.reset_mock()
 
     def test_content_group_not_indexed_on_delete(self):
@@ -1259,9 +1079,9 @@ class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
         # Checking group indexed correctly
         with patch(settings.SEARCH_ENGINE + '.index') as mock_index:
             self.reindex_course(self.store)
-            self.assertTrue(mock_index.called)
+            self.assertTrue(mock_index.called)  # noqa: PT009
             indexed_content = self._get_index_values_from_call_args(mock_index)
-            self.assertIn(self._html_group_result(self.html_unit1, [1]), indexed_content)
+            self.assertIn(self._html_group_result(self.html_unit1, [1]), indexed_content)  # noqa: PT009
             mock_index.reset_mock()
 
         empty_group_access = {'group_access': {}}
@@ -1276,9 +1096,9 @@ class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
         # Checking group removed and not indexed any more
         with patch(settings.SEARCH_ENGINE + '.index') as mock_index:
             self.reindex_course(self.store)
-            self.assertTrue(mock_index.called)
+            self.assertTrue(mock_index.called)  # noqa: PT009
             indexed_content = self._get_index_values_from_call_args(mock_index)
-            self.assertIn(self._html_nogroup_result(self.html_unit1), indexed_content)
+            self.assertIn(self._html_nogroup_result(self.html_unit1), indexed_content)  # noqa: PT009
             mock_index.reset_mock()
 
     def test_group_indexed_only_on_assigned_html_block(self):
@@ -1293,10 +1113,10 @@ class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
 
         with patch(settings.SEARCH_ENGINE + '.index') as mock_index:
             self.reindex_course(self.store)
-            self.assertTrue(mock_index.called)
+            self.assertTrue(mock_index.called)  # noqa: PT009
             indexed_content = self._get_index_values_from_call_args(mock_index)
-            self.assertIn(self._html_group_result(self.html_unit1, [1]), indexed_content)
-            self.assertIn(self._html_nogroup_result(self.html_unit2), indexed_content)
+            self.assertIn(self._html_group_result(self.html_unit1, [1]), indexed_content)  # noqa: PT009
+            self.assertIn(self._html_nogroup_result(self.html_unit2), indexed_content)  # noqa: PT009
             mock_index.reset_mock()
 
     def test_different_groups_indexed_on_assigned_html_blocks(self):
@@ -1318,10 +1138,10 @@ class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
 
         with patch(settings.SEARCH_ENGINE + '.index') as mock_index:
             self.reindex_course(self.store)
-            self.assertTrue(mock_index.called)
+            self.assertTrue(mock_index.called)  # noqa: PT009
             indexed_content = self._get_index_values_from_call_args(mock_index)
-            self.assertIn(self._html_group_result(self.html_unit1, [1]), indexed_content)
-            self.assertIn(self._html_group_result(self.html_unit2, [0]), indexed_content)
+            self.assertIn(self._html_group_result(self.html_unit1, [1]), indexed_content)  # noqa: PT009
+            self.assertIn(self._html_group_result(self.html_unit2, [0]), indexed_content)  # noqa: PT009
             mock_index.reset_mock()
 
     def test_different_groups_indexed_on_same_vertical_html_blocks(self):
@@ -1347,8 +1167,8 @@ class GroupConfigurationSearchSplit(CourseTestCase, MixedWithOptionsTestCase):
 
         with patch(settings.SEARCH_ENGINE + '.index') as mock_index:
             self.reindex_course(self.store)
-            self.assertTrue(mock_index.called)
+            self.assertTrue(mock_index.called)  # noqa: PT009
             indexed_content = self._get_index_values_from_call_args(mock_index)
-            self.assertIn(self._html_group_result(self.html_unit2, [1]), indexed_content)
-            self.assertIn(self._html_group_result(self.html_unit3, [0]), indexed_content)
+            self.assertIn(self._html_group_result(self.html_unit2, [1]), indexed_content)  # noqa: PT009
+            self.assertIn(self._html_group_result(self.html_unit3, [0]), indexed_content)  # noqa: PT009
             mock_index.reset_mock()

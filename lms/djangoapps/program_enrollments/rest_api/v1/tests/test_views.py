@@ -9,7 +9,6 @@ from unittest import mock
 from uuid import UUID, uuid4
 
 import ddt
-from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
@@ -20,16 +19,16 @@ from organizations.tests.factories import OrganizationFactory as LMSOrganization
 from rest_framework import status
 from rest_framework.test import APITestCase
 from social_django.models import UserSocialAuth
-from xmodule.modulestore.tests.django_utils import TEST_DATA_SPLIT_MODULESTORE, SharedModuleStoreTestCase
-from xmodule.modulestore.tests.factories import CourseFactory as ModulestoreCourseFactory
-from xmodule.modulestore.tests.factories import BlockFactory
 
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.student.roles import CourseStaffRole
-from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
-from common.djangoapps.student.tests.factories import GlobalStaffFactory
-from common.djangoapps.student.tests.factories import InstructorFactory
+from common.djangoapps.student.tests.factories import (
+    CourseEnrollmentFactory,
+    GlobalStaffFactory,
+    InstructorFactory,
+    UserFactory,
+)
 from common.djangoapps.third_party_auth.tests.factories import SAMLProviderConfigFactory
 from lms.djangoapps.bulk_email.models import BulkEmailFlag, Optout
 from lms.djangoapps.certificates.data import CertificateStatuses
@@ -42,7 +41,7 @@ from lms.djangoapps.program_enrollments.models import ProgramCourseEnrollment, P
 from lms.djangoapps.program_enrollments.tests.factories import (
     CourseAccessRoleAssignmentFactory,
     ProgramCourseEnrollmentFactory,
-    ProgramEnrollmentFactory
+    ProgramEnrollmentFactory,
 )
 from openedx.core.djangoapps.catalog.cache import PROGRAM_CACHE_KEY_TPL, PROGRAMS_BY_ORGANIZATION_CACHE_KEY_TPL
 from openedx.core.djangoapps.catalog.tests.factories import (
@@ -50,18 +49,20 @@ from openedx.core.djangoapps.catalog.tests.factories import (
     CourseRunFactory,
     CurriculumFactory,
     OrganizationFactory,
-    ProgramFactory
+    ProgramFactory,
 )
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.content.course_overviews.tests.factories import CourseOverviewFactory
 from openedx.core.djangolib.testing.utils import CacheIsolationMixin
+from xmodule.modulestore.tests.django_utils import TEST_DATA_SPLIT_MODULESTORE, SharedModuleStoreTestCase
+from xmodule.modulestore.tests.factories import BlockFactory
+from xmodule.modulestore.tests.factories import CourseFactory as ModulestoreCourseFactory
 
 from .. import views
 from ..constants import (
-    ENABLE_ENROLLMENT_RESET_FLAG,
     MAX_ENROLLMENT_RECORDS,
     REQUEST_STUDENT_KEY,
-    CourseRunProgressStatuses
+    CourseRunProgressStatuses,
 )
 
 _DJANGOAPP_PATCH_FORMAT = 'lms.djangoapps.program_enrollments.{}'
@@ -441,7 +442,7 @@ class ProgramEnrollmentsWriteMixin(EnrollmentsDataMixin):
             url = self.get_url()
             response = self.request(url, json.dumps(enrollments), content_type='application/json')
         assert 200 == response.status_code
-        self.assertDictEqual(
+        self.assertDictEqual(  # noqa: PT009
             response.data,
             {'learner-01': 'enrolled'}
         )
@@ -473,7 +474,7 @@ class ProgramEnrollmentsPostTests(ProgramEnrollmentsWriteMixin, APITestCase):
                 'status': s,
                 'curriculum_uuid': str(c)
             }
-            for e, s, c in zip(external_user_keys, statuses, curriculum_uuids)
+            for e, s, c in zip(external_user_keys, statuses, curriculum_uuids)  # noqa: B905
         ]
 
         url = self.get_url(program_uuid=0)
@@ -853,7 +854,7 @@ class ProgramCourseEnrollmentsMixin(EnrollmentsDataMixin):
         ):
             response = self.request(self.default_url, request_data)
             assert 200 == response.status_code
-            self.assertDictEqual(
+            self.assertDictEqual(  # noqa: PT009
                 mock_write_response,
                 response.data,
             )
@@ -874,7 +875,7 @@ class ProgramCourseEnrollmentsMixin(EnrollmentsDataMixin):
         ):
             response = self.request(self.default_url, request_data)
             assert 207 == response.status_code
-            self.assertDictEqual(
+            self.assertDictEqual(  # noqa: PT009
                 {'learner-1': CourseStatuses.ACTIVE, 'learner-2': CourseStatuses.NOT_IN_PROGRAM},
                 response.data
             )
@@ -1044,7 +1045,7 @@ class ProgramCourseEnrollmentsPostTests(ProgramCourseEnrollmentsMixin, APITestCa
         ) as mock_write:
             response = self.request(self.default_url, post_data)
             assert 200 == response.status_code
-            self.assertDictEqual(
+            self.assertDictEqual(  # noqa: PT009
                 mock_write_response,
                 response.data,
             )
@@ -1072,7 +1073,7 @@ class ProgramCourseEnrollmentsPostTests(ProgramCourseEnrollmentsMixin, APITestCa
         ):
             response = self.request(self.default_url, post_data)
             assert 422 == response.status_code
-            self.assertDictEqual({'learner-1': CourseStatuses.CONFLICT}, response.data)
+            self.assertDictEqual({'learner-1': CourseStatuses.CONFLICT}, response.data)  # noqa: PT009
 
 
 class ProgramCourseEnrollmentsModifyMixin(ProgramCourseEnrollmentsMixin):
@@ -1089,7 +1090,7 @@ class ProgramCourseEnrollmentsModifyMixin(ProgramCourseEnrollmentsMixin):
         ) as mock_write:
             response = self.request(self.default_url, request_data)
             assert 200 == response.status_code
-            self.assertDictEqual(
+            self.assertDictEqual(  # noqa: PT009
                 mock_write_response,
                 response.data,
             )
@@ -1277,7 +1278,7 @@ class MultiprogramEnrollmentsTest(EnrollmentsDataMixin, APITestCase):
         )
         assert response.status_code == 422
         mock_log.error.assert_called_with(
-            'Detected conflicting active ProgramCourseEnrollment. This is happening on'
+            'Detected conflicting active ProgramCourseEnrollment. This is happening on'  # noqa: UP032
             ' The program_uuid [{}] with course_key [{}] for external_user_key [{}]'.format(
                 self.another_program_uuid,
                 self.course_id,
@@ -1285,7 +1286,7 @@ class MultiprogramEnrollmentsTest(EnrollmentsDataMixin, APITestCase):
             )
         )
         expected_results = {self.external_user_key: CourseStatuses.CONFLICT}
-        self.assertDictEqual(expected_results, response.data)
+        self.assertDictEqual(expected_results, response.data)  # noqa: PT009
 
 
 class ProgramCourseGradesGetTests(EnrollmentsDataMixin, APITestCase):
@@ -2264,7 +2265,7 @@ class UserProgramCourseEnrollmentViewGetTests(ProgramCourseEnrollmentOverviewGet
         """
         self.log_in()
         no_enrollments = CourseEnrollment.objects.none()
-        with mock.patch.object(
+        with mock.patch.object(  # noqa: PT008
                 views,
                 'get_enrollments_for_courses_in_program',
                 lambda _user, _program: no_enrollments,
@@ -2292,7 +2293,7 @@ class UserProgramCourseEnrollmentViewGetTests(ProgramCourseEnrollmentOverviewGet
         and the sizes of the each request.
         """
 
-        def mock_get_enrollment_overviews(user, program, enrollments, request):  # lint-amnesty, pylint: disable=unused-argument
+        def mock_get_enrollment_overviews(user, program, enrollments, request):  # pylint: disable=unused-argument
             """
             Mock implementation of `utils.get_enrollments_overviews`
             that returns a dict with the correct `course_run_id`
@@ -2305,7 +2306,7 @@ class UserProgramCourseEnrollmentViewGetTests(ProgramCourseEnrollmentOverviewGet
             return [
                 {
                     'course_run_id': enrollment.course.id,
-                    'display_name': 'Fake Display Name for {enrollment.course.id}'.format(
+                    'display_name': 'Fake Display Name for {enrollment.course.id}'.format(  # noqa: UP032
                         enrollment=enrollment,
                     ),
                     'course_run_url': 'http://fake.url.example.com/course-run',
@@ -2320,7 +2321,7 @@ class UserProgramCourseEnrollmentViewGetTests(ProgramCourseEnrollmentOverviewGet
         self.log_in(user=self.student_many_enrollments)
         many_enrollments = CourseEnrollment.objects.filter(user=self.student_many_enrollments)
 
-        with mock.patch.object(
+        with mock.patch.object(  # noqa: PT008
                 views,
                 'get_enrollments_for_courses_in_program',
                 lambda _user, _program: many_enrollments,
@@ -2354,9 +2355,6 @@ class UserProgramCourseEnrollmentViewGetTests(ProgramCourseEnrollmentOverviewGet
 
 class EnrollmentDataResetViewTests(ProgramCacheMixin, APITestCase):
     """ Tests endpoint for resetting enrollments in integration environments """
-
-    FEATURES_WITH_ENABLED = settings.FEATURES.copy()
-    FEATURES_WITH_ENABLED[ENABLE_ENROLLMENT_RESET_FLAG] = True
 
     reset_enrollments_cmd = 'reset_enrollment_data'
     reset_users_cmd = 'remove_social_auth_users'
@@ -2392,7 +2390,7 @@ class EnrollmentDataResetViewTests(ProgramCacheMixin, APITestCase):
         assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
         mock_call_command.assert_has_calls([])
 
-    @override_settings(FEATURES=FEATURES_WITH_ENABLED)
+    @override_settings(ENABLE_ENROLLMENT_RESET=True)
     @patch_call_command
     def test_403_for_non_staff(self, mock_call_command):
         student = UserFactory.create(username='student', password='password')
@@ -2401,7 +2399,7 @@ class EnrollmentDataResetViewTests(ProgramCacheMixin, APITestCase):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_call_command.assert_has_calls([])
 
-    @override_settings(FEATURES=FEATURES_WITH_ENABLED)
+    @override_settings(ENABLE_ENROLLMENT_RESET=True)
     @patch_call_command
     def test_reset(self, mock_call_command):
         programs = [str(uuid4()), str(uuid4())]
@@ -2414,7 +2412,7 @@ class EnrollmentDataResetViewTests(ProgramCacheMixin, APITestCase):
             mock.call(self.reset_enrollments_cmd, ','.join(programs), force=True),
         ])
 
-    @override_settings(FEATURES=FEATURES_WITH_ENABLED)
+    @override_settings(ENABLE_ENROLLMENT_RESET=True)
     @patch_call_command
     def test_reset_with_multiple_idp(self, mock_call_command):
         programs = [str(uuid4()), str(uuid4())]
@@ -2433,7 +2431,7 @@ class EnrollmentDataResetViewTests(ProgramCacheMixin, APITestCase):
             mock.call(self.reset_enrollments_cmd, ','.join(programs), force=True),
         ])
 
-    @override_settings(FEATURES=FEATURES_WITH_ENABLED)
+    @override_settings(ENABLE_ENROLLMENT_RESET=True)
     @patch_call_command
     def test_reset_without_idp(self, mock_call_command):
         organization = LMSOrganizationFactory()
@@ -2446,14 +2444,14 @@ class EnrollmentDataResetViewTests(ProgramCacheMixin, APITestCase):
             mock.call(self.reset_enrollments_cmd, ','.join(programs), force=True),
         ])
 
-    @override_settings(FEATURES=FEATURES_WITH_ENABLED)
+    @override_settings(ENABLE_ENROLLMENT_RESET=True)
     @patch_call_command
     def test_organization_not_found(self, mock_call_command):
         response = self.request('yyz')
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_call_command.assert_has_calls([])
 
-    @override_settings(FEATURES=FEATURES_WITH_ENABLED)
+    @override_settings(ENABLE_ENROLLMENT_RESET=True)
     @patch_call_command
     def test_no_programs_doesnt_break(self, mock_call_command):
         programs = []
@@ -2465,7 +2463,7 @@ class EnrollmentDataResetViewTests(ProgramCacheMixin, APITestCase):
             mock.call(self.reset_users_cmd, self.provider.slug, force=True),
         ])
 
-    @override_settings(FEATURES=FEATURES_WITH_ENABLED)
+    @override_settings(ENABLE_ENROLLMENT_RESET=True)
     @patch_call_command
     def test_missing_body_content(self, mock_call_command):
         response = self.client.post(

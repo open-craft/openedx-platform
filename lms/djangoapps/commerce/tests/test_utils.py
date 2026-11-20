@@ -6,7 +6,7 @@ from unittest.mock import patch
 from urllib.parse import urlencode
 
 import ddt
-import httpretty
+import responses
 from django.conf import settings
 from django.test import TestCase
 from django.test.client import RequestFactory
@@ -22,9 +22,10 @@ from lms.djangoapps.commerce.models import CommerceConfiguration
 from lms.djangoapps.commerce.utils import EcommerceService, refund_entitlement, refund_seat
 from openedx.core.djangolib.testing.utils import skip_unless_lms
 from openedx.core.lib.log_utils import audit_log
-from xmodule.modulestore.tests.django_utils import \
-    ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 # Entitlements is not in CMS' INSTALLED_APPS so these imports will error during test collection
 if settings.ROOT_URLCONF == 'lms.urls':
@@ -146,7 +147,7 @@ class EcommerceServiceTests(TestCase):
             skus=urlencode({'sku': skus}, doseq=True),
         )
         if program_uuid:
-            expected_url = '{expected_url}&basket={program_uuid}'.format(
+            expected_url = '{expected_url}&basket={program_uuid}'.format(  # noqa: UP032
                 expected_url=expected_url,
                 program_uuid=program_uuid
             )
@@ -176,7 +177,7 @@ class EcommerceServiceTests(TestCase):
         if enterprise_catalog_uuid:
             query.update({'catalog': enterprise_catalog_uuid})
 
-        expected_url = '{root}{basket_url}?{skus}'.format(
+        expected_url = '{root}{basket_url}?{skus}'.format(  # noqa: UP032
             basket_url=config.basket_checkout_page,
             root=settings.ECOMMERCE_PUBLIC_URL_ROOT,
             skus=urlencode(query, doseq=True),
@@ -206,10 +207,10 @@ class RefundUtilMethodTests(ModuleStoreTestCase):
         assert mock_commerce_configured.is_called
         assert not refund_success
 
-    @httpretty.activate
+    @responses.activate
     def test_no_ecommerce_connection_and_failure(self):
-        httpretty.register_uri(
-            httpretty.POST,
+        responses.add(
+            responses.POST,
             settings.ECOMMERCE_API_URL + 'refunds/',
             status=404,
             body='{}',
@@ -219,17 +220,17 @@ class RefundUtilMethodTests(ModuleStoreTestCase):
         refund_success = refund_entitlement(course_entitlement)
         assert not refund_success
 
-    @httpretty.activate
+    @responses.activate
     def test_ecommerce_successful_refund(self):
-        httpretty.register_uri(
-            httpretty.POST,
+        responses.add(
+            responses.POST,
             settings.ECOMMERCE_API_URL + 'refunds/',
             status=201,
             body='[1]',
             content_type='application/json'
         )
-        httpretty.register_uri(
-            httpretty.PUT,
+        responses.add(
+            responses.PUT,
             settings.ECOMMERCE_API_URL + 'refunds/1/process/',
             status=200,
             body=json.dumps({
@@ -248,18 +249,18 @@ class RefundUtilMethodTests(ModuleStoreTestCase):
         refund_success = refund_entitlement(course_entitlement)
         assert refund_success
 
-    @httpretty.activate
+    @responses.activate
     @patch('lms.djangoapps.commerce.utils._send_refund_notification', return_value=True)
     def test_ecommerce_refund_failed_process_notification_sent(self, mock_send_notification):
-        httpretty.register_uri(
-            httpretty.POST,
+        responses.add(
+            responses.POST,
             settings.ECOMMERCE_API_URL + 'refunds/',
             status=201,
             body='[1]',
             content_type='application/json'
         )
-        httpretty.register_uri(
-            httpretty.PUT,
+        responses.add(
+            responses.PUT,
             settings.ECOMMERCE_API_URL + 'refunds/1/process/',
             status=400,
             body='{}',
@@ -272,7 +273,7 @@ class RefundUtilMethodTests(ModuleStoreTestCase):
         assert call_args[0] == (course_entitlement.user, [1])
         assert refund_success
 
-    @httpretty.activate
+    @responses.activate
     @patch('lms.djangoapps.commerce.utils._send_refund_notification', return_value=True)
     def test_ecommerce_refund_not_verified_notification_for_entitlement(self, mock_send_notification):
         """
@@ -282,15 +283,15 @@ class RefundUtilMethodTests(ModuleStoreTestCase):
 
         PROFESSIONAL mode is used here although we never auto approve PROFESSIONAL refunds right now
         """
-        httpretty.register_uri(
-            httpretty.POST,
+        responses.add(
+            responses.POST,
             settings.ECOMMERCE_API_URL + 'refunds/',
             status=201,
             body='[1]',
             content_type='application/json'
         )
-        httpretty.register_uri(
-            httpretty.PUT,
+        responses.add(
+            responses.PUT,
             settings.ECOMMERCE_API_URL + 'refunds/1/process/',
             status=400,
             body='{}',
@@ -303,18 +304,18 @@ class RefundUtilMethodTests(ModuleStoreTestCase):
         assert call_args[0] == (course_entitlement.user, [1])
         assert refund_success
 
-    @httpretty.activate
+    @responses.activate
     @patch('lms.djangoapps.commerce.utils._send_refund_notification', return_value=True)
     def test_ecommerce_refund_send_notification_failed(self, mock_send_notification):
-        httpretty.register_uri(
-            httpretty.POST,
+        responses.add(
+            responses.POST,
             settings.ECOMMERCE_API_URL + 'refunds/',
             status=201,
             body='[1]',
             content_type='application/json'
         )
-        httpretty.register_uri(
-            httpretty.PUT,
+        responses.add(
+            responses.PUT,
             settings.ECOMMERCE_API_URL + 'refunds/1/process/',
             status=400,
             body='{}',
@@ -329,7 +330,7 @@ class RefundUtilMethodTests(ModuleStoreTestCase):
         assert call_args[0] == (course_entitlement.user, [1])
         assert not refund_success
 
-    @httpretty.activate
+    @responses.activate
     @ddt.data(
         (["verified", "audit"], "audit"),
         (["professional"], "professional"),
@@ -349,15 +350,15 @@ class RefundUtilMethodTests(ModuleStoreTestCase):
                 mode_display_name=course_mode,
             )
 
-        httpretty.register_uri(
-            httpretty.POST,
+        responses.add(
+            responses.POST,
             settings.ECOMMERCE_API_URL + 'refunds/',
             status=201,
             body='[1]',
             content_type='application/json'
         )
-        httpretty.register_uri(
-            httpretty.PUT,
+        responses.add(
+            responses.PUT,
             settings.ECOMMERCE_API_URL + 'refunds/1/process/',
             status=200,
             body=json.dumps({

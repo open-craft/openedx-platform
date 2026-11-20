@@ -3,21 +3,19 @@
 
 import json
 from base64 import b64encode
-from unittest import skip
 
-import httpretty
-from onelogin.saml2.utils import OneLogin_Saml2_Utils
+import responses
 from oauth2_provider.models import Application
+from onelogin.saml2.utils import OneLogin_Saml2_Utils
 from social_core.backends.facebook import API_VERSION as FACEBOOK_API_VERSION
 from social_core.backends.facebook import FacebookOAuth2
 from social_django.models import Partial, UserSocialAuth
 
 from common.djangoapps.student.tests.factories import UserFactory
 
-from .testutil import ThirdPartyAuthTestMixin, AUTH_FEATURE_ENABLED, AUTH_FEATURES_KEY
+from .testutil import ThirdPartyAuthTestMixin
 
 
-@httpretty.activate
 class ThirdPartyOAuthTestMixin(ThirdPartyAuthTestMixin):
     """
     Mixin with tests for third party oauth views. A TestCase that includes
@@ -33,8 +31,11 @@ class ThirdPartyOAuthTestMixin(ThirdPartyAuthTestMixin):
 
     CREATE_USER = True
 
-    def setUp(self):  # lint-amnesty, pylint: disable=arguments-differ
+    def setUp(self):  # pylint: disable=arguments-differ
         super().setUp()
+        responses.start()
+        self.addCleanup(responses.stop)
+        self.addCleanup(responses.reset)
         if self.CREATE_USER:
             self.user = UserFactory.create(password='secret')
             UserSocialAuth.objects.create(user=self.user, provider=self.BACKEND, uid=self.social_uid)
@@ -82,8 +83,8 @@ class ThirdPartyOAuthTestMixin(ThirdPartyAuthTestMixin):
         """
         Register a mock response for the third party user information endpoint with given status and body.
         """
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add(
+            responses.GET,
             self.USER_URL,
             body=body,
             status=status,
@@ -140,16 +141,7 @@ def prepare_saml_response_from_xml(xml, relay_state='testshib'):
          (str): Base64 and URL encoded XML.
     """
     b64encoded_xml = b64encode(xml.encode())
-    return 'RelayState={relay_state}&SAMLResponse={saml_response}'.format(
+    return 'RelayState={relay_state}&SAMLResponse={saml_response}'.format(  # noqa: UP032
         relay_state=OneLogin_Saml2_Utils.escape_url(relay_state),
         saml_response=OneLogin_Saml2_Utils.escape_url(b64encoded_xml)
     )
-
-
-def skip_unless_thirdpartyauth():
-    """
-    Wraps unittest.skip in consistent logic to skip certain third_party_auth tests in CMS.
-    """
-    if AUTH_FEATURE_ENABLED:
-        return lambda func: func
-    return skip("%s not enabled" % AUTH_FEATURES_KEY)

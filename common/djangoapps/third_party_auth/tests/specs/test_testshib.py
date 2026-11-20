@@ -8,12 +8,11 @@ import logging
 import os
 from unittest import skip
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, quote, urlparse
 
 import ddt
-import httpretty
-from django.conf import settings
+import responses
 from django.contrib import auth
-from enterprise.models import EnterpriseCustomerIdentityProvider, EnterpriseCustomerUser
 from freezegun import freeze_time
 from social_core import actions
 from social_django import views as social_views
@@ -24,19 +23,26 @@ from common.djangoapps.third_party_auth import pipeline
 from common.djangoapps.third_party_auth.exceptions import IncorrectConfigurationException
 from common.djangoapps.third_party_auth.saml import SapSuccessFactorsIdentityProvider
 from common.djangoapps.third_party_auth.saml import log as saml_log
+from common.djangoapps.third_party_auth.signals import SAMLAccountDisconnected
 from common.djangoapps.third_party_auth.tasks import fetch_saml_metadata
 from common.djangoapps.third_party_auth.tests import testutil, utils
+from common.test.utils import assert_dict_contains_subset
 from openedx.core.djangoapps.user_authn.views.login import login_user
-from openedx.features.enterprise_support.tests.factories import EnterpriseCustomerFactory
+from openedx.core.djangolib.testing.utils import skip_unless_lms
 
 from .base import IntegrationTestMixin
-from common.test.utils import assert_dict_contains_subset
-from urllib.parse import urlparse, parse_qs, quote
 
 TESTSHIB_ENTITY_ID = "https://idp.testshib.org/idp/shibboleth"
 TESTSHIB_METADATA_URL = "https://mock.testshib.org/metadata/testshib-providers.xml"
 TESTSHIB_METADATA_URL_WITH_CACHE_DURATION = "https://mock.testshib.org/metadata/testshib-providers-cache.xml"
 TESTSHIB_SSO_URL = "https://idp.testshib.org/idp/profile/SAML2/Redirect/SSO"
+
+
+def _body_bytes(request):
+    """Return the mocked request's body as bytes, whichever form the client sent it in."""
+    body = request.body or b""
+    return body if isinstance(body, bytes) else body.encode("utf-8")
+
 
 
 class SamlIntegrationTestUtilities:
@@ -55,55 +61,69 @@ class SamlIntegrationTestUtilities:
     USER_USERNAME = "myself"
 
     def setUp(self):
-        super().setUp()  # lint-amnesty, pylint: disable=no-member, super-with-arguments
-        self.enable_saml(  # lint-amnesty, pylint: disable=no-member
-            private_key=self._get_private_key(),  # lint-amnesty, pylint: disable=no-member
-            public_key=self._get_public_key(),  # lint-amnesty, pylint: disable=no-member
+        super().setUp()  # pylint: disable=no-member, super-with-arguments
+        self.enable_saml(  # pylint: disable=no-member
+            private_key=self._get_private_key(),  # pylint: disable=no-member
+            public_key=self._get_public_key(),  # pylint: disable=no-member
             entity_id="https://saml.example.none",
         )
+        # TestShib's hostname is made up; resolve it to a public address for URL validation.
+        dns_patch = testutil.mock_saml_metadata_dns()
+        dns_patch.start()
+        self.addCleanup(dns_patch.stop)  # pylint: disable=no-member
         # Mock out HTTP requests that may be made to TestShib:
-        httpretty.enable()
-        httpretty.reset()
-        self.addCleanup(httpretty.reset)  # lint-amnesty, pylint: disable=no-member
-        self.addCleanup(httpretty.disable)  # lint-amnesty, pylint: disable=no-member
+        responses.start()
+        responses.reset()
+        self.addCleanup(responses.reset)  # pylint: disable=no-member
+        self.addCleanup(responses.stop)  # pylint: disable=no-member
 
-        def metadata_callback(_request, _uri, headers):
+        def metadata_callback(_request):
             """Return a cached copy of TestShib's metadata by reading it from disk"""
             return (
                 200,
-                headers,
+                {},
                 self.read_data_file("testshib_metadata.xml"),
-            )  # lint-amnesty, pylint: disable=no-member
+            )  # pylint: disable=no-member
 
-        httpretty.register_uri(httpretty.GET, TESTSHIB_METADATA_URL, content_type="text/xml", body=metadata_callback)
+        responses.add_callback(
 
-        def cache_duration_metadata_callback(_request, _uri, headers):
+            responses.GET,
+
+            TESTSHIB_METADATA_URL,
+
+            callback=metadata_callback,
+
+            content_type="text/xml",
+
+        )
+
+        def cache_duration_metadata_callback(_request):
             """Return a cached copy of TestShib's metadata with a cacheDuration attribute"""
             return (
                 200,
-                headers,
+                {},
                 self.read_data_file("testshib_metadata_with_cache_duration.xml"),
-            )  # lint-amnesty, pylint: disable=no-member
+            )  # pylint: disable=no-member
 
-        httpretty.register_uri(
-            httpretty.GET,
+        responses.add_callback(
+            responses.GET,
             TESTSHIB_METADATA_URL_WITH_CACHE_DURATION,
+            callback=cache_duration_metadata_callback,
             content_type="text/xml",
-            body=cache_duration_metadata_callback,
         )
 
         # Configure the SAML library to use the same request ID for every request.
         # Doing this and freezing the time allows us to play back recorded request/response pairs
         uid_patch = patch("onelogin.saml2.utils.OneLogin_Saml2_Utils.generate_unique_id", return_value="TESTID")
         uid_patch.start()
-        self.addCleanup(uid_patch.stop)  # lint-amnesty, pylint: disable=no-member
+        self.addCleanup(uid_patch.stop)  # pylint: disable=no-member
         self._freeze_time(timestamp=1434326820)  # This is the time when the saved request/response was recorded.
 
     def _freeze_time(self, timestamp):
         """Mock the current time for SAML, so we can replay canned requests/responses"""
         now_patch = patch("onelogin.saml2.utils.OneLogin_Saml2_Utils.now", return_value=timestamp)
         now_patch.start()
-        self.addCleanup(now_patch.stop)  # lint-amnesty, pylint: disable=no-member
+        self.addCleanup(now_patch.stop)  # pylint: disable=no-member
 
     def _configure_testshib_provider(self, **kwargs):
         """Enable and configure the TestShib SAML IdP as a third_party_auth provider"""
@@ -124,21 +144,20 @@ class SamlIntegrationTestUtilities:
         saml_provider = self.configure_saml_provider(**kwargs)  # pylint: disable=no-member
 
         if fetch_metadata:
-            assert httpretty.is_enabled()  # lint-amnesty, pylint: disable=no-member
             num_total, num_skipped, num_attempted, num_updated, num_failed, failure_messages = fetch_saml_metadata()
             if assert_metadata_updates:
-                assert num_total == 1  # lint-amnesty, pylint: disable=no-member
-                assert num_skipped == 0  # lint-amnesty, pylint: disable=no-member
-                assert num_attempted == 1  # lint-amnesty, pylint: disable=no-member
-                assert num_updated == 1  # lint-amnesty, pylint: disable=no-member
-                assert num_failed == 0  # lint-amnesty, pylint: disable=no-member
-                assert len(failure_messages) == 0  # lint-amnesty, pylint: disable=no-member
+                assert num_total == 1  # pylint: disable=no-member
+                assert num_skipped == 0  # pylint: disable=no-member
+                assert num_attempted == 1  # pylint: disable=no-member
+                assert num_updated == 1  # pylint: disable=no-member
+                assert num_failed == 0  # pylint: disable=no-member
+                assert len(failure_messages) == 0  # pylint: disable=no-member
         return saml_provider
 
     def do_provider_login(self, provider_redirect_url):
         """Mocked: the user logs in to TestShib and then gets redirected back"""
         # The SAML provider (TestShib) will authenticate the user, then get the browser to POST a response:
-        assert provider_redirect_url.startswith(TESTSHIB_SSO_URL)  # lint-amnesty, pylint: disable=no-member
+        assert provider_redirect_url.startswith(TESTSHIB_SSO_URL)  # pylint: disable=no-member
 
         saml_response_xml = utils.read_and_pre_process_xml(
             os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "testshib_saml_response.xml")
@@ -154,15 +173,15 @@ class SamlIntegrationTestUtilities:
         if relay_state:
             data += '&RelayState=' + quote(relay_state)  # Append as string to the URL-encoded data
 
-        return self.client.post(  # lint-amnesty, pylint: disable=no-member
-            self.complete_url,  # lint-amnesty, pylint: disable=no-member
+        return self.client.post(  # pylint: disable=no-member
+            self.complete_url,  # pylint: disable=no-member
             content_type="application/x-www-form-urlencoded",
             data=data,
         )
 
 
 @ddt.ddt
-@utils.skip_unless_thirdpartyauth()
+@skip_unless_lms
 class TestIndexExceptionTest(SamlIntegrationTestUtilities, IntegrationTestMixin, testutil.SAMLTestCase):
     """
     To test SAML error handling when presented with an empty-list attribute value
@@ -190,7 +209,7 @@ class TestIndexExceptionTest(SamlIntegrationTestUtilities, IntegrationTestMixin,
         request, strategy = self.get_request_and_strategy(
             auth_entry=pipeline.AUTH_ENTRY_LOGIN, redirect_uri="social:complete"
         )
-        with self.assertRaises(IncorrectConfigurationException):
+        with self.assertRaises(IncorrectConfigurationException):  # noqa: PT027
             request.backend.auth_complete = MagicMock(return_value=self.fake_auth_complete(strategy))
 
     def get_response_data(self):
@@ -201,7 +220,7 @@ class TestIndexExceptionTest(SamlIntegrationTestUtilities, IntegrationTestMixin,
 
 
 @ddt.ddt
-@utils.skip_unless_thirdpartyauth()
+@skip_unless_lms
 class TestShibIntegrationTest(SamlIntegrationTestUtilities, IntegrationTestMixin, testutil.SAMLTestCase):
     """
     TestShib provider Integration Test, to test SAML functionality
@@ -220,13 +239,7 @@ class TestShibIntegrationTest(SamlIntegrationTestUtilities, IntegrationTestMixin
         "session_index": "1",
     }
 
-    @patch("openedx.features.enterprise_support.api.enterprise_customer_for_request")
-    @patch("openedx.features.enterprise_support.utils.third_party_auth.provider.Registry.get")
-    def test_full_pipeline_succeeds_for_unlinking_testshib_account(
-        self,
-        mock_auth_provider,
-        mock_enterprise_customer_for_request,
-    ):
+    def test_full_pipeline_succeeds_for_unlinking_testshib_account(self):
 
         # First, create, the request and strategy that store pipeline state,
         # configure the backend, and mock out wire traffic.
@@ -245,30 +258,6 @@ class TestShibIntegrationTest(SamlIntegrationTestUtilities, IntegrationTestMixin
         # We're already logged in, so simulate that the cookie is set correctly
         self.set_logged_in_cookies(request)
 
-        # linking a learner with enterprise customer.
-        enterprise_customer = EnterpriseCustomerFactory()
-        assert EnterpriseCustomerUser.objects.count() == 0, "Precondition check: no link records should exist"
-        EnterpriseCustomerUser.objects.link_user(enterprise_customer, user.email)
-        assert (
-            EnterpriseCustomerUser.objects.filter(enterprise_customer=enterprise_customer, user_id=user.id).count() == 1
-        )
-        EnterpriseCustomerIdentityProvider.objects.get_or_create(
-            enterprise_customer=enterprise_customer, provider_id=self.provider.provider_id
-        )
-
-        enterprise_customer_data = {
-            "uuid": enterprise_customer.uuid,
-            "name": enterprise_customer.name,
-            "identity_provider": "saml-default",
-            "identity_providers": [
-                {
-                    "provider_id": "saml-default",
-                }
-            ],
-        }
-        mock_auth_provider.return_value.backend_name = "tpa-saml"
-        mock_enterprise_customer_for_request.return_value = enterprise_customer_data
-
         # Instrument the pipeline to get to the dashboard with the full expected state.
         self.client.get(pipeline.get_login_url(self.provider.provider_id, pipeline.AUTH_ENTRY_LOGIN))
 
@@ -285,31 +274,30 @@ class TestShibIntegrationTest(SamlIntegrationTestUtilities, IntegrationTestMixin
         # First we expect that we're in the linked state, with a backend entry.
         self.assert_social_auth_exists_for_user(request.user, strategy)
 
-        FEATURES_WITH_ENTERPRISE_ENABLED = settings.FEATURES.copy()
-        FEATURES_WITH_ENTERPRISE_ENABLED["ENABLE_ENTERPRISE_INTEGRATION"] = True
-        with patch.dict("django.conf.settings.FEATURES", FEATURES_WITH_ENTERPRISE_ENABLED):
-            # Fire off the disconnect pipeline without the user information.
-            actions.do_disconnect(
-                request.backend, None, None, redirect_field_name=auth.REDIRECT_FIELD_NAME, request=request
-            )
-            assert (
-                EnterpriseCustomerUser.objects.filter(enterprise_customer=enterprise_customer, user_id=user.id).count()
-                != 0
-            )
+        # Track signal emissions to verify the disconnect signal is sent.
+        signal_calls = []
 
+        def signal_receiver(sender, **kwargs):
+            signal_calls.append(kwargs)
+
+        SAMLAccountDisconnected.connect(signal_receiver)
+        try:
             # Fire off the disconnect pipeline to unlink.
             self.assert_redirect_after_pipeline_completes(
                 actions.do_disconnect(
                     request.backend, user, None, redirect_field_name=auth.REDIRECT_FIELD_NAME, request=request
                 )
             )
-            # Now we expect to be in the unlinked state, with no backend entry.
-            self.assert_third_party_accounts_state(request, linked=False)
-            self.assert_social_auth_does_not_exist_for_user(user, strategy)
-            assert (
-                EnterpriseCustomerUser.objects.filter(enterprise_customer=enterprise_customer, user_id=user.id).count()
-                == 0
-            )
+        finally:
+            SAMLAccountDisconnected.disconnect(signal_receiver)
+
+        # Now we expect to be in the unlinked state, with no backend entry.
+        self.assert_third_party_accounts_state(request, linked=False)
+        self.assert_social_auth_does_not_exist_for_user(user, strategy)
+        # Verify that the SAMLAccountDisconnected signal was emitted.
+        # The actual enterprise user unlinking is handled by edx-enterprise's
+        # signal handler, not by openedx-platform.
+        assert len(signal_calls) == 1, f"Expected 1 signal emission, got {len(signal_calls)}"
 
     def get_response_data(self):
         """Gets dict (string -> object) of merged data about the user."""
@@ -407,7 +395,6 @@ class TestShibIntegrationTest(SamlIntegrationTestUtilities, IntegrationTestMixin
         kwargs.setdefault("icon_class", "fa-university")
         kwargs.setdefault("attr_email", "urn:oid:1.3.6.1.4.1.5923.1.1.1.6")  # eduPersonPrincipalName
         self.configure_saml_provider(**kwargs)
-        assert httpretty.is_enabled()
         num_total, num_skipped, num_attempted, num_updated, num_failed, failure_messages = fetch_saml_metadata()
         assert num_total == 1
         assert num_skipped == 0
@@ -437,7 +424,7 @@ class TestShibIntegrationTest(SamlIntegrationTestUtilities, IntegrationTestMixin
             self._test_return_login(previous_session_timed_out=True)
 
 
-@utils.skip_unless_thirdpartyauth()
+@skip_unless_lms
 class SuccessFactorsIntegrationTest(SamlIntegrationTestUtilities, IntegrationTestMixin, testutil.SAMLTestCase):
     """
     Test basic SAML capability using the TestShib details, and then check that we're able
@@ -452,62 +439,93 @@ class SuccessFactorsIntegrationTest(SamlIntegrationTestUtilities, IntegrationTes
 
     def setUp(self):
         """
-        Mock out HTTP calls to various endpoints using httpretty.
+        Mock out HTTP calls to various endpoints using responses.
         """
         super().setUp()
 
         # Mock the call to the SAP SuccessFactors assertion endpoint
         SAPSF_ASSERTION_URL = "http://successfactors.com/oauth/idp"
 
-        def assertion_callback(_request, _uri, headers):
+        def assertion_callback(_request):
             """
             Return a fake assertion after checking that the input is what we expect.
             """
-            assert b"private_key=fake_private_key_here" in _request.body
-            assert b"user_id=myself" in _request.body
-            assert b"token_url=http%3A%2F%2Fsuccessfactors.com%2Foauth%2Ftoken" in _request.body
-            assert b"client_id=TatVotSEiCMteSNWtSOnLanCtBGwNhGB" in _request.body
-            return (200, headers, "fake_saml_assertion")
+            assert b"private_key=fake_private_key_here" in _body_bytes(_request)
+            assert b"user_id=myself" in _body_bytes(_request)
+            assert b"token_url=http%3A%2F%2Fsuccessfactors.com%2Foauth%2Ftoken" in _body_bytes(_request)
+            assert b"client_id=TatVotSEiCMteSNWtSOnLanCtBGwNhGB" in _body_bytes(_request)
+            return (200, {}, "fake_saml_assertion")
 
-        httpretty.register_uri(httpretty.POST, SAPSF_ASSERTION_URL, content_type="text/plain", body=assertion_callback)
+        responses.add_callback(
+
+            responses.POST,
+
+            SAPSF_ASSERTION_URL,
+
+            callback=assertion_callback,
+
+            content_type="text/plain",
+
+        )
 
         SAPSF_BAD_ASSERTION_URL = "http://successfactors.com/oauth-fake/idp"
 
-        def bad_callback(_request, _uri, headers):
+        def bad_callback(_request):
             """
             Return a 404 error when someone tries to call the URL.
             """
-            return (404, headers, "NOT AN ASSERTION")
+            return (404, {}, "NOT AN ASSERTION")
 
-        httpretty.register_uri(httpretty.POST, SAPSF_BAD_ASSERTION_URL, content_type="text/plain", body=bad_callback)
+        responses.add_callback(
+
+            responses.POST,
+
+            SAPSF_BAD_ASSERTION_URL,
+
+            callback=bad_callback,
+
+            content_type="text/plain",
+
+        )
 
         # Mock the call to the SAP SuccessFactors token endpoint
         SAPSF_TOKEN_URL = "http://successfactors.com/oauth/token"
 
-        def token_callback(_request, _uri, headers):
+        def token_callback(_request):
             """
             Return a fake assertion after checking that the input is what we expect.
             """
-            assert b"assertion=fake_saml_assertion" in _request.body
-            assert b"company_id=NCC1701D" in _request.body
-            assert b"grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Asaml2-bearer" in _request.body
-            assert b"client_id=TatVotSEiCMteSNWtSOnLanCtBGwNhGB" in _request.body
-            return (200, headers, '{"access_token": "faketoken"}')
+            assert b"assertion=fake_saml_assertion" in _body_bytes(_request)
+            assert b"company_id=NCC1701D" in _body_bytes(_request)
+            assert b"grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Asaml2-bearer" in _body_bytes(_request)
+            assert b"client_id=TatVotSEiCMteSNWtSOnLanCtBGwNhGB" in _body_bytes(_request)
+            return (200, {}, '{"access_token": "faketoken"}')
 
-        httpretty.register_uri(httpretty.POST, SAPSF_TOKEN_URL, content_type="application/json", body=token_callback)
+        responses.add_callback(
+
+            responses.POST,
+
+            SAPSF_TOKEN_URL,
+
+            callback=token_callback,
+
+            content_type="application/json",
+
+        )
 
         # Mock the call to the SAP SuccessFactors OData user endpoint
         ODATA_USER_URL = (
             "http://api.successfactors.com/odata/v2/User(userId='myself')"
             "?$select=firstName,lastName,defaultFullName,email"
         )
+        self.odata_user_url = ODATA_USER_URL
 
-        def user_callback(request, _uri, headers):
+        def user_callback(request):
             auth_header = request.headers.get("Authorization")
             assert auth_header == "Bearer faketoken"
             return (
                 200,
-                headers,
+                {},
                 json.dumps(
                     {
                         "d": {
@@ -522,28 +540,32 @@ class SuccessFactorsIntegrationTest(SamlIntegrationTestUtilities, IntegrationTes
                 ),
             )
 
-        httpretty.register_uri(httpretty.GET, ODATA_USER_URL, content_type="application/json", body=user_callback)
+        responses.add_callback(responses.GET, ODATA_USER_URL, callback=user_callback, content_type="application/json")
 
     def _mock_odata_api_for_error(self, odata_api_root_url, username):
         """
         Mock an error response when calling the OData API for user details.
         """
 
-        def callback(request, uri, headers):  # lint-amnesty, pylint: disable=unused-argument
+        def callback(request):
             """
             Return a 500 error when someone tries to call the URL.
             """
-            headers["CorrelationId"] = "aefd38b7-c92c-445a-8c7a-487a3f0c7a9d"
-            headers["RequestNo"] = "[787177]"  # This is the format SAPSF returns for the transaction request number
+            headers = {
+                "CorrelationId": "aefd38b7-c92c-445a-8c7a-487a3f0c7a9d",
+                "RequestNo": "[787177]",  # This is the format SAPSF returns for the transaction request number
+            }
             return 500, headers, "Failure!"
 
+        # Replace the default OData user mock from setUp; responses serves registrations in order.
+        responses.remove(responses.GET, self.odata_user_url)
         fields = ",".join(SapSuccessFactorsIdentityProvider.default_field_mapping.copy())
-        url = "{root_url}User(userId='{user_id}')?$select={fields}".format(
+        url = "{root_url}User(userId='{user_id}')?$select={fields}".format(  # noqa: UP032
             root_url=odata_api_root_url,
             user_id=username,
             fields=fields,
         )
-        httpretty.register_uri(httpretty.GET, url, body=callback, content_type="application/json")
+        responses.add_callback(responses.GET, url, callback=callback, content_type="application/json")
         return url
 
     def test_register_insufficient_sapsf_metadata(self):
@@ -603,12 +625,12 @@ class SuccessFactorsIntegrationTest(SamlIntegrationTestUtilities, IntegrationTes
             "?$select=firstName,country,lastName,defaultFullName,email"
         )
 
-        def user_callback(request, _uri, headers):
+        def user_callback(request):
             auth_header = request.headers.get("Authorization")
             assert auth_header == "Bearer faketoken"
             return (
                 200,
-                headers,
+                {},
                 json.dumps(
                     {
                         "d": {
@@ -622,7 +644,9 @@ class SuccessFactorsIntegrationTest(SamlIntegrationTestUtilities, IntegrationTes
                 ),
             )
 
-        httpretty.register_uri(httpretty.GET, ODATA_USER_URL, content_type="application/json", body=user_callback)
+        # Replace the default OData user mock from setUp; responses serves registrations in order.
+        responses.remove(responses.GET, self.odata_user_url)
+        responses.add_callback(responses.GET, ODATA_USER_URL, callback=user_callback, content_type="application/json")
 
         provider_settings = {
             "sapsf_oauth_root_url": "http://successfactors.com/oauth/",

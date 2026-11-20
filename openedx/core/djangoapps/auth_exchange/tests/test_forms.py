@@ -6,14 +6,16 @@ Tests for OAuth token exchange forms
 
 import unittest
 
-import httpretty
 import social_django.utils as social_utils
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import TestCase
 from django.test.client import RequestFactory
 from social_django.models import Partial
 
-from common.djangoapps.third_party_auth.tests.utils import ThirdPartyOAuthTestMixinFacebook, ThirdPartyOAuthTestMixinGoogle  # lint-amnesty, pylint: disable=line-too-long
+from common.djangoapps.third_party_auth.tests.utils import (  # pylint: disable=line-too-long
+    ThirdPartyOAuthTestMixinFacebook,
+    ThirdPartyOAuthTestMixinGoogle,
+)
 
 from ..forms import AccessTokenExchangeForm
 from .mixins import DOTAdapterMixin
@@ -37,7 +39,7 @@ class AccessTokenExchangeFormTest(AccessTokenExchangeTestMixin):
         super().tearDown()
         Partial.objects.all().delete()
 
-    def _assert_error(self, data, expected_error, expected_error_description):  # lint-amnesty, pylint: disable=arguments-differ
+    def _assert_error(self, data, expected_error, expected_error_description):  # pylint: disable=arguments-differ
         form = AccessTokenExchangeForm(request=self.request, oauth2_adapter=self.oauth2_adapter, data=data)
         assert form.errors == {'error': expected_error, 'error_description': expected_error_description}
 
@@ -51,7 +53,6 @@ class AccessTokenExchangeFormTest(AccessTokenExchangeTestMixin):
 
 # This is necessary because cms does not implement third party auth
 @unittest.skipUnless(TPA_FEATURE_ENABLED, TPA_FEATURES_KEY + " not enabled")
-@httpretty.activate
 class DOTAccessTokenExchangeFormTestFacebook(
         DOTAdapterMixin,
         AccessTokenExchangeFormTest,
@@ -62,12 +63,11 @@ class DOTAccessTokenExchangeFormTestFacebook(
     Tests for AccessTokenExchangeForm used with Facebook, tested against
     django-oauth-toolkit (DOT).
     """
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass
 
 
 # This is necessary because cms does not implement third party auth
 @unittest.skipUnless(TPA_FEATURE_ENABLED, TPA_FEATURES_KEY + " not enabled")
-@httpretty.activate
 class DOTAccessTokenExchangeFormTestGoogle(
         DOTAdapterMixin,
         AccessTokenExchangeFormTest,
@@ -78,4 +78,4 @@ class DOTAccessTokenExchangeFormTestGoogle(
     Tests for AccessTokenExchangeForm used with Google, tested against
     django-oauth-toolkit (DOT).
     """
-    pass  # lint-amnesty, pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass

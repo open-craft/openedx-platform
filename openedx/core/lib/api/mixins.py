@@ -4,9 +4,14 @@ Django Rest Framework view mixins.
 
 from django.core.exceptions import ValidationError
 from django.http import Http404
+from edx_rest_framework_extensions.mixins import StandardizedErrorMixin
 from rest_framework import status
 from rest_framework.mixins import CreateModelMixin
 from rest_framework.response import Response
+
+# StandardizedErrorMixin is re-exported for existing import sites; new code
+# should import it from edx_rest_framework_extensions.mixins directly.
+__all__ = ["PutAsCreateMixin", "StandardizedErrorMixin"]
 
 
 class PutAsCreateMixin(CreateModelMixin):

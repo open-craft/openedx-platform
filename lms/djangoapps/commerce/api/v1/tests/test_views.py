@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 import ddt
 import pytz
+import responses
 from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.test import TestCase
@@ -17,8 +18,10 @@ from rest_framework.utils.encoders import JSONEncoder
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.tests.factories import UserFactory
 from lms.djangoapps.verify_student.models import VerificationDeadline
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
-from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
+from xmodule.modulestore.tests.factories import CourseFactory  # pylint: disable=wrong-import-order
 
 from ....tests.mocks import mock_order_endpoint
 from ....tests.test_views import UserMixin
@@ -102,7 +105,7 @@ class CourseListViewTests(CourseApiViewTestMixin, ModuleStoreTestCase):
         assert response.status_code == 200
         actual = json.loads(response.content.decode('utf-8'))
         expected = [self._serialize_course(self.course, [self.course_mode])]
-        self.assertListEqual(actual, expected)
+        self.assertListEqual(actual, expected)  # noqa: PT009
 
 
 @ddt.ddt
@@ -321,7 +324,7 @@ class CourseRetrieveUpdateViewTests(CourseApiViewTestMixin, ModuleStoreTestCase)
         expected_dict = self._serialize_course(self.course, [new_mode])
         expected_items = expected_dict['modes']
         actual_items = json.loads(response.content.decode('utf-8'))['modes']
-        self.assertCountEqual(actual_items, expected_items)
+        self.assertCountEqual(actual_items, expected_items)  # noqa: PT009
 
         # The existing non-Masters CourseMode should have been removed.
         assert not CourseMode.objects.filter(id=existing_mode.id).exists()
@@ -387,7 +390,7 @@ class CourseRetrieveUpdateViewTests(CourseApiViewTestMixin, ModuleStoreTestCase)
         # Verify the display names are correct
         course_modes = CourseMode.objects.filter(course_id=course.id)
         actual = [course_mode.mode_display_name for course_mode in course_modes]
-        self.assertListEqual(actual, ['Verified Certificate', 'Honor Certificate'])
+        self.assertListEqual(actual, ['Verified Certificate', 'Honor Certificate'])  # noqa: PT009
 
     def test_create_with_permissions(self):
         """ Verify the view supports creating a course as a user with the appropriate permissions. """
@@ -435,12 +438,12 @@ class CourseRetrieveUpdateViewTests(CourseApiViewTestMixin, ModuleStoreTestCase)
 
         expected_dict = {
             'id': [
-                'Course {} does not exist.'.format(
+                'Course {} does not exist.'.format(  # noqa: UP032
                     course_key
                 )
             ]
         }
-        self.assertDictEqual(expected_dict, json.loads(response.content.decode('utf-8')))
+        self.assertDictEqual(expected_dict, json.loads(response.content.decode('utf-8')))  # noqa: PT009
 
 
 class OrderViewTests(UserMixin, TestCase):
@@ -454,6 +457,7 @@ class OrderViewTests(UserMixin, TestCase):
         super().setUp()
         self._login()
 
+    @responses.activate
     def test_order_found(self):
         """ If the order is located, the view should pass the data from the API. """
         with mock_order_endpoint(order_number=self.ORDER_NUMBER, response=self.MOCK_ORDER):
@@ -463,6 +467,7 @@ class OrderViewTests(UserMixin, TestCase):
         actual = json.loads(response.content.decode('utf-8'))
         assert actual == self.MOCK_ORDER
 
+    @responses.activate
     def test_order_not_found(self):
         """ If the order is not found, the view should return a 404. """
         with mock_order_endpoint(order_number=self.ORDER_NUMBER, status=404):

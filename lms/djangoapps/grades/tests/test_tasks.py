@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import ddt
 import pytz
 from django.db.utils import IntegrityError
+from django.test import TestCase
 from django.utils import timezone
 from edx_toggles.toggles.testutils import override_waffle_flag
 from stevedore.extension import Extension, ExtensionManager
@@ -32,7 +33,8 @@ from lms.djangoapps.grades.tasks import (
     compute_all_grades_for_course,
     compute_grades_for_course,
     compute_grades_for_course_v2,
-    recalculate_subsection_grade_v3
+    recalculate_subsection_grade_v3,
+    roll_up_competency_statuses_for_user,
 )
 from openedx.core.djangoapps.content.block_structure.exceptions import BlockStructureNotFound
 from xmodule.modulestore import ModuleStoreEnum
@@ -113,7 +115,7 @@ class RecalculateSubsectionGradeTest(HasCourseWithProblemsMixin, ModuleStoreTest
         self.user = UserFactory()
 
     @contextmanager
-    def mock_csm_get_score(self, score=MagicMock(grade=1.0, max_grade=2.0)):
+    def mock_csm_get_score(self, score=MagicMock(grade=1.0, max_grade=2.0)):  # noqa: B008
         """
         Mocks the scores needed by the SCORE_PUBLISHED signal
         handler. By default, sets the returned score to 1/2.
@@ -156,8 +158,8 @@ class RecalculateSubsectionGradeTest(HasCourseWithProblemsMixin, ModuleStoreTest
             assert mock_block_structure_create.call_count == 1
 
     @ddt.data(
-        (ModuleStoreEnum.Type.split, 1, 42, True),
-        (ModuleStoreEnum.Type.split, 1, 42, False),
+        (ModuleStoreEnum.Type.split, 1, 50, True),
+        (ModuleStoreEnum.Type.split, 1, 50, False),
     )
     @ddt.unpack
     def test_query_counts(self, default_store, num_mongo_calls, num_sql_calls, create_multiple_subsections):
@@ -168,7 +170,7 @@ class RecalculateSubsectionGradeTest(HasCourseWithProblemsMixin, ModuleStoreTest
                     self._apply_recalculate_subsection_grade()
 
     @ddt.data(
-        (ModuleStoreEnum.Type.split, 1, 42),
+        (ModuleStoreEnum.Type.split, 1, 50),
     )
     @ddt.unpack
     def test_query_counts_dont_change_with_more_content(self, default_store, num_mongo_calls, num_sql_calls):
@@ -208,7 +210,7 @@ class RecalculateSubsectionGradeTest(HasCourseWithProblemsMixin, ModuleStoreTest
             args[1]['subsection_grade'].location
             for args in mock_subsection_signal.call_args_list
         }
-        self.assertSetEqual(
+        self.assertSetEqual(  # noqa: PT009
             sequentials_signalled,
             {self.sequential.location},
         )
@@ -256,7 +258,7 @@ class RecalculateSubsectionGradeTest(HasCourseWithProblemsMixin, ModuleStoreTest
         UserPartition.scheme_extensions = None
 
     @ddt.data(
-        (ModuleStoreEnum.Type.split, 1, 42),
+        (ModuleStoreEnum.Type.split, 1, 50),
     )
     @ddt.unpack
     def test_persistent_grades_on_course(self, default_store, num_mongo_queries, num_sql_queries):
@@ -383,8 +385,8 @@ class RecalculateSubsectionGradeTest(HasCourseWithProblemsMixin, ModuleStoreTest
 
     def _apply_recalculate_subsection_grade(
             self,
-            mock_score=MagicMock(
-                modified=datetime.utcnow().replace(tzinfo=pytz.UTC) + timedelta(days=1),
+            mock_score=MagicMock(  # noqa: B008
+                modified=datetime.utcnow().replace(tzinfo=pytz.UTC) + timedelta(days=1),  # noqa: B008
                 grade=1.0,
                 max_grade=2.0,
             )
@@ -410,6 +412,46 @@ class RecalculateSubsectionGradeTest(HasCourseWithProblemsMixin, ModuleStoreTest
         Verifies the task was not retried.
         """
         assert not mock_retry.called
+
+
+class RollUpCompetencyStatusesForUserTest(TestCase):
+    """
+    Tests for the task that rolls up competency statuses after a graded write.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.task_kwargs = {'user_id': 7, 'object_ids': ['block-v1:org+course+run+type@sequential+block@abc']}
+
+    @patch('lms.djangoapps.grades.tasks.roll_up_competency_statuses')
+    def test_delegates_to_core_with_exact_kwargs(self, mock_roll_up):
+        result = roll_up_competency_statuses_for_user.apply(kwargs=self.task_kwargs)
+
+        assert result.successful()
+        mock_roll_up.assert_called_once_with(**self.task_kwargs)
+
+    @patch('lms.djangoapps.grades.tasks.roll_up_competency_statuses_for_user.retry')
+    @patch(
+        'lms.djangoapps.grades.tasks.roll_up_competency_statuses',
+        new=MagicMock(side_effect=IntegrityError("WHAMMY")),
+    )
+    def test_retries_with_same_kwargs_on_known_error(self, mock_retry):
+        roll_up_competency_statuses_for_user.apply(kwargs=self.task_kwargs)
+
+        mock_retry.assert_called_once()
+        assert mock_retry.call_args.kwargs['kwargs'] == self.task_kwargs
+        assert isinstance(mock_retry.call_args.kwargs['exc'], IntegrityError)
+
+    @patch('lms.djangoapps.grades.tasks.roll_up_competency_statuses_for_user.retry')
+    @patch(
+        'lms.djangoapps.grades.tasks.roll_up_competency_statuses',
+        new=MagicMock(side_effect=ValueError("not retryable")),
+    )
+    def test_reraises_unknown_error_without_retry(self, mock_retry):
+        result = roll_up_competency_statuses_for_user.apply(kwargs=self.task_kwargs)
+
+        assert isinstance(result.result, ValueError)
+        mock_retry.assert_not_called()
 
 
 @ddt.ddt
@@ -514,7 +556,7 @@ class FreezeGradingAfterCourseEndTest(HasCourseWithProblemsMixin, ModuleStoreTes
         log_message = f"Attempted {method_name} for course '%s', but grades are frozen."
         assert log_message in mock_log.info.call_args_list[0][0][0]
 
-    def _assert_for_freeze_grade_flag(  # lint-amnesty, pylint: disable=missing-function-docstring
+    def _assert_for_freeze_grade_flag(  # pylint: disable=missing-function-docstring
         self,
         result,
         freeze_flag_value,
@@ -638,7 +680,7 @@ class FreezeGradingAfterCourseEndTest(HasCourseWithProblemsMixin, ModuleStoreTes
             CourseEnrollment.enroll(user, self.course.id)
 
         with override_waffle_flag(self.freeze_grade_flag, active=freeze_flag_value):
-            modified_datetime = datetime.utcnow().replace(tzinfo=pytz.UTC) - timedelta(days=1)  # lint-amnesty, pylint: disable=unused-variable
+            modified_datetime = datetime.utcnow().replace(tzinfo=pytz.UTC) - timedelta(days=1)  # pylint: disable=unused-variable  # noqa: F841
             with patch('lms.djangoapps.grades.tasks._has_db_updated_with_new_score') as mock_has_db_updated:
                 result = recalculate_subsection_grade_v3.apply_async(kwargs=self.recalculate_subsection_grade_kwargs)
                 self._assert_for_freeze_grade_flag(

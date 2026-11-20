@@ -2,17 +2,19 @@
 import io
 import os
 import tempfile
+
 import ddt
+import pytest
 from django.test.testcases import TestCase
 from fs.osfs import OSFS
 from opaque_keys.edx.keys import CourseKey, UsageKey
-from opaque_keys.edx.locator import LibraryLocatorV2, LibraryCollectionLocator, LibraryContainerLocator
-from openedx_tagging.core.tagging.models import ObjectTag
+from opaque_keys.edx.locator import LibraryCollectionLocator, LibraryContainerLocator, LibraryLocatorV2
+from openedx_tagging.models import ObjectTag
 from organizations.models import Organization
-from .test_objecttag_export_helpers import TestGetAllObjectTagsMixin, TaggedCourseMixin
 
 from .. import api
 from ..utils import rules_cache
+from .test_objecttag_export_helpers import TaggedCourseMixin, TestGetAllObjectTagsMixin
 
 
 class TestTaxonomyMixin:
@@ -132,7 +134,7 @@ class TestAPITaxonomy(TestTaxonomyMixin, TestCase):
 
     def test_get_taxonomies_enabled_subclasses(self):
         with self.assertNumQueries(1):
-            taxonomies = list(taxonomy.cast() for taxonomy in api.get_taxonomies())
+            taxonomies = list(api.get_taxonomies())
         assert taxonomies == [
             self.taxonomy_all_orgs,
             self.taxonomy_no_orgs,
@@ -171,10 +173,7 @@ class TestAPITaxonomy(TestTaxonomyMixin, TestCase):
     def test_get_taxonomies_for_org(self, org_attr, enabled, expected):
         org_owner = getattr(self, org_attr).short_name if org_attr else None
         taxonomies = list(
-            taxonomy.cast()
-            for taxonomy in api.get_taxonomies_for_org(
-                org_short_name=org_owner, enabled=enabled
-            )
+            api.get_taxonomies_for_org(org_short_name=org_owner, enabled=enabled)
         )
         assert taxonomies == [
             getattr(self, taxonomy_attr) for taxonomy_attr in expected
@@ -380,7 +379,7 @@ class TestAPIObjectTags(TestGetAllObjectTagsMixin, TestCase):
         with self.assertNumQueries(31):  # TODO why so high?
             self._test_copy_object_tags(src_key, dst_key, expected_tags)
 
-    def test_tag_collection(self):
+    def test_tag_collection(self) -> None:
         collection_key = LibraryCollectionLocator.from_string("lib-collection:orgA:libX:1")
 
         api.tag_object(
@@ -397,7 +396,7 @@ class TestAPIObjectTags(TestGetAllObjectTagsMixin, TestCase):
             self.taxonomy_3.id: self.taxonomy_3,
         }
 
-    def test_tag_container(self):
+    def test_tag_container(self) -> None:
         unit_key = LibraryContainerLocator.from_string('lct:orgA:libX:unit:unit1')
 
         api.tag_object(
@@ -413,6 +412,23 @@ class TestAPIObjectTags(TestGetAllObjectTagsMixin, TestCase):
         assert taxonomies == {
             self.taxonomy_3.id: self.taxonomy_3,
         }
+
+    def test_tag_container_invalid_org(self) -> None:
+        """
+        Test what happens when we try to use a taxonomy that's not enabled for
+        the content's organization
+        """
+        unit_key_org_a = LibraryContainerLocator.from_string('lct:orgA:libX:unit:unit1')
+        unit_key_org_b = LibraryContainerLocator.from_string('lct:orgB:libX:unit:unit1')
+        tag = "Tag 3.1"
+
+        api.tag_object(object_id=str(unit_key_org_a), taxonomy=self.taxonomy_3, tags=[tag])
+
+        with pytest.raises(
+            api.InvalidOrgException,
+            match='Taxonomy "Taxonomy 3" is not configured for use with organization "orgB".',
+        ):
+            api.tag_object(object_id=str(unit_key_org_b), taxonomy=self.taxonomy_3, tags=[tag])
 
 
 class TestExportImportTags(TaggedCourseMixin):
@@ -446,18 +462,18 @@ class TestExportImportTags(TaggedCourseMixin):
 
         file_path = os.path.join(file_dir_name, file_name)
 
-        self.assertTrue(os.path.exists(file_path))
+        self.assertTrue(os.path.exists(file_path))  # noqa: PT009
 
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r') as f:  # noqa: UP015
             content = f.read()
 
         cleaned_content = content.replace('\r\n', '\n')
         cleaned_expected_csv = self.expected_csv.replace('\r\n', '\n')
-        self.assertEqual(cleaned_content, cleaned_expected_csv)
+        self.assertEqual(cleaned_content, cleaned_expected_csv)  # noqa: PT009
 
     def test_import_tags_invalid_format(self) -> None:
         csv_path = self._create_csv_file('invalid format, Invalid\r\ntest1, test2')
-        with self.assertRaises(ValueError) as exc:
+        with self.assertRaises(ValueError) as exc:  # noqa: PT027
             api.import_course_tags_from_csv(csv_path, self.course.id)
             assert "Invalid format of csv in" in str(exc.exception)
 

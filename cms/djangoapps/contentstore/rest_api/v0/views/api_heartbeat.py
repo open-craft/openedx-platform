@@ -1,9 +1,10 @@
 """ View For Getting the Status of The Authoring API """
-import edx_api_doc_tools as apidocs
-from rest_framework.views import APIView
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework.views import APIView
+
 from openedx.core.lib.api.view_utils import DeveloperErrorViewMixin, view_auth_classes
 
 
@@ -12,12 +13,12 @@ class APIHeartBeatView(DeveloperErrorViewMixin, APIView):
     View for getting the Authoring API's status
     """
 
-    @apidocs.schema(
+    @extend_schema(
         parameters=[],
         responses={
-            200: "The API is online",
-            401: "The requester is not authenticated.",
-            403: "The API is not availible",
+            200: OpenApiResponse(description="The API is online"),
+            401: OpenApiResponse(description="The requester is not authenticated."),
+            403: OpenApiResponse(description="The API is not availible"),
         },
     )
     @view_auth_classes(is_authenticated=True)
@@ -32,13 +33,13 @@ class APIHeartBeatView(DeveloperErrorViewMixin, APIView):
         **Response Values**
 
         If the request is successful, an HTTP 200 "OK" response is returned.
-        The HTTP 200 response contains a single dict with the  "authoring_api_enabled" value "True".
+        The HTTP 200 response contains a single dict with the  "content_api_enabled" value "True".
 
         **Example Response**
 
         ```json
         {
-            "authoring_api_enabled": "True"
+            "content_api_enabled": "True"
         }
         ```
         """

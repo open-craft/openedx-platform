@@ -7,10 +7,11 @@ from uuid import uuid4
 import ddt
 from django.test import TestCase
 from opaque_keys.edx.keys import CourseKey
-
 from openedx_events.learning.data import CourseDiscussionConfigurationData, DiscussionTopicContext
+
+from openedx.core.djangoapps.course_apps.models import CourseAppStatus
 from openedx.core.djangoapps.discussions.handlers import update_course_discussion_config
-from openedx.core.djangoapps.discussions.models import DiscussionTopicLink, DiscussionsConfiguration
+from openedx.core.djangoapps.discussions.models import DiscussionsConfiguration, DiscussionTopicLink
 
 
 @ddt.ddt
@@ -55,6 +56,7 @@ class UpdateCourseDiscussionsConfigTestCase(TestCase):
         config_data = CourseDiscussionConfigurationData(
             course_key=new_key,
             provider_type="openedx",
+            plugin_configuration={},
         )
         assert not DiscussionsConfiguration.objects.filter(context_key=new_key).exists()
         update_course_discussion_config(config_data)
@@ -191,3 +193,134 @@ class UpdateCourseDiscussionsConfigTestCase(TestCase):
         assert existing_topic_link.title == "Section 10|Subsection 10|Unit 10"
         # If there is no stored context, then continue using the Unit name.
         assert existing_topic_link_2.title == "Unit 11"
+
+    def test_long_title_truncated_for_new_link(self):
+        """
+        A unit whose display name exceeds the title column is stored truncated.
+        """
+        title_length = DiscussionTopicLink._meta.get_field("title").max_length
+        config_data = CourseDiscussionConfigurationData(
+            course_key=self.course_key,
+            provider_type="openedx",
+            contexts=[DiscussionTopicContext(
+                title="U" * (title_length + 10),
+                usage_key=self.course_key.make_usage_key("vertical", "long-unit"),
+            )],
+        )
+        update_course_discussion_config(config_data)
+        topic_link = DiscussionTopicLink.objects.get(context_key=self.course_key)
+        assert topic_link.title == "U" * title_length
+
+    def test_long_title_truncated_for_existing_link(self):
+        """
+        Renaming a unit to a display name longer than the title column stores it truncated.
+        """
+        title_length = DiscussionTopicLink._meta.get_field("title").max_length
+        usage_key = self.course_key.make_usage_key("vertical", "long-unit")
+        existing_topic_link = DiscussionTopicLink.objects.create(
+            context_key=self.course_key,
+            usage_key=usage_key,
+            title="Old title",
+            provider_id="openedx",
+            external_id=uuid4(),
+            enabled_in_context=True,
+        )
+        config_data = CourseDiscussionConfigurationData(
+            course_key=self.course_key,
+            provider_type="openedx",
+            contexts=[DiscussionTopicContext(title="U" * (title_length + 10), usage_key=usage_key)],
+        )
+        update_course_discussion_config(config_data)
+        existing_topic_link.refresh_from_db()
+        assert existing_topic_link.title == "U" * title_length
+
+    def test_long_context_title_truncated_for_disabled_link(self):
+        """
+        When a removed unit's "section|subsection|unit" title exceeds the title column, it is stored truncated.
+        """
+        title_length = DiscussionTopicLink._meta.get_field("title").max_length
+        long_name = "N" * 100
+        existing_topic_link = DiscussionTopicLink.objects.create(
+            context_key=self.course_key,
+            usage_key=self.course_key.make_usage_key("vertical", "removed-unit"),
+            title="Removed unit",
+            provider_id="openedx",
+            external_id=uuid4(),
+            enabled_in_context=True,
+            context={"section": long_name, "subsection": long_name, "unit": long_name},
+        )
+        config_data = CourseDiscussionConfigurationData(
+            course_key=self.course_key,
+            provider_type="openedx",
+            contexts=[],
+        )
+        update_course_discussion_config(config_data)
+        existing_topic_link.refresh_from_db()
+        assert not existing_topic_link.enabled_in_context
+        assert existing_topic_link.title == f"{long_name}|{long_name}|{long_name}"[:title_length]
+
+    def test_new_config_uses_enabled_from_configuration(self):
+        """
+        When creating a new DiscussionsConfiguration, the handler should use
+        the enabled value from the configuration data.
+        """
+        new_key = CourseKey.from_string("course-v1:test+test+disabled")
+        config_data = CourseDiscussionConfigurationData(
+            course_key=new_key,
+            provider_type="openedx",
+            enabled=False,
+            plugin_configuration={},
+        )
+        update_course_discussion_config(config_data)
+        db_config = DiscussionsConfiguration.objects.get(context_key=new_key)
+        assert db_config.enabled is False
+
+    def test_existing_config_updated_enabled_from_configuration(self):
+        """
+        When the configuration already exists, the handler should update
+        enabled from the configuration data.
+        """
+        config_data = CourseDiscussionConfigurationData(
+            course_key=self.course_key,
+            provider_type="openedx",
+            enabled=False,
+        )
+        update_course_discussion_config(config_data)
+        db_config = DiscussionsConfiguration.objects.get(context_key=self.course_key)
+        assert db_config.enabled is False
+
+    def test_course_app_status_created_for_new_course(self):
+        """
+        When no CourseAppStatus row exists yet (new course), the handler should
+        create one with the correct enabled value.
+        """
+        new_key = CourseKey.from_string("course-v1:test+test+new_app_status")
+        assert not CourseAppStatus.objects.filter(course_key=new_key, app_id="discussion").exists()
+        config_data = CourseDiscussionConfigurationData(
+            course_key=new_key,
+            provider_type="openedx",
+            enabled=False,
+            plugin_configuration={},
+        )
+        update_course_discussion_config(config_data)
+        app_status = CourseAppStatus.objects.get(course_key=new_key, app_id="discussion")
+        assert app_status.enabled is False
+
+    def test_course_app_status_updated_for_existing_course(self):
+        """
+        When a CourseAppStatus row already exists (old course), the handler
+        should update it with the correct enabled value.
+        """
+        CourseAppStatus.objects.create(
+            course_key=self.course_key,
+            app_id="discussion",
+            enabled=True,
+        )
+        config_data = CourseDiscussionConfigurationData(
+            course_key=self.course_key,
+            provider_type="openedx",
+            enabled=False,
+        )
+        update_course_discussion_config(config_data)
+        app_status = CourseAppStatus.objects.get(course_key=self.course_key, app_id="discussion")
+        assert app_status.enabled is False

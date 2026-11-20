@@ -1,15 +1,15 @@
-# lint-amnesty, pylint: disable=missing-module-docstring
+# pylint: disable=missing-module-docstring
 
 import base64
 from datetime import datetime, timedelta
-from unittest import mock
 from unittest.mock import patch
 
-import pytest
 import ddt
+import pytest
 import requests.exceptions
 import simplejson as json
 from django.conf import settings
+from django.test.utils import override_settings
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -21,10 +21,12 @@ from lms.djangoapps.verify_student.models import (
     SoftwareSecurePhotoVerification,
     SSOVerification,
     VerificationAttempt,
-    VerificationException
+    VerificationException,
 )
 from lms.djangoapps.verify_student.tests import TestVerificationBase
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.modulestore.tests.django_utils import (
+    ModuleStoreTestCase,  # pylint: disable=wrong-import-order
+)
 
 FAKE_SETTINGS = {
     "SOFTWARE_SECURE": {
@@ -51,7 +53,7 @@ iwIDAQAB
 }
 
 
-def mock_software_secure_post(url, headers=None, data=None, **kwargs):  # lint-amnesty, pylint: disable=unused-argument
+def mock_software_secure_post(url, headers=None, data=None, **kwargs):  # pylint: disable=unused-argument
     """
     Mocks our interface when we post to Software Secure. Does basic assertions
     on the fields we send over to make sure we're not missing headers or giving
@@ -77,7 +79,7 @@ def mock_software_secure_post(url, headers=None, data=None, **kwargs):  # lint-a
     return response
 
 
-def mock_software_secure_post_error(url, headers=None, data=None, **kwargs):  # lint-amnesty, pylint: disable=unused-argument
+def mock_software_secure_post_error(url, headers=None, data=None, **kwargs):  # pylint: disable=unused-argument
     """
     Simulates what happens if our post to Software Secure is rejected, for
     whatever reason.
@@ -96,7 +98,7 @@ def mock_software_secure_post_unavailable(url, headers=None, data=None, **kwargs
 @patch.dict(settings.VERIFY_STUDENT, FAKE_SETTINGS)
 @patch('lms.djangoapps.verify_student.models.requests.post', new=mock_software_secure_post)
 @ddt.ddt
-class TestPhotoVerification(TestVerificationBase, MockS3Boto3Mixin, ModuleStoreTestCase):  # lint-amnesty, pylint: disable=missing-class-docstring
+class TestPhotoVerification(TestVerificationBase, MockS3Boto3Mixin, ModuleStoreTestCase):  # pylint: disable=missing-class-docstring
 
     def test_state_transitions(self):
         """
@@ -217,7 +219,7 @@ class TestPhotoVerification(TestVerificationBase, MockS3Boto3Mixin, ModuleStoreT
             attempt = self.create_upload_and_submit_attempt_for_user()
             assert attempt.status == PhotoVerification.STATUS.must_retry
 
-    @mock.patch.dict(settings.FEATURES, {'AUTOMATIC_VERIFY_STUDENT_IDENTITY_FOR_TESTING': True})
+    @override_settings(AUTOMATIC_VERIFY_STUDENT_IDENTITY_FOR_TESTING=True)
     def test_submission_while_testing_flag_is_true(self):
         """ Test that a fake value is set for field 'photo_id_key' of user's
         initial verification when the feature flag 'AUTOMATIC_VERIFY_STUDENT_IDENTITY_FOR_TESTING'
@@ -419,6 +421,7 @@ class TestPhotoVerification(TestVerificationBase, MockS3Boto3Mixin, ModuleStoreT
         assert result is not None
 
 
+@ddt.ddt
 class SSOVerificationTest(TestVerificationBase):
     """
     Tests for the SSOVerification model
@@ -428,6 +431,21 @@ class SSOVerificationTest(TestVerificationBase):
         user = UserFactory.create()
         attempt = SSOVerification.objects.create(user=user)
         self.verification_active_at_datetime(attempt)
+
+    @ddt.data(True, False)
+    @patch('lms.djangoapps.verify_student.models.log')
+    def test_send_approval_signal_log_squelches_pii(self, squelch_pii, mock_log):
+        user = UserFactory.create()
+        attempt = SSOVerification.objects.create(user=user)
+
+        with override_settings(SQUELCH_PII_IN_LOGS=squelch_pii):
+            attempt.send_approval_signal(approved_by='reviewer')
+
+        expected_identifier = user.id if squelch_pii else user.username
+        mock_log.info.assert_any_call(f"Verification for user '{expected_identifier}' approved by 'reviewer' SSO.")
+        mock_log.info.assert_any_call(
+            f'LEARNER_SSO_VERIFIED signal fired for {expected_identifier} from SSOVerification'
+        )
 
 
 class ManualVerificationTest(TestVerificationBase):

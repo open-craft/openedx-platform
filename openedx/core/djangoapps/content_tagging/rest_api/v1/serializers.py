@@ -4,16 +4,21 @@ API Serializers for content tagging org
 
 from __future__ import annotations
 
-from rest_framework import serializers, fields
-
-from openedx_tagging.core.tagging.rest_api.v1.serializers import (
+from openedx_authz import api as authz_api
+from openedx_authz.authz import COURSES_MANAGE_TAGS
+from openedx_learning.api import is_competency_taxonomy, select_competency_taxonomies
+from openedx_tagging.api import TaxonomyType
+from openedx_tagging.models import ObjectTag, Taxonomy
+from openedx_tagging.rest_api.v1.serializers import (
     ObjectTagMinimalSerializer,
+    ObjectTagsByTaxonomySerializer,
     TaxonomyListQueryParamsSerializer,
     TaxonomySerializer,
 )
-
 from organizations.models import Organization
+from rest_framework import fields, serializers
 
+from ...auth import should_use_course_authz_for_object
 from ...models import TaxonomyOrg
 
 
@@ -96,13 +101,78 @@ class TaxonomyOrgSerializer(TaxonomySerializer):
         fields = TaxonomySerializer.Meta.fields + ["orgs", "all_orgs"]
         read_only_fields = ["orgs", "all_orgs"]
 
+    def to_representation(self, instance) -> dict:
+        """
+        Serialize the taxonomy, adding the computed ``taxonomy_type`` (read side).
+
+        ``taxonomy_type`` is also a write-only field inherited from ``TaxonomySerializer``,
+        used only as create-time input, so DRF excludes it from the base representation.
+        This adds it back for reads, computed from whether the taxonomy is backed by a
+        CompetencyTaxonomy, via the CBE app's own public API.
+        """
+        data = super().to_representation(instance)
+        data["taxonomy_type"] = (
+            TaxonomyType.COMPETENCY.value if is_competency_taxonomy(instance) else TaxonomyType.TAGS.value
+        )
+        return data
+
+
+class ObjectTagOrgByTaxonomySerializer(ObjectTagsByTaxonomySerializer):
+    """
+    Extend ObjectTagsByTaxonomySerializer to conditionally use openedx-authz for can_tag_object,
+    and to report each taxonomy's ``taxonomy_type`` ("competency" or "tags").
+    """
+
+    def can_tag_object(self, obj_tag) -> bool | None:
+        """
+        Check if the user is authorized to tag the provided object.
+        Conditionally use openedx-authz for course objects with the toggle enabled.
+        """
+        should_use_authz, course_key = should_use_course_authz_for_object(obj_tag.object_id)
+        if should_use_authz:
+            request = self.context.get('request')
+            if request and hasattr(request, 'user'):
+                return authz_api.is_user_allowed(
+                    request.user.username, COURSES_MANAGE_TAGS.identifier, str(course_key)
+                )
+            return False
+
+        # Fall back to parent implementation
+        return super().can_tag_object(obj_tag)
+
+    def to_representation(self, instance: list[ObjectTag]) -> dict:
+        """
+        Serialize the object tags grouped by taxonomy, adding ``taxonomy_type`` to each taxonomy entry.
+
+        ``taxonomy_type`` is "competency" when ``is_competency_taxonomy`` (the CBE public API) says the
+        taxonomy is competency-backed, and "tags" otherwise.
+
+        ``is_competency_taxonomy`` costs one query per taxonomy unless the taxonomies are loaded through
+        ``select_competency_taxonomies``, so the check is batched this way to keep the query count flat.
+        """
+        data = super().to_representation(instance)
+        taxonomy_ids = {obj_tag.taxonomy_id for obj_tag in instance}
+        competency_taxonomy_ids = {
+            taxonomy.pk
+            for taxonomy in select_competency_taxonomies(Taxonomy.objects.filter(pk__in=taxonomy_ids))
+            if is_competency_taxonomy(taxonomy)
+        }
+        for by_object in data.values():
+            for entry in by_object["taxonomies"]:
+                entry["taxonomy_type"] = (
+                    TaxonomyType.COMPETENCY.value
+                    if entry["taxonomy_id"] in competency_taxonomy_ids
+                    else TaxonomyType.TAGS.value
+                )
+        return data
+
 
 class ObjectTagCopiedMinimalSerializer(ObjectTagMinimalSerializer):
     """
     Serializer for Object Tags.
 
-    This override `get_can_delete_objecttag` to avoid delete
-    object tags if is copied.
+    This overrides `can_delete_object_tag` to avoid deleting
+    object tags if they are copied and to conditionally use openedx-authz.
     """
 
     is_copied = serializers.BooleanField(read_only=True)
@@ -110,14 +180,25 @@ class ObjectTagCopiedMinimalSerializer(ObjectTagMinimalSerializer):
     class Meta(ObjectTagMinimalSerializer.Meta):
         fields = ObjectTagMinimalSerializer.Meta.fields + ["is_copied"]
 
-    def get_can_delete_objecttag(self, instance):
+    def can_delete_object_tag(self, instance) -> bool | None:
         """
-        Verify if the user can delete the object tag.
+        Check if the user is authorized to delete the provided tag.
 
-        Override to return `False` if the object tag is copied.
+        Override to return `False` if the object tag is copied,
+        and conditionally use openedx-authz for course objects with the toggle enabled.
         """
         if instance.is_copied:
             # The user can't delete copied tags.
             return False
 
-        return super().get_can_delete_objecttag(instance)
+        should_use_authz, course_key = should_use_course_authz_for_object(instance.object_id)
+        if should_use_authz:
+            request = self.context.get('request')
+            if request and hasattr(request, 'user'):
+                return authz_api.is_user_allowed(
+                    request.user.username, COURSES_MANAGE_TAGS.identifier, str(course_key)
+                )
+            return False
+
+        # Fall back to parent implementation
+        return super().can_delete_object_tag(instance)
